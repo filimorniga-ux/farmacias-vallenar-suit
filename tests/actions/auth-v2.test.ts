@@ -56,20 +56,42 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('returns AUTH_INVALID_PIN for invalid pin without retry', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'user-1',
-                name: 'Gerente',
-                role: 'MANAGER',
-                access_pin: '9999',
-                assigned_location_id: 'loc-1',
-                is_active: true,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-1',
+                    name: 'Gerente',
+                    role: 'MANAGER',
+                    access_pin: '9999',
+                    access_pin_hash: null,
+                    assigned_location_id: 'loc-1',
+                    is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-1',
+                    name: 'Gerente',
+                    role: 'MANAGER',
+                    access_pin: '9999',
+                    access_pin_hash: null,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [],
+                rowCount: 0,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.authenticateUserSecure('user-1', '1234');
 
@@ -87,8 +109,22 @@ describe('Auth V2 - Typed error mapping', () => {
                     name: 'Gerente',
                     role: 'MANAGER',
                     access_pin: '1234',
+                    access_pin_hash: null,
                     assigned_location_id: 'loc-1',
                     is_active: true,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-1',
+                    name: 'Gerente',
+                    role: 'MANAGER',
+                    access_pin: '1234',
+                    access_pin_hash: null,
                 }],
                 rowCount: 1,
                 command: '',
@@ -129,6 +165,19 @@ describe('Auth V2 - Typed error mapping', () => {
                 fields: []
             })
             .mockResolvedValueOnce({
+                rows: [{
+                    id: 'user-hash',
+                    name: 'Gerente Hash',
+                    role: 'MANAGER',
+                    access_pin_hash: 'hashed_4321',
+                    access_pin: null,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
                 rows: [{ token_version: 2 }],
                 rowCount: 1,
                 command: '',
@@ -141,10 +190,10 @@ describe('Auth V2 - Typed error mapping', () => {
         expect(result.success).toBe(true);
         if (!result.success) return;
         expect(result.user.id).toBe('user-hash');
-        expect(vi.mocked(bcrypt.compare)).toHaveBeenCalledWith('4321', 'hashed_4321');
+        expect(getDefaultBcryptCompareMock()).toHaveBeenCalledWith('4321', 'hashed_4321');
     });
 
-    it('accepts dev pin 1213 in non-production to preserve sandbox access', async () => {
+    it('rechaza 1213 cuando no es el PIN real del usuario', async () => {
         vi.mocked(dbModule.query)
             .mockResolvedValueOnce({
                 rows: [{
@@ -162,8 +211,21 @@ describe('Auth V2 - Typed error mapping', () => {
                 fields: []
             })
             .mockResolvedValueOnce({
-                rows: [{ token_version: 3 }],
+                rows: [{
+                    id: 'user-dev',
+                    name: 'Usuario Dev',
+                    role: 'CASHIER',
+                    access_pin_hash: 'hashed_9999',
+                    access_pin: '9999',
+                }],
                 rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [],
+                rowCount: 0,
                 command: '',
                 oid: 0,
                 fields: []
@@ -171,10 +233,10 @@ describe('Auth V2 - Typed error mapping', () => {
 
         const result = await authV2.authenticateUserSecure('user-dev', '1213');
 
-        expect(result.success).toBe(true);
-        if (!result.success) return;
-        expect(result.user.id).toBe('user-dev');
-        expect(mockCookieStore.set).toHaveBeenCalled();
+        expect(result.success).toBe(false);
+        if (result.success) return;
+        expect(result.code).toBe('AUTH_INVALID_PIN');
+        expect(mockCookieStore.set).not.toHaveBeenCalled();
     });
 
     it('validateSupervisorPin acepta PIN hash', async () => {

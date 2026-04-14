@@ -80,7 +80,7 @@ export async function findDuplicateBatchesSecure(
     try {
         // Construir query de forma segura (sin concatenación de strings del usuario)
         const groups: string[] = [];
-        const selects: string[] = ['sku', 'MAX(name) as name', 'COUNT(*) as count', 'SUM(stock_actual) as total_stock'];
+        const selects: string[] = ['sku', 'MAX(name) as name', 'COUNT(*) as count', 'SUM(quantity_real) as total_stock'];
 
         // Estas son columnas fijas, no inputs del usuario
         if (sku) groups.push('sku');
@@ -215,10 +215,10 @@ export async function findExpiredBatchesSecure(
 
     try {
         let sql = `
-            SELECT id, sku, name, lot_number, expiry_date, stock_actual, location_id
+            SELECT id, sku, name, lot_number, expiry_date, quantity_real AS stock_actual, location_id
             FROM inventory_batches
             WHERE expiry_date < CURRENT_DATE
-              AND stock_actual > 0
+              AND quantity_real > 0
         `;
         const params: any[] = [];
 
@@ -273,9 +273,9 @@ export async function findLowStockItemsSecure(
 
     try {
         let sql = `
-            SELECT sku, MAX(name) as name, SUM(stock_actual) as total_stock, location_id
+            SELECT sku, MAX(name) as name, SUM(quantity_real) as total_stock, location_id
             FROM inventory_batches
-            WHERE stock_actual > 0
+            WHERE quantity_real > 0
         `;
         const params: any[] = [];
         let paramIdx = 1;
@@ -286,7 +286,7 @@ export async function findLowStockItemsSecure(
         }
 
         sql += ` GROUP BY sku, location_id
-                 HAVING SUM(stock_actual) <= $${paramIdx}
+                 HAVING SUM(quantity_real) <= $${paramIdx}
                  ORDER BY total_stock ASC
                  LIMIT 100`;
         params.push(threshold);
@@ -328,7 +328,7 @@ export async function getInventoryHealthReportSecure(
 
         // Total items
         const totalRes = await query(`
-            SELECT COUNT(DISTINCT sku) as total_skus, SUM(stock_actual) as total_units
+            SELECT COUNT(DISTINCT sku) as total_skus, SUM(quantity_real) as total_units
             FROM inventory_batches ${locationFilter}
         `, params);
 
@@ -336,7 +336,7 @@ export async function getInventoryHealthReportSecure(
         const expiredRes = await query(`
             SELECT COUNT(*) as expired_count
             FROM inventory_batches
-            ${filterLocationId ? 'WHERE location_id = $1 AND' : 'WHERE'} expiry_date < CURRENT_DATE AND stock_actual > 0
+            ${filterLocationId ? 'WHERE location_id = $1 AND' : 'WHERE'} expiry_date < CURRENT_DATE AND quantity_real > 0
         `, params);
 
         // Expiring soon (30 days)
@@ -345,7 +345,7 @@ export async function getInventoryHealthReportSecure(
             FROM inventory_batches
             ${filterLocationId ? 'WHERE location_id = $1 AND' : 'WHERE'} 
             expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
-            AND stock_actual > 0
+            AND quantity_real > 0
         `, params);
 
         // Zero stock
@@ -353,7 +353,7 @@ export async function getInventoryHealthReportSecure(
             SELECT COUNT(DISTINCT sku) as zero_stock
             FROM inventory_batches
             ${locationFilter}
-            ${filterLocationId ? 'AND' : 'WHERE'} stock_actual <= 0
+            ${filterLocationId ? 'AND' : 'WHERE'} quantity_real <= 0
         `, params);
 
         const report = {

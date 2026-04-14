@@ -53,7 +53,7 @@ async function main() {
             RUT: u.rut,
             Role: u.role,
             Title: u.job_title,
-            DefaultPIN: '1213 (Try this)'
+            Note: 'PIN real requerido; no existe PIN universal'
         })));
 
     } catch (e) {

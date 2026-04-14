@@ -25,6 +25,7 @@ import {
     approveInvoiceParsingSecure,
     rejectInvoiceParsingSecure,
     getInvoiceParsingSecure,
+    getSmartInvoiceLocationsSecure,
     type ParsedInvoice,
     type ParsedInvoiceItem,
 } from '@/actions/invoice-parser-v2';
@@ -181,14 +182,12 @@ function SmartInvoiceContent() {
 
     // Fetch locations on mount
     useEffect(() => {
-        import('@/actions/get-locations-v2').then(({ getLocationsSecure }) => {
-            getLocationsSecure().then(res => {
-                if (res.success && res.locations) {
-                    setLocations(res.locations);
-                    // Default to first valid location if needed, or wait for user
-                    if (res.locations.length > 0) setTargetLocationId(res.locations[0].id);
-                }
-            });
+        getSmartInvoiceLocationsSecure().then((res) => {
+            if (res.success && res.data) {
+                setLocations(res.data);
+                // Default to first valid location if needed, or wait for user
+                if (res.data.length > 0) setTargetLocationId(res.data[0].id);
+            }
         });
     }, []);
 

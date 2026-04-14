@@ -49,6 +49,14 @@ vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/pin-rbac', () => ({
     getActorOrFail: vi.fn(),
     validatePinForRoles: vi.fn(),
+    requireRole: vi.fn((actor, allowedRoles) => {
+        const normalizedRole = String(actor.role || '').trim().toUpperCase();
+        if (!allowedRoles.map((role: string) => String(role).trim().toUpperCase()).includes(normalizedRole)) {
+            throw new PinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+        }
+        return { ...actor, role: normalizedRole };
+    }),
+    normalizeRole: vi.fn((role: string | null | undefined) => String(role || '').trim().toUpperCase()),
     ROLE_GROUPS: {
         ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
         MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
@@ -67,7 +75,9 @@ const mockQuote = {
     subtotal: 100000,
     discount: 0,
     total: 100000,
-    valid_until: new Date(Date.now() + 86400000) // Tomorrow
+    valid_until: new Date(Date.now() + 86400000), // Tomorrow
+    location_id: VALID_UUID_LOCATION,
+    user_id: VALID_UUID_USER,
 };
 
 const mockItem = {
@@ -225,11 +235,14 @@ describe('Quotes V2 - Quote Creation', () => {
 
     it('should create quote with items when DB is mocked correctly', async () => {
         setupMockQueries([
+            { rows: [], rowCount: 0 },              // active terminal lookup
+            { rows: [{ id: VALID_UUID_PRODUCT, sku: mockItem.sku, name: mockItem.name, canonical_price: 10000 }], rowCount: 1 }, // canonical product
             { rows: [{ seq: '1' }], rowCount: 1 },  // nextval sequence
             { rows: [], rowCount: 1 },              // Insert quote
             { rows: [], rowCount: 1 },              // Insert items
             { rows: [], rowCount: 1 },              // Audit
             { rows: [{ id: VALID_UUID_QUOTE }], rowCount: 1 }, // In-TX verification
+            { rows: [{ id: VALID_UUID_QUOTE }], rowCount: 1 }, // After commit verification
         ]);
 
         const result = await quotesV2.createQuoteSecure({
@@ -261,8 +274,7 @@ describe('Quotes V2 - Conversion', () => {
             quoteId: VALID_UUID_QUOTE,
             paymentMethod: 'CASH',
             cashReceived: 100000,
-            terminalId: VALID_UUID_TERMINAL,
-            userId: VALID_UUID_USER
+            terminalId: VALID_UUID_TERMINAL
         });
 
         expect(result.success).toBe(false);
@@ -280,19 +292,17 @@ describe('Quotes V2 - Conversion', () => {
             quoteId: VALID_UUID_QUOTE,
             paymentMethod: 'CASH',
             cashReceived: 100000,
-            terminalId: VALID_UUID_TERMINAL,
-            userId: VALID_UUID_USER
+            terminalId: VALID_UUID_TERMINAL
         });
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('procesada');
     });
 
-    it('usa el actor de sesión y no el userId del payload al convertir a venta', async () => {
-        const spoofedUserId = '550e8400-e29b-41d4-a716-446655440088';
-
+    it('reserva stock acotado a la sucursal de la cotización', async () => {
         setupMockQueries([
             { rows: [mockQuote], rowCount: 1 }, // quote lock
+            { rows: [{ terminal_id: VALID_UUID_TERMINAL }], rowCount: 1 }, // active terminal
             { rows: [{ sku: mockItem.sku, quantity: mockItem.quantity, product_id: mockItem.productId, name: mockItem.name, unit_price: mockItem.unitPrice, discount_percent: mockItem.discount, subtotal: 20000, total: 20000 }], rowCount: 1 }, // items
             { rows: [{ id: 'batch-1', quantity_real: 10 }], rowCount: 1 }, // stock
             { rows: [], rowCount: 1 }, // decrement stock
@@ -306,18 +316,85 @@ describe('Quotes V2 - Conversion', () => {
             quoteId: VALID_UUID_QUOTE,
             paymentMethod: 'CASH',
             cashReceived: 100000,
-            terminalId: VALID_UUID_TERMINAL,
-            userId: spoofedUserId
+            terminalId: VALID_UUID_TERMINAL
         });
 
         expect(result.success).toBe(true);
-        expect(mockQuery).toHaveBeenCalledWith(
-            expect.stringContaining('INSERT INTO sales'),
-            expect.arrayContaining([VALID_UUID_USER])
+        const stockCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('FROM inventory_batches')
         );
-        expect(mockQuery).not.toHaveBeenCalledWith(
-            expect.stringContaining('INSERT INTO sales'),
-            expect.arrayContaining([spoofedUserId])
+        expect(stockCall).toBeDefined();
+        expect(String(stockCall?.[0])).toContain('location_id::text = $2::text');
+        expect(stockCall?.[1]).toContain(VALID_UUID_LOCATION);
+    });
+});
+
+describe('Quotes V2 - Security hardening', () => {
+    it('rechaza detalle sin sesión válida', async () => {
+        vi.mocked(getActorOrFail).mockRejectedValueOnce(
+            new PinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.')
         );
+
+        const result = await quotesV2.getQuoteDetailsSecure(VALID_UUID_QUOTE);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No autenticado');
+    });
+
+    it('rechaza cotización ajena para un cajero', async () => {
+        setupMockQueries([
+            {
+                rows: [{
+                    id: VALID_UUID_QUOTE,
+                    status: 'PENDING',
+                    location_id: VALID_UUID_LOCATION,
+                    user_id: '550e8400-e29b-41d4-a716-446655440088',
+                }],
+                rowCount: 1,
+            },
+        ]);
+
+        const result = await quotesV2.getQuoteDetailsSecure(VALID_UUID_QUOTE);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ajena');
+    });
+
+    it('rechaza createQuote con locationId manipulado fuera de la sesión', async () => {
+        const result = await quotesV2.createQuoteSecure({
+            items: [mockItem],
+            validDays: 7,
+            locationId: '550e8400-e29b-41d4-a716-446655440099',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('otra ubicación');
+    });
+
+    it('recalcula el precio canónico y no usa el unitPrice del payload', async () => {
+        setupMockQueries([
+            { rows: [{ terminal_id: VALID_UUID_TERMINAL }], rowCount: 1 }, // active terminal
+            { rows: [{ id: VALID_UUID_PRODUCT, sku: mockItem.sku, name: mockItem.name, canonical_price: 15000 }], rowCount: 1 }, // canonical product
+            { rows: [{ seq: '1' }], rowCount: 1 },  // nextval sequence
+            { rows: [], rowCount: 1 },              // Insert quote
+            { rows: [], rowCount: 1 },              // Insert items
+            { rows: [], rowCount: 1 },              // Audit
+            { rows: [{ id: VALID_UUID_QUOTE }], rowCount: 1 }, // In-TX verification
+        ]);
+
+        const result = await quotesV2.createQuoteSecure({
+            items: [{ ...mockItem, unitPrice: 1 }],
+            validDays: 7,
+            locationId: VALID_UUID_LOCATION,
+            terminalId: VALID_UUID_TERMINAL,
+        });
+
+        expect(result.success).toBe(true);
+        const insertItemCall = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('INSERT INTO quote_items')
+        );
+        expect(insertItemCall).toBeDefined();
+        expect(insertItemCall?.[1]).toContain(15000);
+        expect(insertItemCall?.[1]).not.toContain(1);
     });
 });

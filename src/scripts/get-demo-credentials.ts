@@ -2,6 +2,7 @@ import pg from 'pg';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { DEV_TEST_ACCOUNT, printDevAccountSummary } from './dev-account-support';
 
 const { Pool } = pg;
 
@@ -28,34 +29,25 @@ async function checkData() {
         console.log(`📊 Inventory Batches: ${batchCount.rows[0].count}`);
         console.log(`📊 Total Sales: ${salesCount.rows[0].count}`);
 
-        // 2. Get Admin credential
-        // Look for MANAGER or ADMIN role. In seed we used 'MANAGER' for "Administrador de Sucursal"
-        // Line 426 in seed: await createUser(..., 'MANAGER', storeId, 'ADMINISTRADOR');
-        // Let's query for role='MANAGER' or just check the output.
-        // The user asked for "WHERE role = 'ADMIN'". In the seed, the role is 'MANAGER' for the admin user.
-        // I should check both or just 'MANAGER' based on the seed code I just saw.
-        // Actually, let's check what the seed inserted.
-        // Seed line 426: createUser(..., 'MANAGER', ...)
-        // Wait, the user request says: "WHERE role = 'ADMIN'". 
-        // I will check for 'MANAGER' as well because that is what the seed likely used.
-
-        console.log('🔑 Searching for Admin User...');
+        console.log('🔑 Searching for controlled DEV account...');
         const res = await client.query(`
-            SELECT rut, name, role, access_pin 
+            SELECT rut, name, role, email, is_active
             FROM users 
-            WHERE name = 'Admin Centro'
+            WHERE email = $1 OR name = $2 OR job_title = $3
             LIMIT 1
-        `);
+        `, [DEV_TEST_ACCOUNT.email, DEV_TEST_ACCOUNT.name, DEV_TEST_ACCOUNT.jobTitle]);
 
         if (res.rows.length > 0) {
             const user = res.rows[0];
-            console.log('\n✅ FOUND VALID CREDENTIAL:');
-            console.log(`   👤 Name: ${user.name}`);
+            console.log('\n✅ FOUND CONTROLLED DEV ACCOUNT:');
+            printDevAccountSummary();
             console.log(`   🆔 RUT (Login): ${user.rut}`);
-            console.log(`   🔑 PIN: 1213 (Standard Demo Pin)`);
-            console.log(`   🛡 Role: ${user.role}`);
+            console.log(`   📧 Email actual: ${user.email}`);
+            console.log(`   🛡 Role actual: ${user.role}`);
+            console.log(`   ✅ Activa: ${user.is_active ? 'sí' : 'no'}`);
         } else {
-            console.log('❌ No Admin/Manager user found!');
+            console.log('❌ No se encontró la cuenta DEV controlada.');
+            console.log(`Ejecuta ${DEV_TEST_ACCOUNT.ensureCommand} para crearla o refrescarla.`);
         }
 
     } catch (e) {

@@ -2,11 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => ({
+    requireApiRolesMock: vi.fn(),
     getSiiEmissionConfigMock: vi.fn(),
     buildDteXMLMock: vi.fn(),
     calculateIVAMock: vi.fn(),
     calculateNetoFromTotalMock: vi.fn(),
     signXMLMock: vi.fn(),
+}));
+
+vi.mock('@/lib/api-auth', () => ({
+    requireApiRoles: mocks.requireApiRolesMock,
 }));
 
 vi.mock('@/lib/sii-config', () => ({
@@ -51,9 +56,66 @@ const BASE_BODY = {
 describe('POST /api/sii/emitir', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.requireApiRolesMock.mockResolvedValue({
+            ok: true,
+            session: {
+                userId: 'manager-1',
+                role: 'MANAGER',
+            },
+        });
         mocks.buildDteXMLMock.mockReturnValue('<DTE />');
         mocks.calculateNetoFromTotalMock.mockReturnValue(840);
         mocks.calculateIVAMock.mockReturnValue(160);
+    });
+
+    it('rechaza sin sesión', async () => {
+        mocks.requireApiRolesMock.mockResolvedValueOnce({
+            ok: false,
+            response: new Response(JSON.stringify({ success: false, error: 'No autorizado' }), {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+            }),
+        });
+
+        const response = await POST(buildRequest(BASE_BODY));
+        const payload = await response.json();
+
+        expect(response.status).toBe(401);
+        expect(payload.success).toBe(false);
+        expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
+        expect(mocks.signXMLMock).not.toHaveBeenCalled();
+    });
+
+    it('rechaza rol insuficiente', async () => {
+        mocks.requireApiRolesMock.mockResolvedValueOnce({
+            ok: false,
+            response: new Response(JSON.stringify({ success: false, error: 'Acceso denegado' }), {
+                status: 403,
+                headers: { 'Content-Type': 'application/json' },
+            }),
+        });
+
+        const response = await POST(buildRequest(BASE_BODY));
+        const payload = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(payload.success).toBe(false);
+        expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
+        expect(mocks.signXMLMock).not.toHaveBeenCalled();
+    });
+
+    it('rechaza payload inválido antes de tocar config o firma', async () => {
+        const response = await POST(buildRequest({
+            ...BASE_BODY,
+            items: [],
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(400);
+        expect(payload.success).toBe(false);
+        expect(payload.error).toBe('INVALID_PAYLOAD');
+        expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
+        expect(mocks.signXMLMock).not.toHaveBeenCalled();
     });
 
     it('lee configuración sólo desde el helper server-side y funciona con fallback sin certificado persistido', async () => {

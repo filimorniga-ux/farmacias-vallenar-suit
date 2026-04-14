@@ -54,11 +54,30 @@ describe('manager-dashboard-v2', () => {
         const result = await getManagerRealTimeDataSecure();
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('Rol CASHIER no autorizado');
+        expect(result.error).toContain('Sesión no válida');
         expect(query).not.toHaveBeenCalled();
     });
 
-    it('acepta roles de gerencia aunque vengan con formato legacy', async () => {
+    it('deniega a manager consultar otra sucursal aunque la pida el cliente', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'MANAGER',
+            userName: 'Gerente',
+            tokenVersion: 1,
+            sessionToken: 'token',
+            locationId: 'loc-1',
+        });
+
+        const result = await getManagerRealTimeDataSecure('loc-2');
+
+        expect(result).toEqual({
+            success: false,
+            error: 'Acceso denegado a otra ubicación',
+        });
+        expect(query).not.toHaveBeenCalled();
+    });
+
+    it('acepta roles de gerencia legacy y fuerza su scope efectivo', async () => {
         vi.mocked(getValidatedSession).mockResolvedValueOnce({
             userId: 'user-1',
             role: ' manager ',
@@ -74,16 +93,51 @@ describe('manager-dashboard-v2', () => {
             command: '',
             oid: 0,
             fields: [],
+        }).mockResolvedValueOnce({
+            rows: [{
+                cash: 0,
+                debit: 0,
+                credit: 0,
+                transfer: 0,
+                other_income: 0,
+                expenses: 0,
+                opening_cash: 0,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: [],
+        }).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 0,
+            command: '',
+            oid: 0,
+            fields: [],
+        }).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 0,
+            command: '',
+            oid: 0,
+            fields: [],
+        }).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 0,
+            command: '',
+            oid: 0,
+            fields: [],
+        }).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 0,
+            command: '',
+            oid: 0,
+            fields: [],
         });
 
         const result = await getManagerRealTimeDataSecure();
 
-        expect(result).toEqual({
-            success: true,
-            data: {
-                branches: [],
-            },
-        });
-        expect(query).toHaveBeenCalledTimes(1);
+        expect(result.success).toBe(true);
+        expect(result.data?.branches).toEqual([]);
+        expect(query).toHaveBeenCalledTimes(6);
+        expect(vi.mocked(query).mock.calls[0]?.[1]).toEqual(['loc-1']);
     });
 });

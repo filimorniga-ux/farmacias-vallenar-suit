@@ -119,6 +119,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const [pinError, setPinError] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
     const [authorizedDiffs, setAuthorizedDiffs] = useState<Record<string, number>>({});
+    const [authorizedSupervisorPin, setAuthorizedSupervisorPin] = useState<string | null>(null);
     const pinInputRef = useRef<HTMLInputElement>(null);
 
     // ── Estado escáner ──────────────────────────────────────────────
@@ -179,6 +180,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
             }))
         );
         setAuthorizedDiffs({});
+        setAuthorizedSupervisorPin(null);
         setScanCount(0);
     }, []);
 
@@ -267,10 +269,12 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         try {
             const res = await validateSupervisorPin(pinValue);
             if (res.success) {
+                const approvedPin = pinValue;
                 setReceivedItems(prev =>
                     prev.map(i => i.itemId === pinTarget.itemId ? { ...i, receivedQty: pinTarget.newQty } : i)
                 );
                 setAuthorizedDiffs(prev => ({ ...prev, [pinTarget.itemId]: pinTarget.newQty }));
+                setAuthorizedSupervisorPin(approvedPin);
                 const authorizedBy = 'authorizedBy' in res ? res.authorizedBy?.name : undefined;
                 toast.success(`Cantidad autorizada por ${authorizedBy || 'Supervisor'}`);
                 closePinModal(false);
@@ -300,6 +304,12 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const handleConfirmReception = async () => {
         if (!selectedShipment) return;
 
+        const unexpectedList = receivedItems.filter(i => i.unexpected && i.receivedQty > 0);
+        if (unexpectedList.length > 0) {
+            toast.error('La recepción de productos inesperados está deshabilitada en este flujo');
+            return;
+        }
+
         const unauthorizedDiffs = receivedItems.filter(
             (item) => item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] !== item.receivedQty
         );
@@ -316,9 +326,8 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
 
         setIsSubmitting(true);
         try {
-            // Split expected vs unexpected items
             const expectedItems = receivedItems.filter(i => !i.unexpected);
-            const unexpectedList = receivedItems.filter(i => i.unexpected && i.receivedQty > 0);
+            const hasDifferences = expectedItems.some((item) => item.receivedQty !== item.expectedQty);
 
             const result = await processReceptionSecure({
                 shipmentId: selectedShipment.id,
@@ -339,6 +348,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                     expiryDate: item.expiryDate || undefined,
                 })),
                 notes: receptionNotes || undefined,
+                supervisorPin: hasDifferences ? authorizedSupervisorPin || undefined : undefined,
             });
 
             if (result.success) {
@@ -347,6 +357,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 setReceivedItems([]);
                 setReceptionNotes('');
                 setAuthorizedDiffs({});
+                setAuthorizedSupervisorPin(null);
                 await fetchPending();
                 await queryClient.invalidateQueries({ queryKey: ['inventory'] });
             } else {
@@ -368,6 +379,8 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         setSelectedShipment(null);
         setReceivedItems([]);
         setReceptionNotes('');
+        setAuthorizedDiffs({});
+        setAuthorizedSupervisorPin(null);
         setScanCount(0);
         setLastScanFlash(null);
     };
@@ -394,57 +407,30 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
             setLastScanFlash(receivedItems[idx].sku);
             setTimeout(() => setLastScanFlash(null), 1200);
         } else {
-            // Check if it's an already-added unexpected item
-            const unexpectedIdx = receivedItems.findIndex(
-                (item) => item.unexpected && item.sku?.toUpperCase() === normalizedCode
+            const product = inventory.find(
+                (p) => p.sku?.toUpperCase() === normalizedCode
             );
 
-            if (unexpectedIdx >= 0) {
-                setReceivedItems(prev => {
-                    const updated = [...prev];
-                    updated[unexpectedIdx] = { ...updated[unexpectedIdx], receivedQty: updated[unexpectedIdx].receivedQty + 1 };
-                    return updated;
-                });
-                setScanCount(prev => prev + 1);
+            if (product) {
+                toast.error(`El producto ${product.name} no pertenece a este despacho`);
             } else {
-                const product = inventory.find(
-                    (p) => p.sku?.toUpperCase() === normalizedCode
-                );
-
-                if (product) {
-                    // Known product but not in this order — add as unexpected
-                    const newItem: ReceivedItem = {
-                        itemId: `unexpected-${Date.now()}`,
-                        sku: product.sku,
-                        name: product.name,
-                        expectedQty: 0,
-                        receivedQty: 1,
-                        condition: 'GOOD',
-                        unexpected: true,
-                        productId: product.id,
-                    };
-                    setReceivedItems(prev => [...prev, newItem]);
-                    setScanCount(prev => prev + 1);
-                    toast.info(`📦 Producto inesperado agregado: ${product.name}`);
-                } else {
-                    // Completely unknown product — offer to create
-                    toast.warning(`⚠️ Código no reconocido: ${normalizedCode}`, {
-                        description: 'No se encontró en el inventario.',
-                        duration: 6000,
-                        action: {
-                            label: 'Crear Producto',
-                            onClick: () => {
-                                setProductModalSku(normalizedCode);
-                                setProductModalOpen(true);
-                            },
+                // Completely unknown product — offer to create
+                toast.warning(`⚠️ Código no reconocido: ${normalizedCode}`, {
+                    description: 'No se encontró en el inventario.',
+                    duration: 6000,
+                    action: {
+                        label: 'Crear Producto',
+                        onClick: () => {
+                            setProductModalSku(normalizedCode);
+                            setProductModalOpen(true);
                         },
-                    });
-                }
+                    },
+                });
             }
             setLastScanFlash(normalizedCode);
             setTimeout(() => setLastScanFlash(null), 1200);
         }
-    }, [selectedShipment, receivedItems]);
+    }, [inventory, receivedItems, selectedShipment]);
 
     // Hook for physical barcode scanners (USB/Bluetooth)
     // useBarcodeScanner doesn't support 'enabled', so we conditionally forward

@@ -12,7 +12,7 @@ interface ProductDeleteConfirmProps {
 }
 
 const ProductDeleteConfirm: React.FC<ProductDeleteConfirmProps> = ({ product, onClose, onConfirm }) => {
-    const { deleteProduct, reorderConfigs, user } = usePharmaStore();
+    const { reorderConfigs, user } = usePharmaStore();
     const [isDeleting, setIsDeleting] = useState(false);
     const [pin, setPin] = useState('');
 
@@ -48,9 +48,6 @@ const ProductDeleteConfirm: React.FC<ProductDeleteConfirmProps> = ({ product, on
                 setIsDeleting(false);
                 return;
             }
-
-            // Update local store
-            deleteProduct(product.id);
 
             toast.success(`Producto ${product.name} eliminado correctamente`);
             onConfirm();

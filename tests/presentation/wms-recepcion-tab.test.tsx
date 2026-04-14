@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import WMSRecepcionTab from '@/presentation/components/wms/tabs/WMSRecepcionTab';
+import { DEV_TEST_LOGIN } from '../support/dev-test-account';
 
 type Shipment = {
     id: string;
@@ -158,11 +159,11 @@ describe('WMSRecepcionTab', () => {
         expect(await screen.findByText('Autorización Requerida')).toBeTruthy();
 
         const pinInput = screen.getByPlaceholderText('••••');
-        fireEvent.change(pinInput, { target: { value: '1213' } });
+        fireEvent.change(pinInput, { target: { value: DEV_TEST_LOGIN.pin } });
         fireEvent.click(screen.getByRole('button', { name: 'Autorizar' }));
 
         await waitFor(() => {
-            expect(mocks.validateSupervisorPinMock).toHaveBeenCalledWith('1213');
+            expect(mocks.validateSupervisorPinMock).toHaveBeenCalledWith(DEV_TEST_LOGIN.pin);
         });
         await waitFor(() => {
             expect(screen.queryByText('Autorización Requerida')).toBeNull();
@@ -177,6 +178,7 @@ describe('WMSRecepcionTab', () => {
         const payload = mocks.processReceptionSecureMock.mock.calls[0][0];
         const receivedItem = payload.receivedItems.find((item: { itemId: string }) => item.itemId === 'item-1');
         expect(receivedItem.quantity).toBe(12);
+        expect(payload.supervisorPin).toBe(DEV_TEST_LOGIN.pin);
     });
 
     it('carga el scanner solo cuando el usuario abre el flujo explícito de cámara', async () => {

@@ -18,9 +18,9 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
+import { resolveActorResult } from './actor-result';
 import {
-    getActorOrFail,
-    PinRbacError,
+    type PinRbacActor,
     ROLE_GROUPS,
     requireRole,
     validatePinForRoles,
@@ -51,23 +51,11 @@ const UpdateAccountSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-type FinancialAccountsActor = Awaited<ReturnType<typeof getActorOrFail>>;
+type FinancialAccountsActor = PinRbacActor;
 
 // ============================================================================
 // HELPERS
 // ============================================================================
-
-async function requireFinancialAccountsActor(): Promise<FinancialAccountsActor | null> {
-    try {
-        return await getActorOrFail();
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return null;
-        }
-
-        throw error;
-    }
-}
 
 async function validateFinancialAccountsPin(
     client: PoolClient,
@@ -97,6 +85,29 @@ async function validateFinancialAccountsPin(
     }
 }
 
+function hasGlobalFinancialAccountsScope(actor: FinancialAccountsActor): boolean {
+    return ROLE_GROUPS.ADMIN.includes(actor.role as typeof ROLE_GROUPS.ADMIN[number]);
+}
+
+function canActorAccessFinancialAccount(actor: FinancialAccountsActor, locationId: string | null | undefined): boolean {
+    if (hasGlobalFinancialAccountsScope(actor)) return true;
+    if (locationId == null) return true;
+    return Boolean(actor.locationId && actor.locationId === locationId);
+}
+
+async function getFinancialAccountScope(
+    executor: { query: (text: string, params?: Array<string | number | boolean | Date | string[] | null | undefined>) => Promise<{ rows: Record<string, unknown>[]; rowCount?: number | null }> },
+    accountId: string,
+): Promise<{ id: string; location_id: string | null; name?: string } | null> {
+    const result = await executor.query(
+        'SELECT id, location_id, name FROM financial_accounts WHERE id = $1',
+        [accountId],
+    );
+
+    if (!result.rowCount) return null;
+    return result.rows[0] as { id: string; location_id: string | null; name?: string };
+}
+
 // ============================================================================
 // GET ACCOUNTS
 // ============================================================================
@@ -109,10 +120,11 @@ export async function getFinancialAccountsSecure(): Promise<{
     data?: Record<string, unknown>[];
     error?: string;
 }> {
-    const actor = await requireFinancialAccountsActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         let sql = `
@@ -151,10 +163,11 @@ export async function createFinancialAccountSecure(
     data: z.infer<typeof CreateAccountSchema>,
     adminPin: string
 ): Promise<{ success: boolean; accountId?: string; error?: string }> {
-    const actor = await requireFinancialAccountsActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -226,10 +239,11 @@ export async function updateFinancialAccountSecure(
     data: z.infer<typeof UpdateAccountSchema>,
     managerPin: string
 ): Promise<{ success: boolean; error?: string }> {
-    const actor = await requireFinancialAccountsActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.MANAGER);
     } catch {
@@ -261,6 +275,19 @@ export async function updateFinancialAccountSecure(
             return { success: false, error: 'Cuenta no encontrada' };
         }
         const prev = prevRes.rows[0];
+        if (!canActorAccessFinancialAccount(actor, prev.location_id as string | null | undefined)) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Cuenta fuera de su alcance' };
+        }
+
+        if (
+            !hasGlobalFinancialAccountsScope(actor) &&
+            locationId !== undefined &&
+            locationId !== actor.locationId
+        ) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No puede mover la cuenta a otra ubicación' };
+        }
 
         // Actualizar
         const updates: string[] = ['updated_at = NOW()'];
@@ -322,10 +349,11 @@ export async function toggleAccountStatusSecure(
         return { success: false, error: 'ID inválido' };
     }
 
-    const actor = await requireFinancialAccountsActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -397,16 +425,22 @@ export async function getAccountBalance(
         return { success: false, error: 'ID inválido' };
     }
 
-    const actor = await requireFinancialAccountsActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
-        const res = await query('SELECT balance FROM financial_accounts WHERE id = $1', [accountId]);
-        if (res.rowCount === 0) {
+        const account = await getFinancialAccountScope({ query }, accountId);
+        if (!account) {
             return { success: false, error: 'Cuenta no encontrada' };
         }
+        if (!canActorAccessFinancialAccount(actor, account.location_id)) {
+            return { success: false, error: 'Cuenta fuera de su alcance' };
+        }
+
+        const res = await query('SELECT balance FROM financial_accounts WHERE id = $1', [accountId]);
         return { success: true, balance: Number(res.rows[0].balance) };
     } catch (error: unknown) {
         logger.error({ error }, '[FinancialAccounts] Get balance error');
@@ -426,14 +460,23 @@ export async function getAccountHistory(
         return { success: false, error: 'ID inválido' };
     }
 
-    const actor = await requireFinancialAccountsActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     const offset = (page - 1) * Math.min(pageSize, 100);
 
     try {
+        const account = await getFinancialAccountScope({ query }, accountId);
+        if (!account) {
+            return { success: false, error: 'Cuenta no encontrada' };
+        }
+        if (!canActorAccessFinancialAccount(actor, account.location_id)) {
+            return { success: false, error: 'Cuenta fuera de su alcance' };
+        }
+
         // Count
         const countRes = await query(`
             SELECT COUNT(*) as total FROM treasury_transactions

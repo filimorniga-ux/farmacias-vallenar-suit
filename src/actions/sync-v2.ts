@@ -50,6 +50,51 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
     };
 }
 
+function hasGlobalSyncScope(role: string) {
+    return ['ADMIN', 'GERENTE_GENERAL'].includes(String(role || '').toUpperCase());
+}
+
+async function resolveAllowedWarehouseScope(
+    session: { role: string; locationId?: string },
+    requestedWarehouseId?: string,
+): Promise<{ success: true; warehouseId?: string; locationId?: string } | { success: false; error: string }> {
+    if (hasGlobalSyncScope(session.role)) {
+        return {
+            success: true,
+            warehouseId: requestedWarehouseId,
+            locationId: session.locationId,
+        };
+    }
+
+    if (!session.locationId) {
+        return { success: false, error: 'No tienes una ubicación asignada' };
+    }
+
+    if (!requestedWarehouseId) {
+        return { success: true, locationId: session.locationId };
+    }
+
+    const res = await query(
+        'SELECT location_id::text AS location_id FROM warehouses WHERE id::text = $1::text LIMIT 1',
+        [requestedWarehouseId],
+    );
+
+    const warehouseLocationId = String(res.rows[0]?.location_id || '');
+    if (!warehouseLocationId) {
+        return { success: false, error: 'Bodega no encontrada' };
+    }
+
+    if (warehouseLocationId !== session.locationId) {
+        return { success: false, error: 'Acceso denegado a otra bodega' };
+    }
+
+    return {
+        success: true,
+        warehouseId: requestedWarehouseId,
+        locationId: warehouseLocationId,
+    };
+}
+
 async function auditDataAccess(userId: string, action: string, details: Record<string, any>): Promise<void> {
     try {
         await query(`
@@ -93,6 +138,11 @@ export async function fetchInventorySecure(
     const offset = (page - 1) * pageSize;
 
     try {
+        const warehouseScope = await resolveAllowedWarehouseScope(session, warehouseId);
+        if (!warehouseScope.success) {
+            return { success: false, error: warehouseScope.error };
+        }
+
         // Construir query
         let sql = `
             SELECT 
@@ -106,10 +156,24 @@ export async function fetchInventorySecure(
 
         const params: any[] = [];
         let paramIndex = 1;
+        const whereClauses: string[] = [];
 
-        if (warehouseId) {
-            sql += ` WHERE ib.warehouse_id::text = $${paramIndex++}`;
-            params.push(warehouseId);
+        if (warehouseScope.warehouseId) {
+            whereClauses.push(`ib.warehouse_id::text = $${paramIndex++}`);
+            params.push(warehouseScope.warehouseId);
+        } else if (warehouseScope.locationId) {
+            whereClauses.push(`(
+                ib.location_id::text = $${paramIndex}
+                OR ib.warehouse_id IN (
+                    SELECT id FROM warehouses WHERE location_id::text = $${paramIndex}::text
+                )
+            )`);
+            params.push(warehouseScope.locationId);
+            paramIndex += 1;
+        }
+
+        if (whereClauses.length > 0) {
+            sql += ` WHERE ${whereClauses.join(' AND ')}`;
         }
 
         // Count total
@@ -126,7 +190,7 @@ export async function fetchInventorySecure(
         // Auditar acceso
         await auditDataAccess(session.userId, 'DATA_SYNC', {
             type: 'INVENTORY',
-            warehouse_id: warehouseId || 'ALL',
+            warehouse_id: warehouseScope.warehouseId || 'SCOPED',
             rows_returned: res.rows.length,
             page,
         });
@@ -187,6 +251,7 @@ export interface SafeEmployeeProfile {
     status: string;
     job_title: string;
     is_active: boolean;
+    token_version?: number;
     // NUNCA incluir access_pin ni access_pin_hash
 }
 
@@ -205,12 +270,26 @@ export async function fetchEmployeesSecure(
 
     try {
         // IMPORTANTE: NO seleccionar access_pin ni access_pin_hash
-        const sql = `
+        let sql = `
             SELECT 
                 id, rut, name, role, 
-                assigned_location_id, status, job_title, is_active
+                assigned_location_id, status, job_title, is_active, token_version
             FROM users 
             WHERE ($1 = true OR is_active = true)
+        `;
+        const params: any[] = [includeInactive];
+
+        if (!hasGlobalSyncScope(session.role)) {
+            if (session.locationId) {
+                sql += ` AND assigned_location_id::text = $2::text`;
+                params.push(session.locationId);
+            } else {
+                sql += ` AND id::text = $2::text`;
+                params.push(session.userId);
+            }
+        }
+
+        sql += `
             ORDER BY 
                 CASE WHEN role = 'ADMIN' THEN 1 
                      WHEN role = 'GERENTE_GENERAL' THEN 2
@@ -219,13 +298,14 @@ export async function fetchEmployeesSecure(
                 name ASC
         `;
 
-        const res = await query(sql, [includeInactive]);
+        const res = await query(sql, params);
 
         // Auditar
         await auditDataAccess(session.userId, 'DATA_SYNC', {
             type: 'EMPLOYEES',
             include_inactive: includeInactive,
             rows_returned: res.rows.length,
+            location_id: hasGlobalSyncScope(session.role) ? 'ALL' : session.locationId || session.userId,
         });
 
         logger.info({ userId: session.userId, count: res.rows.length }, '👥 [Sync] Employees fetched');
@@ -239,6 +319,7 @@ export async function fetchEmployeesSecure(
             status: row.status || 'ACTIVE',
             job_title: row.job_title || 'EMPLEADO',
             is_active: row.is_active !== false,
+            token_version: Number(row.token_version) || 0,
             // NO SE INCLUYE access_pin
         }));
 
@@ -424,8 +505,8 @@ export async function fetchLocationsSecure(): Promise<{
         let sql = 'SELECT * FROM locations WHERE is_active = true';
         const params: any[] = [];
 
-        // Si no es ADMIN/GERENTE/MANAGER, solo ver ubicación asignada
-        if (!['ADMIN', 'GERENTE_GENERAL', 'MANAGER'].includes(session.role) && session.locationId) {
+        // Solo ADMIN/GERENTE_GENERAL ven todas. El resto queda anclado a su ubicación.
+        if (!hasGlobalSyncScope(session.role) && session.locationId) {
             sql += ' AND id = $1';
             params.push(session.locationId);
         }
@@ -437,7 +518,7 @@ export async function fetchLocationsSecure(): Promise<{
         await auditDataAccess(session.userId, 'DATA_SYNC', {
             type: 'LOCATIONS',
             rows_returned: res.rows.length,
-            filtered_by_role: !['ADMIN', 'GERENTE_GENERAL'].includes(session.role),
+            filtered_by_role: !hasGlobalSyncScope(session.role),
         });
 
         logger.info({ userId: session.userId, count: res.rows.length }, '📍 [Sync] Locations fetched');

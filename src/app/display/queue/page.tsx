@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, MapPin, Volume2, VolumeX, Maximize, Monitor, LogOut, Users, Check } from 'lucide-react';
 import { getPublicLocationsSecure } from '@/actions/public-network-v2';
 import { getQueueStatusSecure } from '@/actions/queue-v2';
+import { validatePublicKioskAdminPinSecure } from '@/actions/kiosk-auth-v2';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 
@@ -49,7 +50,6 @@ export default function QueueDisplayPage() {
     const [waitingCount, setWaitingCount] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [waitingList, setWaitingList] = useState<Ticket[]>([]);
-    const [debugData, setDebugData] = useState<any[]>([]);
 
     // State for tracking last announcement to support recalls
     const lastAnnouncementRef = useRef<{ id: string; time: string } | null>(null);
@@ -125,18 +125,32 @@ export default function QueueDisplayPage() {
         }
     };
 
-    const handleReset = () => {
-        if (setupPin === '1213') {
-            localStorage.removeItem('queue_display_location_id');
-            localStorage.removeItem('queue_display_location_name');
-            setStep('SETUP');
-            setSetupPin('');
-            setCurrentTicket(null);
-            setHistory([]);
-        } else {
-            toast.error('PIN Incorrecto');
-            setSetupPin('');
+    const handleReset = async () => {
+        if (!locationId || setupPin.length < 4) {
+            toast.error('Ingrese PIN de administración');
+            return;
         }
+
+        const result = await validatePublicKioskAdminPinSecure({
+            mode: 'QUEUE_DISPLAY',
+            locationId,
+            pin: setupPin,
+        });
+
+        if (!result.success) {
+            toast.error(result.error || 'PIN incorrecto');
+            setSetupPin('');
+            return;
+        }
+
+        localStorage.removeItem('queue_display_location_id');
+        localStorage.removeItem('queue_display_location_name');
+        setStep('SETUP');
+        setSetupPin('');
+        setCurrentTicket(null);
+        setHistory([]);
+        setWaitingList([]);
+        setWaitingCount(0);
     };
 
     // ========================================================================
@@ -254,7 +268,7 @@ export default function QueueDisplayPage() {
 
         const fetchStatus = async () => {
             try {
-                const res = await getQueueStatusSecure(locationId);
+                const res = await getQueueStatusSecure(locationId, { publicDisplay: true });
 
                 if (isMounted && res.success && res.data) {
                     const { calledTickets, waitingCount, lastCompletedTickets, waitingTickets } = res.data;
@@ -276,9 +290,6 @@ export default function QueueDisplayPage() {
                     setHistory(historyList);
                     setWaitingList(nextList);
                     setWaitingCount(waitingCount);
-
-                    // @ts-ignore
-                    setDebugData(res.data.debug_allRows || []);
 
                     // AUDIO TRIGGER LOGIC
                     // We check if:
@@ -471,23 +482,6 @@ export default function QueueDisplayPage() {
                     </div>
 
                     <div className="flex-1 flex flex-col items-center justify-center p-12 relative overflow-hidden bg-white">
-
-                        {/* DEBUG OVERLAY - Moved outside AnimatePresence to avoid key conflicts */}
-                        <div className="absolute top-0 left-0 bg-black/90 text-white p-4 text-[10px] font-mono z-50 pointer-events-none max-h-96 overflow-auto">
-                            <p className="font-bold text-yellow-400">DEBUG MODE</p>
-                            <p>LocID: {locationId?.substring(0, 8)}...</p>
-                            <p>Active: {activeTickets.length}</p>
-                            <p>Waiting: {waitingCount}</p>
-
-                            <div className="mt-2 border-t border-gray-700 pt-1">
-                                <p className="font-bold">Backend Rows:</p>
-                                {debugData.map((r: any, i: number) => (
-                                    <div key={r.id || i}>
-                                        [{r.status}] {r.code} <span className="opacity-50 text-[8px]">{(r.id || 'N/A').substring(0, 4)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
 
                         <AnimatePresence mode="popLayout">
                             {activeTickets.length > 0 ? (

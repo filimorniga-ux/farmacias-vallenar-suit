@@ -81,11 +81,14 @@ describe('POST /api/inventory/maintenance', () => {
         expect(response.status).toBe(200);
         expect(payload.success).toBe(true);
         expect(mockClient.query).toHaveBeenNthCalledWith(1, 'BEGIN');
-        expect(mockClient.query).toHaveBeenNthCalledWith(2, 'TRUNCATE TABLE products CASCADE');
-        expect(mockClient.query).toHaveBeenNthCalledWith(3, 'COMMIT');
+        expect(mockClient.query).toHaveBeenCalledWith('DELETE FROM inventory_batches');
+        expect(mockClient.query).toHaveBeenCalledWith(
+            expect.stringContaining('UPDATE products p'),
+        );
+        expect(mockClient.query).toHaveBeenLastCalledWith('COMMIT');
         expect(mockLogger.warn).toHaveBeenCalledWith(
             expect.objectContaining({ actorUserId: 'manager-1', actorRole: 'MANAGER' }),
-            '[MaintenanceRoute] Inventory truncated'
+            '[MaintenanceRoute] Canonical inventory truncate completed'
         );
         expect(mockClient.release).toHaveBeenCalled();
     });

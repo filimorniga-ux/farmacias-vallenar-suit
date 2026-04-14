@@ -11,6 +11,12 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
+const DEV_TEST_ACCOUNT = {
+    name: '[DEV] Gerente General 1',
+    email: 'dev.gerente.general.1@local.invalid',
+    jobTitle: 'DEV_TEST_ACCOUNT',
+};
+
 async function auditSystem() {
     console.log("🏥 Starting System Health Audit...");
     const client = await pool.connect();
@@ -99,13 +105,19 @@ async function auditSystem() {
 
         // 4. Access Verification
         console.log("\n🔐 Auditing Access...");
-        const userCheck = await client.query(`SELECT id, name FROM users WHERE access_pin = '1213'`);
+        const userCheck = await client.query(`
+            SELECT id, name, is_active
+            FROM users
+            WHERE email = $1 OR name = $2 OR job_title = $3
+            LIMIT 1
+        `, [DEV_TEST_ACCOUNT.email, DEV_TEST_ACCOUNT.name, DEV_TEST_ACCOUNT.jobTitle]);
         if ((userCheck.rowCount ?? 0) > 0) {
-            console.log(`   - User found with PIN 1213: ${userCheck.rows[0].name}`);
-            console.log("   ✅ Login 1213: [VERIFICADO]");
+            console.log(`   - DEV_TEST_ACCOUNT encontrada: ${userCheck.rows[0].name}`);
+            console.log(`   - Estado activo: ${userCheck.rows[0].is_active ? 'sí' : 'no'}`);
+            console.log("   ✅ Cuenta DEV controlada: [VERIFICADA]");
         } else {
-            console.warn("   ⚠️ No user found with PIN 1213!");
-            console.log("   ❌ Login 1213: [FALLIDO]");
+            console.warn("   ⚠️ No se encontró la cuenta DEV controlada.");
+            console.log("   ❌ Cuenta DEV controlada: [FALTANTE]");
         }
 
         await client.query('COMMIT');

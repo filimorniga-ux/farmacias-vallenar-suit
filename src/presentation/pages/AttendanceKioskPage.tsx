@@ -1,19 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, User, Clock, Fingerprint, LogOut, CheckCircle, AlertTriangle, Coffee, ArrowRight, X, Loader2, RefreshCw, Home, Delete, ChevronLeft, Stethoscope, FileText, Ambulance, Undo2, Siren } from 'lucide-react';
 import { WebAuthnService } from '../../infrastructure/biometrics/WebAuthnService';
 import { EmployeeProfile, AttendanceStatus } from '../../domain/types';
-import { getUsersForLoginSecure } from '../../actions/sync-v2';
-import { validateEmployeePinSecure, getEmployeeStatusForKiosk, registerAttendanceSecure, getBatchEmployeeStatusForKiosk, validateKioskExitPin } from '../../actions/attendance-v2';
+import { getAttendanceKioskEmployeesSecure, validateEmployeePinSecure, getEmployeeStatusForKiosk, registerAttendanceSecure, getBatchEmployeeStatusForKiosk } from '../../actions/attendance-v2';
 import { NumericKeypad } from '../components/kiosk/NumericKeypad';
 import { ExitKioskModal } from '../components/kiosk/ExitKioskModal';
+import { unlockAttendanceKioskSecure } from '../../actions/kiosk-auth-v2';
+
+const ATTENDANCE_KIOSK_TOKEN_KEY = 'attendance_kiosk_token';
 
 const AttendanceKioskPage: React.FC = () => {
-    const navigate = useNavigate();
-    const { registerAttendance, currentLocationId } = usePharmaStore();
+    const { currentLocationId } = usePharmaStore();
     const [isLocked, setIsLocked] = useState(true);
+    const [kioskToken, setKioskToken] = useState('');
     const [selectedEmployee, setSelectedEmployee] = useState<EmployeeProfile | null>(null);
     const [authMethod, setAuthMethod] = useState<'PIN' | 'BIOMETRIC' | null>(null);
     const [pin, setPin] = useState('');
@@ -35,17 +36,38 @@ const AttendanceKioskPage: React.FC = () => {
         setShowExitModal(true);
     };
 
+    const handleExitConfirmed = () => {
+        window.localStorage.removeItem(ATTENDANCE_KIOSK_TOKEN_KEY);
+        setKioskToken('');
+        setLocalEmployees([]);
+        setEmployeeStatuses({});
+        setAuthenticatedEmployee(null);
+        setSelectedEmployee(null);
+        setAuthMethod(null);
+        setPin('');
+        setShowExitModal(false);
+        setIsLocked(true);
+    };
+
+    useEffect(() => {
+        const storedToken = window.localStorage.getItem(ATTENDANCE_KIOSK_TOKEN_KEY);
+        if (storedToken) {
+            setKioskToken(storedToken);
+            setIsLocked(false);
+        }
+    }, []);
+
     // Función para cargar estados de empleados
     const loadEmployeeStatuses = useCallback(async (employees: EmployeeProfile[]) => {
-        if (employees.length === 0) return;
+        if (employees.length === 0 || !kioskToken) return;
         const ids = employees.map(e => e.id);
         console.log('[Kiosk] Loading statuses for:', ids);
-        const result = await getBatchEmployeeStatusForKiosk(ids);
+        const result = await getBatchEmployeeStatusForKiosk(ids, kioskToken);
         console.log('[Kiosk] Status result:', JSON.stringify(result, null, 2));
         if (result.success) {
             setEmployeeStatuses(result.statuses);
         }
-    }, []);
+    }, [kioskToken]);
 
     // Función de refresh manual
     const handleRefresh = async () => {
@@ -57,9 +79,9 @@ const AttendanceKioskPage: React.FC = () => {
 
     // Fetch employees from DB on unlock, filtered by current location
     useEffect(() => {
-        if (!isLocked && localEmployees.length === 0) {
+        if (!isLocked && localEmployees.length === 0 && kioskToken) {
             setIsLoadingEmployees(true);
-            getUsersForLoginSecure(currentLocationId || undefined)
+            getAttendanceKioskEmployeesSecure(kioskToken)
                 .then(async (result: { success: boolean; data?: any[]; error?: string }) => {
                     if (result.success && result.data) {
                         const emps = result.data as unknown as EmployeeProfile[];
@@ -71,7 +93,7 @@ const AttendanceKioskPage: React.FC = () => {
                 .catch(console.error)
                 .finally(() => setIsLoadingEmployees(false));
         }
-    }, [isLocked, localEmployees.length, currentLocationId, loadEmployeeStatuses]);
+    }, [isLocked, localEmployees.length, kioskToken, loadEmployeeStatuses]);
 
     // Auto-refresh de estados cada 30 segundos
     useEffect(() => {
@@ -96,20 +118,29 @@ const AttendanceKioskPage: React.FC = () => {
     // Keyboard Listener
 
     // --- Activation Logic ---
-    const handleUnlock = (adminPin: string) => {
-        // Master PIN allows direct unlock without employee lookup
-        const isMasterPin = adminPin === '1213';
+    const handleUnlock = async (adminPin: string) => {
+        if (!currentLocationId) {
+            setMessage({ text: 'Sucursal no configurada para el kiosko', type: 'error' });
+            setTimeout(() => setMessage(null), 3000);
+            return;
+        }
 
-        if (isMasterPin) {
+        const result = await unlockAttendanceKioskSecure({
+            locationId: currentLocationId,
+            pin: adminPin,
+        });
+
+        if (result.success && result.token) {
+            window.localStorage.setItem(ATTENDANCE_KIOSK_TOKEN_KEY, result.token);
+            setKioskToken(result.token);
             setIsLocked(false);
             setMessage({ text: 'Terminal activado ✓', type: 'success' });
             setTimeout(() => setMessage(null), 3000);
-        } else {
-            // For non-master PIN, we need employees loaded first
-            // This handles admin/manager PIN validation
-            setMessage({ text: 'PIN no autorizado', type: 'error' });
-            setTimeout(() => setMessage(null), 3000);
+            return;
         }
+
+        setMessage({ text: result.error || 'PIN no autorizado', type: 'error' });
+        setTimeout(() => setMessage(null), 3000);
     };
 
 
@@ -122,10 +153,16 @@ const AttendanceKioskPage: React.FC = () => {
         setIsValidating(true);
         try {
             // Validar PIN en backend (seguro con bcrypt)
-            const result = await validateEmployeePinSecure(selectedEmployee.id, pin);
+            if (!kioskToken) {
+                setMessage({ text: 'Kiosko sin autorización activa', type: 'error' });
+                setPin('');
+                return;
+            }
+
+            const result = await validateEmployeePinSecure(selectedEmployee.id, pin, kioskToken);
 
             if (result.valid) {
-                onAuthSuccess();
+                await onAuthSuccess();
             } else {
                 setMessage({ text: result.error || 'PIN Incorrecto', type: 'error' });
                 setPin('');
@@ -162,9 +199,9 @@ const AttendanceKioskPage: React.FC = () => {
             } else if (e.key === 'Enter') {
                 if (pin.length === 4) {
                     if (isUnlockMode) {
-                        handleUnlock(pin);
+                        void handleUnlock(pin);
                     } else {
-                        handlePinSubmit();
+                        void handlePinSubmit();
                     }
                 }
             }
@@ -245,7 +282,11 @@ const AttendanceKioskPage: React.FC = () => {
         // Obtener estado actual del backend
         setIsLoadingStatus(true);
         try {
-            const statusResult = await getEmployeeStatusForKiosk(selectedEmployee.id);
+            if (!kioskToken) {
+                throw new Error('Kiosko no autorizado');
+            }
+
+            const statusResult = await getEmployeeStatusForKiosk(selectedEmployee.id, kioskToken);
             setEmployeeStatus(statusResult.status);
         } catch (e) {
             setEmployeeStatus('OUT'); // Default si falla
@@ -261,7 +302,7 @@ const AttendanceKioskPage: React.FC = () => {
     };
 
     const processAction = async (type: 'CHECK_IN' | 'CHECK_OUT' | 'LUNCH_START' | 'LUNCH_END' | 'PERMISSION_START' | 'PERMISSION_END' | 'MEDICAL_LEAVE' | 'EMERGENCY') => {
-        if (!authenticatedEmployee || !currentLocationId) return;
+        if (!authenticatedEmployee || !currentLocationId || !kioskToken) return;
 
         // Map UI actions to Domain Types
         let attendanceType: any = type;
@@ -275,7 +316,7 @@ const AttendanceKioskPage: React.FC = () => {
                 locationId: currentLocationId,
                 method: 'PIN',
                 overtimeMinutes: 0
-            });
+            }, { kioskToken });
 
             if (result.success) {
                 const now = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
@@ -774,6 +815,8 @@ const AttendanceKioskPage: React.FC = () => {
             <ExitKioskModal
                 isOpen={showExitModal}
                 onClose={() => setShowExitModal(false)}
+                kioskToken={kioskToken}
+                onConfirmed={handleExitConfirmed}
             />
         </div>
     );

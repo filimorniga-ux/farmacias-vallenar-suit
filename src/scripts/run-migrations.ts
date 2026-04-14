@@ -36,6 +36,7 @@ async function runMigrations() {
         '023_fix_audit_log_functions_schema_qualified.sql',
         '024_purchase_order_review_flow.sql',
         '037_add_server_session_columns.sql',
+        '038_notification_reads_scope_fix.sql',
     ];
     const migrations = cliMigrations.length > 0 ? cliMigrations : defaultMigrations;
     const migrationConnectionString = buildMigrationConnectionString();

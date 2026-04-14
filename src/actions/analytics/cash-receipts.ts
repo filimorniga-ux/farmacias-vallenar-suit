@@ -2,6 +2,12 @@
 
 import { query } from '@/lib/db';
 import { startOfDay, endOfDay } from 'date-fns';
+import {
+    RECEIPT_REPORT_ROLES,
+    ensureSaleInLocation,
+    requireReportActor,
+    resolveEffectiveLocation,
+} from '../report-scope';
 
 export interface CashReceipt {
     id: string;
@@ -22,15 +28,24 @@ export interface CashReceiptsFilter {
 }
 
 export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ success: boolean; data?: CashReceipt[]; error?: string }> {
-    console.log('[CashReceipts] Action called with filters:', JSON.stringify({ ...filter, startDate: filter.startDate?.toString() }));
+    const actorResult = await requireReportActor(RECEIPT_REPORT_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const effectiveLocationResult = resolveEffectiveLocation(actorResult.actor);
+    if (!effectiveLocationResult.success) {
+        return { success: false, error: effectiveLocationResult.error };
+    }
+
+    const effectiveLocationId = effectiveLocationResult.locationId;
+
     try {
         const { startDate, endDate = new Date(), minAmount, maxAmount } = filter;
 
         // Ensure valid date range
         const start = startOfDay(new Date(startDate));
         const end = endOfDay(new Date(endDate));
-
-        console.log(`[CashReceipts] Querying from ${start.toISOString()} to ${end.toISOString()}`);
 
         let queryStr = `
             SELECT 
@@ -53,6 +68,12 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
         const params: any[] = [start.toISOString(), end.toISOString()];
         let paramIndex = 3;
 
+        if (effectiveLocationId) {
+            queryStr += ` AND s.location_id::text = $${paramIndex}::text`;
+            params.push(effectiveLocationId);
+            paramIndex++;
+        }
+
         if (minAmount !== undefined) {
             queryStr += ` AND s.total_amount >= $${paramIndex}`;
             params.push(minAmount);
@@ -71,7 +92,6 @@ export async function getCashReceipts(filter: CashReceiptsFilter): Promise<{ suc
         `;
 
         const res = await query(queryStr, params);
-        console.log(`[CashReceipts] Found ${res.rowCount} receipts`);
 
         return {
             success: true,
@@ -101,7 +121,26 @@ export interface ReceiptDetailItem {
 }
 
 export async function getReceiptDetails(id: string): Promise<{ success: boolean; data?: ReceiptDetailItem[]; error?: string }> {
+    const actorResult = await requireReportActor(RECEIPT_REPORT_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const effectiveLocationResult = resolveEffectiveLocation(actorResult.actor);
+    if (!effectiveLocationResult.success) {
+        return { success: false, error: effectiveLocationResult.error };
+    }
+
+    const effectiveLocationId = effectiveLocationResult.locationId;
+
     try {
+        if (effectiveLocationId) {
+            const saleAllowed = await ensureSaleInLocation(id, effectiveLocationId);
+            if (!saleAllowed) {
+                return { success: false, error: 'Acceso denegado' };
+            }
+        }
+
         const queryStr = `
             SELECT 
                 si.product_name as name,

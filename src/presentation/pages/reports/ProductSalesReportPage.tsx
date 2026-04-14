@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import {
     Calendar, MapPin, Monitor, User, Search, Filter,
     Download, TrendingUp, Package, DollarSign, FileText, ArrowLeft
@@ -11,7 +11,7 @@ import { exportProductSalesSecure } from '../../../actions/reports-export-v2';
 import { toast } from 'sonner';
 
 export const ProductSalesReportPage: React.FC = () => {
-    const navigate = useNavigate();
+    const router = useRouter();
     // Stores
     const { employees } = usePharmaStore();
     const { locations, fetchLocations } = useLocationStore();
@@ -148,7 +148,7 @@ export const ProductSalesReportPage: React.FC = () => {
     };
 
     return (
-        <div className="h-dvh flex flex-col bg-slate-50 overflow-hidden pb-safe">
+        <div data-testid="product-sales-report-page" className="h-dvh flex flex-col bg-slate-50 overflow-hidden pb-safe">
 
             {/* 1. Header & Filters */}
             <div className="bg-white border-b border-slate-200 p-4 md:p-6 flex flex-col gap-4 shrink-0 shadow-sm z-10 pt-safe">
@@ -156,7 +156,8 @@ export const ProductSalesReportPage: React.FC = () => {
                     <div>
                         <div className="flex items-center gap-3 mb-1">
                             <button
-                                onClick={() => navigate('/reports')}
+                                aria-label="Volver a reportes"
+                                onClick={() => router.push('/reports')}
                                 className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
                             >
                                 <ArrowLeft size={24} />

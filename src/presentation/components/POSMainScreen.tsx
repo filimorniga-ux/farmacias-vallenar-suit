@@ -158,7 +158,10 @@ const POSMainScreen: React.FC = () => {
 
     const { data: inventoryData, invalidateInventory } = useInventoryQuery(activeLocationId);
 
-    // Sync React Query data to Zustand Store for compatibility with other components
+    const posInventory = useMemo(() => inventoryData ?? inventory, [inventoryData, inventory]);
+
+    // Compatibility mirror for POS helpers that still read inventory from Zustand.
+    // The screen itself should prefer React Query data as the source of truth.
     useEffect(() => {
         if (inventoryData) {
             console.log('🔄 [POS] Syncing Inventory Query -> Zustand');
@@ -334,7 +337,7 @@ const POSMainScreen: React.FC = () => {
     // Helper for FEFO Selection
     const findBestBatch = (code: string) => {
         // Find all matches
-        const matches = inventory.filter(p => p.sku === code || p.id === code || p.barcode === code);
+        const matches = posInventory.filter(p => p.sku === code || p.id === code || p.barcode === code);
         if (matches.length === 0) return undefined;
 
         const getPriority = (item: InventoryBatch): number => {
@@ -372,7 +375,7 @@ const POSMainScreen: React.FC = () => {
         if (result.success && result.data) {
             // 3. Find full object in local memory to ensure we have all POS Required fields (prices, tax, etc)
             // We use the ID returned by the fast scanner to find exact match.
-            const product = inventory.find(i => i.id === result.data?.id);
+            const product = posInventory.find(i => i.id === result.data?.id);
 
             if (product) {
                 addToCart(product, 1);
@@ -433,9 +436,8 @@ const POSMainScreen: React.FC = () => {
 
     // 1. Pre-sort Inventory (FEFO) - Uses React Query data directly if synced
     const sortedInventory = useMemo(() => {
-        const source = (inventoryData && inventoryData.length > 0) ? inventoryData : inventory;
-        return sortInventoryForPOS(source);
-    }, [inventory, inventoryData]);
+        return sortInventoryForPOS(posInventory);
+    }, [posInventory]);
 
     const posCatalog = useMemo(() => {
         return buildPOSCatalog(sortedInventory);
@@ -516,7 +518,7 @@ const POSMainScreen: React.FC = () => {
 
     // Check for Restricted Items (R/RR/RCH)
     const isRestricted = (item: CartItem) => {
-        const inventoryItem = inventory.find(i => i.id === item.id);
+        const inventoryItem = posInventory.find(i => i.id === item.id);
         return inventoryItem && (inventoryItem.condition === 'R' || inventoryItem.condition === 'RR' || inventoryItem.condition === 'RCH');
     };
     const hasRestrictedItems = cart.some(isRestricted);
@@ -547,8 +549,6 @@ const POSMainScreen: React.FC = () => {
                         unitPrice: item.price,
                         discount: item.discount?.discountAmount ? (item.discount.discountAmount / item.price) * 100 : 0 // Fix type mismatch manually
                     })),
-                    locationId: currentLocationId, // Ensure mapped from store
-                    terminalId: currentTerminalId,
                     validDays: 7, // Default valid days
                 };
 
@@ -697,8 +697,8 @@ const POSMainScreen: React.FC = () => {
 
     const getRetailAlternative = useCallback((fullItem?: InventoryBatch | null): InventoryBatch | undefined => {
         if (!fullItem) return undefined;
-        return selectRetailLotCandidate(inventory, fullItem);
-    }, [inventory]);
+        return selectRetailLotCandidate(posInventory, fullItem);
+    }, [posInventory]);
 
     const switchCartItemToRetailLot = useCallback((cartItem: CartItem, fullItem?: InventoryBatch | null) => {
         const retailLot = getRetailAlternative(fullItem);
@@ -746,7 +746,7 @@ const POSMainScreen: React.FC = () => {
                 {/* Subtle Background Pattern */}
                 <div className="absolute inset-0 opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
 
-                <div className="z-10 bg-white border border-slate-200 p-8 md:p-12 rounded-[40px] shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
+                <div data-testid="pos-blocked-state" className="z-10 bg-white border border-slate-200 p-8 md:p-12 rounded-[40px] shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
                     <div className="w-24 h-24 bg-red-50 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-red-100">
                         <Lock size={48} className="text-red-500" />
                     </div>
@@ -755,6 +755,7 @@ const POSMainScreen: React.FC = () => {
                     <p className="text-slate-500 mb-10 text-lg leading-relaxed font-medium">Se requiere apertura de caja para operar el punto de venta.</p>
 
                     <button
+                        data-testid="pos-request-open-shift"
                         onClick={() => setIsShiftModalOpen(true)}
                         className="w-full py-5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-2xl text-xl shadow-lg shadow-sky-600/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] border-b-4 border-sky-800"
                     >
@@ -775,7 +776,7 @@ const POSMainScreen: React.FC = () => {
     }
 
     return (
-        <div className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden relative">
+        <div data-testid="pos-main-screen" className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden relative">
             {/* COL 1: Búsqueda (Fixed 400px Desktop, 100% Mobile Catalog View) */}
             <div className={`w-full md:w-[400px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 {/* ... (existing content logic is fine, we just want to replace the container logic if needed, but here we cover lines 82-607, so we need to be careful with the huge replacement) */}
@@ -789,6 +790,7 @@ const POSMainScreen: React.FC = () => {
                         <div className="relative group">
                             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-600 transition-colors" size={20} />
                             <input
+                                data-testid="pos-search-input"
                                 type="text"
                                 ref={searchInputRef}
                                 placeholder="Buscar productos... (F2)"
@@ -982,7 +984,7 @@ const POSMainScreen: React.FC = () => {
                         {/* DESKTOP STATUS (Replacing search bar in header) */}
                         <div className="flex-1 max-w-2xl mx-4 hidden md:flex items-center gap-4">
                             <div className="h-10 w-px bg-slate-200 mx-2" />
-                            <div className="flex flex-col">
+                            <div data-testid="pos-terminal-status" className="flex flex-col">
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">Terminal Activo</span>
                                 <span className="text-sm font-bold text-slate-600">{activeTerminal?.name || 'Caja sin asignar'}</span>
                             </div>
@@ -1106,7 +1108,7 @@ const POSMainScreen: React.FC = () => {
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
                                             {cartWithDiscounts.map((item, index) => {
-                                                const fullItem = inventory.find(i => i.id === item.id || i.id === item.batch_id);
+                                                const fullItem = posInventory.find(i => i.id === item.id || i.id === item.batch_id);
                                                 const retailAlternative = getRetailAlternative(fullItem);
                                                 return (
                                                     <tr key={item.id || item.sku || `item-${index}`} className="hover:bg-slate-50 transition-colors group">
@@ -1212,7 +1214,7 @@ const POSMainScreen: React.FC = () => {
                                 {/* Mobile List View (Hidden on Desktop) */}
                                 <div className="md:hidden space-y-3">
                                     {cartWithDiscounts.map((item, index) => {
-                                        const fullItem = inventory.find(i => i.id === item.id || i.id === item.batch_id);
+                                        const fullItem = posInventory.find(i => i.id === item.id || i.id === item.batch_id);
                                         const retailAlternative = getRetailAlternative(fullItem);
                                         return (
                                             <div key={item.id || item.sku || `item-${index}`} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">

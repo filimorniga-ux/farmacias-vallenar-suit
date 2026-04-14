@@ -3,6 +3,7 @@
 import { query, getClient } from '../lib/db';
 import { createNotificationSecure } from '@/actions/notifications-v2';
 import * as Sentry from "@sentry/nextjs";
+import { PRICING_GLOBAL_ROLES, requireScopedActor } from '@/actions/admin-scope';
 
 // ============================================================================
 // TYPES
@@ -56,12 +57,15 @@ export interface ProductForAudit {
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string } | null> {
-    try {
-        const { getSessionSecure } = await import('@/actions/auth-v2');
-        return await getSessionSecure();
-    } catch {
+    const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+    if (!actorResult.success) {
         return null;
     }
+
+    return {
+        userId: actorResult.actor.userId,
+        role: actorResult.actor.role,
+    };
 }
 
 // ============================================================================
@@ -223,6 +227,11 @@ export async function updateBatchProgress(
     status?: 'IN_PROGRESS' | 'COMPLETED' | 'PAUSED'
 ): Promise<{ success: boolean; error?: string }> {
     try {
+        const session = await getSession();
+        if (!session?.userId) {
+            return { success: false, error: 'No autorizado' };
+        }
+
         if (status === 'COMPLETED') {
             await query(
                 `UPDATE price_audit_batches 
@@ -310,6 +319,11 @@ export async function savePriceProposal(proposal: {
     raw_search_data?: any;
 }): Promise<{ success: boolean; id?: number; error?: string }> {
     try {
+        const session = await getSession();
+        if (!session?.userId) {
+            return { success: false, error: 'No autorizado' };
+        }
+
         const result = await query(
             `INSERT INTO price_audit_results (
                 batch_id, product_id, sku, product_name,

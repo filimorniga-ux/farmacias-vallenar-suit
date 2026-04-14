@@ -6,6 +6,10 @@ const { mockPool } = vi.hoisted(() => ({
     },
 }));
 
+const { mockGetValidatedSession } = vi.hoisted(() => ({
+    mockGetValidatedSession: vi.fn(),
+}));
+
 vi.mock('@/lib/db', () => ({
     pool: mockPool,
 }));
@@ -18,11 +22,40 @@ vi.mock('@/lib/logger', () => ({
     },
 }));
 
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: mockGetValidatedSession,
+}));
+
 import { diagnoseDbConnection } from '@/actions/debug/diagnose-db';
 
 describe('diagnoseDbConnection', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockGetValidatedSession.mockResolvedValue({
+            userId: 'admin-1',
+            userName: 'Admin',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+    });
+
+    it('bloquea actores sin rol administrativo', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'manager-1',
+            userName: 'Manager',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        const result = await diagnoseDbConnection();
+
+        expect(result.connectionStatus).toBe('FAILED');
+        expect(result.error).toBe('Acceso denegado');
+        expect(mockPool.connect).not.toHaveBeenCalled();
     });
 
     it('redacta detalles sensibles cuando falla la conexión', async () => {

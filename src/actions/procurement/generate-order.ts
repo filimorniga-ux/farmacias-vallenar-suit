@@ -2,6 +2,10 @@
 
 import { getClient } from '@/lib/db';
 import { AIForecastingService, ForecastInput } from '@/services/ai-forecasting';
+import {
+    PROCUREMENT_GLOBAL_ROLES,
+    requireProcurementActor,
+} from '../procurement-scope';
 
 export interface ReplenishmentSuggestion {
     id: string; // ID of the branch product
@@ -20,6 +24,13 @@ export interface ReplenishmentSuggestion {
 
 export async function getReplenishmentSuggestions(branch: 'SANTIAGO' | 'COLCHAGUA'): Promise<ReplenishmentSuggestion[]> {
     if (!['SANTIAGO', 'COLCHAGUA'].includes(branch)) return [];
+
+    const auth = await requireProcurementActor(PROCUREMENT_GLOBAL_ROLES, 'legacy-procurement-generate-order');
+    if (!auth.success) return [];
+
+    if (process.env.ENABLE_LEGACY_PROCUREMENT_ORDERS !== 'true') {
+        return [];
+    }
 
     const client = await getClient();
 
@@ -66,18 +77,12 @@ export async function getReplenishmentSuggestions(branch: 'SANTIAGO' | 'COLCHAGU
                 ORDER BY 1 ASC
             `;
 
-            // Note: Since we don't have real linked sales yet for imports, this might return empty. 
-            // We'll mock it if empty for the demo.
+            // Sin historial real no generamos sugerencia legacy. Evita órdenes no determinísticas.
             const historyRes = await client.query(salesHistorySql, [productId]);
             let salesHistory = historyRes.rows.map(r => ({ date: r.month, quantity: Number(r.qty) }));
 
-            // MOCK IF EMPTY (To demonstrate AI)
             if (salesHistory.length === 0) {
-                salesHistory = [
-                    { date: '2025-10', quantity: Math.floor(Math.random() * 20) + 5 },
-                    { date: '2025-11', quantity: Math.floor(Math.random() * 30) + 10 },
-                    { date: '2025-12', quantity: Math.floor(Math.random() * 40) + 15 }, // Trending up
-                ];
+                continue;
             }
 
             // B. AI FORECASTING

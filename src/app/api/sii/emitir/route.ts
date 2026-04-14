@@ -13,9 +13,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { buildDteXML, calculateIVA, calculateNetoFromTotal, DteData, DteItem } from '@/domain/logic/sii/dteBuilder';
 import { signXML } from '@/domain/logic/sii/crypto';
 import { getSiiEmissionConfig } from '@/lib/sii-config';
+import { requireApiRoles } from '@/lib/api-auth';
 // In production, import DB client:
 // import { db } from '@/domain/db/client';
 
@@ -37,10 +39,43 @@ interface EmitirRequest {
 }
 
 export const runtime = 'nodejs';
+const SII_EMIT_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'] as const;
+
+const EmitirRequestSchema = z.object({
+    tipo: z.union([z.literal(33), z.literal(39)]),
+    items: z.array(z.object({
+        sku: z.string().min(1).max(120),
+        nombre: z.string().min(1).max(255),
+        cantidad: z.number().int().positive(),
+        precio: z.number().positive(),
+    })).min(1, 'Debe incluir al menos un ítem'),
+    cliente: z.object({
+        rut: z.string().min(3).max(32),
+        razonSocial: z.string().min(2).max(255),
+        direccion: z.string().min(2).max(255).optional(),
+        comuna: z.string().min(2).max(120).optional(),
+    }).optional(),
+    metodoPago: z.enum(['CASH', 'DEBIT', 'CREDIT', 'TRANSFER']),
+});
 
 export async function POST(request: NextRequest) {
+    const auth = await requireApiRoles(SII_EMIT_ROLES);
+    if (!auth.ok) {
+        return auth.response;
+    }
+
     try {
-        const body: EmitirRequest = await request.json();
+        const bodyResult = await request.json().catch(() => null);
+        const parsedBody = EmitirRequestSchema.safeParse(bodyResult);
+        if (!parsedBody.success) {
+            return NextResponse.json({
+                success: false,
+                error: 'INVALID_PAYLOAD',
+                message: parsedBody.error.issues[0]?.message || 'Payload inválido',
+            }, { status: 400 });
+        }
+
+        const body: EmitirRequest = parsedBody.data;
 
         // STEP 1: Load SII Configuration (server-side only)
         const siiConfig = await getSiiEmissionConfig();

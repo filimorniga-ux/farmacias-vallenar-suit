@@ -28,8 +28,10 @@ import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import {
     getActorOrFail,
+    normalizeRole,
     PinRbacError,
     ROLE_GROUPS,
+    requireRole,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
 
@@ -56,7 +58,7 @@ const CreateQuoteSchema = z.object({
     items: z.array(QuoteItemSchema).min(1, 'Debe incluir al menos un item'),
     notes: z.string().max(1000).optional(),
     validDays: z.number().int().min(1).max(90).default(7),
-    locationId: UUIDSchema,
+    locationId: UUIDSchema.optional(),
     terminalId: UUIDSchema.optional(),
 });
 
@@ -80,8 +82,7 @@ const ConvertToSaleSchema = z.object({
     cashReceived: z.number().min(0).optional(),
     cardAmount: z.number().min(0).optional(),
     transferAmount: z.number().min(0).optional(),
-    terminalId: UUIDSchema,
-    userId: UUIDSchema,
+    terminalId: UUIDSchema.optional(),
 });
 
 const QuoteHistorySchema = z.object({
@@ -99,6 +100,9 @@ const QuoteHistorySchema = z.object({
 // ============================================================================
 
 const CASHIER_AUTH_ROLES = ['CASHIER', ...ROLE_GROUPS.MANAGER] as const;
+const QUOTE_OPERATOR_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'] as const;
+const QUOTE_GLOBAL_ROLES = ROLE_GROUPS.ADMIN;
+const QUOTE_LOCATION_WIDE_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'] as const;
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -117,17 +121,272 @@ const DISCOUNT_THRESHOLDS = {
 // HELPER FUNCTIONS
 // ============================================================================
 
-async function requireQuoteActor() {
+type QuoteActor = Awaited<ReturnType<typeof getActorOrFail>>;
+type CanonicalQuoteItem = {
+    productId: string;
+    sku: string;
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    discount: number;
+    subtotal: number;
+    total: number;
+};
+
+function hasGlobalQuoteScope(role: string) {
+    return QUOTE_GLOBAL_ROLES.includes(normalizeRole(role) as typeof QUOTE_GLOBAL_ROLES[number]);
+}
+
+function canViewLocationQuotes(role: string) {
+    return QUOTE_LOCATION_WIDE_ROLES.includes(
+        normalizeRole(role) as typeof QUOTE_LOCATION_WIDE_ROLES[number],
+    );
+}
+
+async function requireQuoteActor(allowedRoles: readonly string[] = QUOTE_OPERATOR_ROLES) {
     try {
-        const actor = await getActorOrFail();
+        const actor = requireRole(await getActorOrFail(), allowedRoles);
         return { success: true as const, actor };
     } catch (error) {
         if (error instanceof PinRbacError) {
-            return { success: false as const, error: 'No autenticado' };
+            return {
+                success: false as const,
+                error: error.code === 'AUTH_UNAUTHORIZED' ? 'No autenticado' : 'Acceso denegado',
+            };
         }
 
         throw error;
     }
+}
+
+function resolveEffectiveQuoteLocation(
+    actor: QuoteActor,
+    requestedLocationId?: string | null,
+) {
+    if (hasGlobalQuoteScope(actor.role)) {
+        return { success: true as const, locationId: requestedLocationId || actor.locationId || undefined };
+    }
+
+    if (!actor.locationId) {
+        return { success: false as const, error: 'No tienes una ubicación asignada' };
+    }
+
+    if (requestedLocationId && requestedLocationId !== actor.locationId) {
+        return { success: false as const, error: 'Acceso denegado a otra ubicación' };
+    }
+
+    return { success: true as const, locationId: actor.locationId };
+}
+
+async function resolveEffectiveQuoteTerminal(
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> },
+    actor: QuoteActor,
+    locationId: string,
+    options?: { requestedTerminalId?: string | null; required?: boolean },
+) {
+    const result = await client.query(`
+        SELECT crs.terminal_id::text AS terminal_id
+        FROM cash_register_sessions crs
+        JOIN terminals t ON t.id = crs.terminal_id
+        WHERE crs.user_id::text = $1::text
+          AND crs.closed_at IS NULL
+          AND t.location_id::text = $2::text
+        ORDER BY crs.opened_at DESC NULLS LAST, crs.id DESC
+        LIMIT 1
+    `, [actor.userId, locationId]);
+
+    const activeTerminalId = String(result.rows[0]?.terminal_id || '') || undefined;
+
+    if (options?.requestedTerminalId && activeTerminalId && options.requestedTerminalId !== activeTerminalId) {
+        return { success: false as const, error: 'La terminal indicada no coincide con tu sesión activa' };
+    }
+
+    if (!activeTerminalId) {
+        if (options?.required) {
+            return { success: false as const, error: 'No tienes una caja activa para esta sucursal' };
+        }
+
+        return { success: true as const, terminalId: undefined };
+    }
+
+    return { success: true as const, terminalId: activeTerminalId };
+}
+
+async function loadCanonicalQuoteItems(
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> },
+    locationId: string | undefined,
+    items: z.infer<typeof QuoteItemSchema>[],
+): Promise<{ success: true; items: CanonicalQuoteItem[] } | { success: false; error: string }> {
+    const normalizedItems: CanonicalQuoteItem[] = [];
+
+    for (const item of items) {
+        const productRes = await client.query(`
+            SELECT
+                p.id::text AS id,
+                p.sku,
+                p.name,
+                COALESCE(
+                    NULLIF(MAX(ib.sale_price), 0),
+                    NULLIF(MAX(ib.price_sell_box), 0),
+                    NULLIF(MAX(p.sale_price), 0),
+                    NULLIF(MAX(p.price_sell_box), 0),
+                    NULLIF(MAX(p.price), 0),
+                    0
+                ) AS canonical_price
+            FROM products p
+            LEFT JOIN inventory_batches ib
+              ON ib.product_id = p.id
+             AND ($2::text IS NULL OR ib.location_id::text = $2::text)
+            WHERE p.id = $1::uuid
+            GROUP BY p.id, p.sku, p.name
+            LIMIT 1
+        `, [item.productId, locationId || null]);
+
+        const product = productRes.rows[0];
+        if (!product) {
+            return { success: false, error: `Producto inválido en cotización: ${item.productId}` };
+        }
+
+        const unitPrice = Number(product.canonical_price || 0);
+        if (unitPrice <= 0) {
+            return { success: false, error: `Producto sin precio válido: ${product.name || item.name}` };
+        }
+
+        const subtotal = unitPrice * item.quantity;
+
+        normalizedItems.push({
+            productId: String(product.id),
+            sku: String(product.sku || item.sku),
+            name: String(product.name || item.name),
+            quantity: item.quantity,
+            unitPrice,
+            discount: 0,
+            subtotal,
+            total: subtotal,
+        });
+    }
+
+    return { success: true, items: normalizedItems };
+}
+
+async function getQuoteForActor(
+    client: { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> },
+    actor: QuoteActor,
+    quoteId: string,
+    options?: { lock?: boolean },
+) {
+    const quoteRes = await client.query(`
+        SELECT q.*
+        FROM quotes q
+        WHERE q.id = $1::uuid
+        ${options?.lock ? 'FOR UPDATE NOWAIT' : ''}
+    `, [quoteId]);
+
+    if (quoteRes.rows.length === 0) {
+        return { success: false as const, error: 'Cotización no encontrada' };
+    }
+
+    const quote = quoteRes.rows[0];
+    const quoteLocationId = String(quote.location_id || '') || undefined;
+
+    if (!hasGlobalQuoteScope(actor.role)) {
+        if (!actor.locationId) {
+            return { success: false as const, error: 'No tienes una ubicación asignada' };
+        }
+
+        if (!quoteLocationId || quoteLocationId !== actor.locationId) {
+            return { success: false as const, error: 'Acceso denegado a cotización fuera de tu sucursal' };
+        }
+    }
+
+    if (!canViewLocationQuotes(actor.role) && String(quote.user_id || '') !== actor.userId) {
+        return { success: false as const, error: 'No puedes acceder a una cotización ajena' };
+    }
+
+    return { success: true as const, quote, locationId: quoteLocationId };
+}
+
+async function listQuotesForActor(
+    actor: QuoteActor,
+    filters: z.infer<typeof QuoteHistorySchema>,
+) {
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (filters.status) {
+        conditions.push(`q.status = $${idx++}`);
+        params.push(filters.status);
+    }
+
+    if (filters.searchCode && filters.searchCode.trim().length > 0) {
+        conditions.push(`q.code ILIKE $${idx++}`);
+        params.push(`%${filters.searchCode.trim()}%`);
+    }
+
+    if (filters.customerId) {
+        conditions.push(`q.customer_id = $${idx++}::text`);
+        params.push(filters.customerId);
+    }
+
+    if (filters.startDate) {
+        conditions.push(`q.created_at >= $${idx++}`);
+        params.push(filters.startDate);
+    }
+
+    if (filters.endDate) {
+        const eod = new Date(filters.endDate);
+        eod.setHours(23, 59, 59, 999);
+        conditions.push(`q.created_at <= $${idx++}`);
+        params.push(eod);
+    }
+
+    if (!hasGlobalQuoteScope(actor.role)) {
+        if (!actor.locationId) {
+            throw new Error('No tienes una ubicación asignada');
+        }
+
+        conditions.push(`q.location_id::text = $${idx++}::text`);
+        params.push(actor.locationId);
+
+        if (!canViewLocationQuotes(actor.role)) {
+            conditions.push(`q.user_id = $${idx++}::text`);
+            params.push(actor.userId);
+        }
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countRes = await pool.query(
+        `SELECT COUNT(*) FROM quotes q ${whereClause}`,
+        params,
+    );
+    const total = parseInt(countRes.rows[0]?.count || '0', 10);
+
+    const page = filters.page || 1;
+    const pageSize = filters.pageSize || 50;
+    const offset = (page - 1) * pageSize;
+
+    const rowsRes = await pool.query(`
+        SELECT
+            q.id, q.code, q.total, q.created_at, q.valid_until, q.status,
+            q.customer_name, q.customer_phone, q.customer_email,
+            q.user_id, q.location_id,
+            u.name as creator_name,
+            (SELECT COUNT(*) FROM quote_items WHERE quote_id = q.id) as items_count
+        FROM quotes q
+        LEFT JOIN users u ON q.user_id = u.id::text
+        ${whereClause}
+        ORDER BY q.created_at DESC
+        LIMIT $${idx++} OFFSET $${idx++}
+    `, [...params, pageSize, offset]);
+
+    return {
+        quotes: rowsRes.rows,
+        total,
+        page,
+        pageSize,
+    };
 }
 
 /**
@@ -243,7 +502,7 @@ export async function createQuoteSecure(
 
     const {
         customerId, customerName, customerPhone, customerEmail,
-        items, notes, validDays
+        items, notes, validDays, locationId, terminalId,
     } = validated.data;
 
     const client = await pool.connect();
@@ -252,18 +511,45 @@ export async function createQuoteSecure(
         await client.query('BEGIN'); // Default Read Committed
         debugLog(`[Quotes] Starting transaction for user ${auth.actor.userId}`);
 
-        // Calculate totals
-        let subtotal = 0;
-        let totalDiscount = 0;
-
-        for (const item of items) {
-            const itemSubtotal = item.unitPrice * item.quantity;
-            const itemDiscount = itemSubtotal * (item.discount / 100);
-            subtotal += itemSubtotal;
-            totalDiscount += itemDiscount;
+        const scopedLocation = resolveEffectiveQuoteLocation(auth.actor, locationId);
+        if (!scopedLocation.success || !scopedLocation.locationId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedLocation.success ? 'No se pudo resolver sucursal' : scopedLocation.error };
         }
 
-        const total = subtotal - totalDiscount;
+        const effectiveLocationId = scopedLocation.locationId;
+
+        const effectiveTerminal = await resolveEffectiveQuoteTerminal(client, auth.actor, effectiveLocationId, {
+            requestedTerminalId: terminalId,
+            required: false,
+        });
+        if (!effectiveTerminal.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: effectiveTerminal.error };
+        }
+
+        if (customerId) {
+            const customerRes = await client.query(
+                'SELECT id FROM customers WHERE id = $1::uuid AND status != \'DELETED\' LIMIT 1',
+                [customerId],
+            );
+
+            if (customerRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Cliente no encontrado' };
+            }
+        }
+
+        const canonicalItemsResult = await loadCanonicalQuoteItems(client, effectiveLocationId, items);
+        if (!canonicalItemsResult.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: canonicalItemsResult.error };
+        }
+
+        const canonicalItems = canonicalItemsResult.items;
+        const subtotal = canonicalItems.reduce((sum, item) => sum + item.subtotal, 0);
+        const totalDiscount = 0;
+        const total = subtotal;
 
         // 1. Get next sequence value for code
         const seqRes = await client.query("SELECT nextval('quotes_code_seq') as seq");
@@ -298,17 +584,14 @@ export async function createQuoteSecure(
             notes || null,
             expiresAt,
             auth.actor.userId,
-            validated.data.locationId,
-            validated.data.terminalId || null
+            effectiveLocationId,
+            effectiveTerminal.terminalId || null
         ]);
 
         // Insert items
-        debugLog(`[Quotes] Inserting ${items.length} items...`);
-        for (const item of items) {
+        debugLog(`[Quotes] Inserting ${canonicalItems.length} items...`);
+        for (const item of canonicalItems) {
             const itemId = randomUUID();
-            const itemSubtotal = item.unitPrice * item.quantity;
-            const itemDiscount = itemSubtotal * (item.discount / 100);
-            const itemTotal = itemSubtotal - itemDiscount;
 
             await client.query(`
                 INSERT INTO quote_items (
@@ -324,8 +607,8 @@ export async function createQuoteSecure(
                 item.quantity,
                 item.unitPrice,
                 item.discount,
-                itemSubtotal,
-                itemTotal
+                item.subtotal,
+                item.total
             ]);
         }
 
@@ -338,9 +621,10 @@ export async function createQuoteSecure(
             newValues: {
                 code: quoteCode,
                 customer_name: customerName,
-                items_count: items.length,
+                items_count: canonicalItems.length,
                 total,
                 valid_until: expiresAt.toISOString(),
+                location_id: effectiveLocationId,
             }
         });
 
@@ -405,17 +689,13 @@ export async function updateQuoteSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // Lock quote
-        const quoteRes = await client.query(`
-            SELECT * FROM quotes WHERE id = $1 FOR UPDATE NOWAIT
-        `, [quoteId]);
-
-        if (quoteRes.rows.length === 0) {
+        const quoteScope = await getQuoteForActor(client, auth.actor, quoteId, { lock: true });
+        if (!quoteScope.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Cotización no encontrada' };
+            return { success: false, error: quoteScope.error };
         }
 
-        const quote = quoteRes.rows[0];
+        const quote = quoteScope.quote;
 
         if (quote.status !== 'PENDING') {
             await client.query('ROLLBACK');
@@ -430,6 +710,14 @@ export async function updateQuoteSecure(
 
         // Update items if provided
         if (items && items.length > 0) {
+            const canonicalItemsResult = await loadCanonicalQuoteItems(client, quoteScope.locationId, items);
+            if (!canonicalItemsResult.success) {
+                await client.query('ROLLBACK');
+                return { success: false, error: canonicalItemsResult.error };
+            }
+
+            const canonicalItems = canonicalItemsResult.items;
+
             // Delete existing items
             await client.query('DELETE FROM quote_items WHERE quote_id = $1', [quoteId]);
 
@@ -437,16 +725,13 @@ export async function updateQuoteSecure(
             let subtotal = 0;
             let totalDiscount = 0;
 
-            for (const item of items) {
-                const itemSubtotal = item.unitPrice * item.quantity;
-                const itemDiscount = itemSubtotal * (item.discount / 100);
-                subtotal += itemSubtotal;
-                totalDiscount += itemDiscount;
+            for (const item of canonicalItems) {
+                subtotal += item.subtotal;
 
                 const itemId = randomUUID();
                 await client.query(`
                     INSERT INTO quote_items (
-                        id, quote_id, product_id, sku, name,
+                        id, quote_id, product_id, sku, product_name,
                         quantity, unit_price, discount_percent, subtotal, total
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 `, [
@@ -458,8 +743,8 @@ export async function updateQuoteSecure(
                     item.quantity,
                     item.unitPrice,
                     item.discount,
-                    itemSubtotal,
-                    itemSubtotal - itemDiscount
+                    item.subtotal,
+                    item.total
                 ]);
             }
 
@@ -559,17 +844,13 @@ export async function applyDiscountSecure(
             authorizer = authResult.authorizer;
         }
 
-        // Lock quote
-        const quoteRes = await client.query(`
-            SELECT * FROM quotes WHERE id = $1 FOR UPDATE NOWAIT
-        `, [quoteId]);
-
-        if (quoteRes.rows.length === 0) {
+        const quoteScope = await getQuoteForActor(client, auth.actor, quoteId, { lock: true });
+        if (!quoteScope.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Cotización no encontrada' };
+            return { success: false, error: quoteScope.error };
         }
 
-        const quote = quoteRes.rows[0];
+        const quote = quoteScope.quote;
 
         if (quote.status !== 'PENDING') {
             await client.query('ROLLBACK');
@@ -642,35 +923,29 @@ export async function convertToSaleSecure(
         return { success: false, error: auth.error };
     }
 
-    const {
-        quoteId, paymentMethod, cashReceived, cardAmount, transferAmount,
-        terminalId
-    } = validated.data;
+    const { quoteId, paymentMethod, cashReceived, cardAmount, transferAmount, terminalId } = validated.data;
 
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // Lock quote
-        const quoteRes = await client.query(`
-            SELECT q.*, u.name as created_by_name
-            FROM quotes q
-            LEFT JOIN users u ON q.created_by = u.id
-            WHERE q.id = $1
-            FOR UPDATE NOWAIT
-        `, [quoteId]);
-
-        if (quoteRes.rows.length === 0) {
+        const quoteScope = await getQuoteForActor(client, auth.actor, quoteId, { lock: true });
+        if (!quoteScope.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Cotización no encontrada' };
+            return { success: false, error: quoteScope.error };
         }
 
-        const quote = quoteRes.rows[0];
+        const quote = quoteScope.quote;
 
         if (quote.status !== 'PENDING') {
             await client.query('ROLLBACK');
             return { success: false, error: 'Cotización ya fue procesada o expiró' };
+        }
+
+        if (!quoteScope.locationId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'La cotización no tiene una sucursal válida' };
         }
 
         // Check validity
@@ -696,6 +971,15 @@ export async function convertToSaleSecure(
             }
         }
 
+        const effectiveTerminal = await resolveEffectiveQuoteTerminal(client, auth.actor, quoteScope.locationId, {
+            requestedTerminalId: terminalId,
+            required: true,
+        });
+        if (!effectiveTerminal.success || !effectiveTerminal.terminalId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: effectiveTerminal.success ? 'No se pudo resolver la terminal' : effectiveTerminal.error };
+        }
+
         // Get quote items
         const itemsRes = await client.query(`
             SELECT * FROM quote_items WHERE quote_id = $1
@@ -706,14 +990,16 @@ export async function convertToSaleSecure(
             const stockRes = await client.query(`
                 SELECT id, quantity_real 
                 FROM inventory_batches 
-                WHERE sku = $1 AND quantity_real >= $2
+                WHERE sku = $1
+                  AND location_id::text = $2::text
+                  AND quantity_real >= $3
                 FOR UPDATE NOWAIT
                 LIMIT 1
-            `, [item.sku, item.quantity]);
+            `, [item.sku, quoteScope.locationId, item.quantity]);
 
             if (stockRes.rows.length === 0) {
                 await client.query('ROLLBACK');
-                return { success: false, error: `Stock insuficiente para: ${item.name}` };
+                return { success: false, error: `Stock insuficiente para: ${item.product_name || item.name}` };
             }
 
             // Decrement stock
@@ -739,7 +1025,7 @@ export async function convertToSaleSecure(
         `, [
             saleId,
             saleCode,
-            terminalId,
+            effectiveTerminal.terminalId,
             auth.actor.userId,
             quote.customer_id,
             quote.subtotal,
@@ -766,7 +1052,7 @@ export async function convertToSaleSecure(
                 saleId,
                 item.product_id,
                 item.sku,
-                item.name,
+                item.product_name || item.name,
                 item.quantity,
                 item.unit_price,
                 item.discount_percent,
@@ -874,16 +1160,13 @@ export async function cancelQuoteSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        const quoteRes = await client.query(`
-            SELECT * FROM quotes WHERE id = $1 FOR UPDATE NOWAIT
-        `, [quoteId]);
-
-        if (quoteRes.rows.length === 0) {
+        const quoteScope = await getQuoteForActor(client, auth.actor, quoteId, { lock: true });
+        if (!quoteScope.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Cotización no encontrada' };
+            return { success: false, error: quoteScope.error };
         }
 
-        const quote = quoteRes.rows[0];
+        const quote = quoteScope.quote;
 
         if (quote.status !== 'PENDING') {
             await client.query('ROLLBACK');
@@ -946,100 +1229,21 @@ export async function getQuoteHistory(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { customerId, status, startDate, endDate, page, pageSize } = validated.data;
-    const offset = (page - 1) * pageSize;
-
     try {
-        const { query } = await import('@/lib/db');
-
-        // Build WHERE clause
-        const conditions: string[] = ['1=1'];
-        const params: any[] = [];
-        let paramIndex = 1;
-
-        if (customerId) {
-            conditions.push(`q.customer_id = $${paramIndex++}::text`);
-            params.push(customerId);
+        const auth = await requireQuoteActor();
+        if (!auth.success) {
+            return { success: false, error: auth.error };
         }
 
-        if (status) {
-            conditions.push(`q.status = $${paramIndex++}`);
-            params.push(status);
-        }
-
-        if (startDate) {
-            conditions.push(`q.created_at >= $${paramIndex++}`);
-            params.push(startDate);
-        }
-
-        if (endDate) {
-            conditions.push(`q.created_at <= $${paramIndex++}`);
-            params.push(endDate);
-        }
-
-        const whereClause = conditions.join(' AND ');
-
-        // Count total
-        const countRes = await query(`
-            SELECT COUNT(*) as total FROM quotes q WHERE ${whereClause}
-        `, params);
-
-        const total = parseInt(countRes.rows[0]?.total || '0');
-
-        // Fetch quotes
-        params.push(pageSize, offset);
-        // Filter by User / Location (Security)
-        // If not admin, restrict to own quotes or branch quotes
-        // For now, let's enforce: User can see quotes created by them, OR created at their current location
-        let userFilter = '';
-        const queryParams: any[] = [pageSize, offset]; // Changed from limit, offset to pageSize, offset
-        let currentParamIndex = 3; // Adjusted paramIndex for the new query structure
-
-        // Add status filter
-        if (status) {
-            userFilter += ` AND q.status = $${currentParamIndex}`;
-            queryParams.push(status);
-            currentParamIndex++;
-        }
-
-        if (customerId) {
-            userFilter += ` AND q.customer_id = $${currentParamIndex}::text`;
-            queryParams.push(customerId);
-            currentParamIndex++;
-        }
-
-        if (startDate) {
-            userFilter += ` AND q.created_at >= $${currentParamIndex}`;
-            queryParams.push(startDate);
-            currentParamIndex++;
-        }
-
-        if (endDate) {
-            userFilter += ` AND q.created_at <= $${currentParamIndex}`;
-            queryParams.push(endDate);
-            currentParamIndex++;
-        }
-
-        const quotesRes = await query(`
-            SELECT 
-                q.*,
-                (SELECT COUNT(*) FROM quote_items WHERE quote_id = q.id) as items_count,
-                u.name as creator_name
-            FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id::text
-            LEFT JOIN customers c ON q.customer_id = c.id::text
-            WHERE 1=1 ${userFilter}
-            ORDER BY q.created_at DESC
-            LIMIT $1 OFFSET $2
-        `, queryParams); // Using queryParams for the new query
+        const result = await listQuotesForActor(auth.actor, validated.data);
 
         return {
             success: true,
             data: {
-                quotes: quotesRes.rows,
-                total,
-                page,
-                pageSize,
+                quotes: result.quotes,
+                total: result.total,
+                page: result.page,
+                pageSize: result.pageSize,
             }
         };
 
@@ -1079,88 +1283,56 @@ export async function retrieveQuoteSecure(
     }
 
     try {
-        console.log('[Debug] retrieveQuoteSecure: Starting for ID', quoteId);
-        const { query } = await import('@/lib/db');
-
-        // Get quote with creator info
-        console.log('[Debug] Fetching quote header...');
-        const quoteRes = await query(`
-            SELECT 
-                q.*,
-                u.name as created_by_name,
-                c.name as customer_display_name
-            FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id::text
-            LEFT JOIN customers c ON q.customer_id = c.id::text
-            WHERE q.id = $1::uuid
-        `, [quoteId]);
-        console.log('[Debug] Header fetched. Rows:', quoteRes.rows.length);
-
-        if (quoteRes.rows.length === 0) {
-            return { success: false, error: 'Cotización no encontrada' };
+        const auth = await requireQuoteActor();
+        if (!auth.success) {
+            return { success: false, error: auth.error };
         }
 
-        const quote = quoteRes.rows[0];
-
-        // Get quote items
-        console.log('[Debug] Fetching items...');
-        const itemsRes = await query(`
-            SELECT * FROM quote_items WHERE quote_id = $1::uuid
-        `, [quoteId]);
-        console.log('[Debug] Items fetched. Count:', itemsRes.rows.length);
-
-        // Validate Location and Stock (Optional but recommended)
-        const stockWarnings: string[] = [];
-
-        // If we want to check stock in the quote's location:
-        if (quote.location_id) {
-            const skuList = itemsRes.rows.map(i => i.sku).filter(Boolean);
-            if (skuList.length > 0) {
-                const stockRes = await query(`
-                    SELECT sku, quantity_real 
-                    FROM inventory_batches 
-                    WHERE location_id = $1 AND sku = ANY($2:: text[])
-            `, [quote.location_id, skuList]);
-
-                const stockMap = new Map();
-                stockRes.rows.forEach((r: any) => {
-                    stockMap.set(r.sku, (stockMap.get(r.sku) || 0) + Number(r.quantity_real));
-                });
-
-                itemsRes.rows.forEach(item => {
-                    const available = stockMap.get(item.sku) || 0;
-                    if (available < item.quantity) {
-                        stockWarnings.push(`Stock bajo para ${item.product_name || item.sku}: ${available} / ${item.quantity}`);
-                    }
-                });
+        const client = await pool.connect();
+        try {
+            const quoteScope = await getQuoteForActor(client, auth.actor, quoteId);
+            if (!quoteScope.success) {
+                return { success: false, error: quoteScope.error };
             }
-        }
 
-        console.log('[Debug] Returning success data...');
-        return {
-            success: true,
-            data: {
-                id: quote.id,
-                status: quote.status,
-                customer_name: quote.customer_name || quote.customer_display_name || 'Sin nombre',
-                customer_phone: quote.customer_phone || '',
-                items: itemsRes.rows.map(item => ({
-                    id: item.id,
-                    productId: item.product_id,
-                    sku: item.sku,
-                    name: item.product_name || item.name,
-                    quantity: Number(item.quantity),
-                    unitPrice: Number(item.unit_price),
-                    discount: Number(item.discount || 0),
-                    subtotal: Number(item.subtotal),
-                })),
-                subtotal: Number(quote.subtotal),
-                discount: Number(quote.discount || 0),
-                total: Number(quote.total),
-                valid_until: quote.valid_until,
-                created_at: quote.created_at,
-                created_by_name: quote.created_by_name || 'Sistema',
+            const quote = quoteScope.quote;
+
+            const itemsRes = await client.query(`
+                SELECT * FROM quote_items WHERE quote_id = $1::uuid
+            `, [quoteId]);
+
+            const creatorNameRes = await client.query(
+                'SELECT name FROM users WHERE id::text = $1::text LIMIT 1',
+                [quote.user_id],
+            );
+
+            return {
+                success: true,
+                data: {
+                    id: quote.id,
+                    status: quote.status,
+                    customer_name: quote.customer_name || 'Sin nombre',
+                    customer_phone: quote.customer_phone || '',
+                    items: itemsRes.rows.map(item => ({
+                        id: item.id,
+                        productId: item.product_id,
+                        sku: item.sku,
+                        name: item.product_name || item.name,
+                        quantity: Number(item.quantity),
+                        unitPrice: Number(item.unit_price),
+                        discount: Number(item.discount_percent || 0),
+                        subtotal: Number(item.subtotal),
+                    })),
+                    subtotal: Number(quote.subtotal),
+                    discount: Number(quote.discount || 0),
+                    total: Number(quote.total),
+                    valid_until: quote.valid_until,
+                    created_at: quote.created_at,
+                    created_by_name: creatorNameRes.rows[0]?.name || 'Sistema',
+                }
             }
+        } finally {
+            client.release();
         };
 
     } catch (error: any) {
@@ -1179,74 +1351,15 @@ export async function getQuotesSecure(
 ): Promise<{ success: boolean; data?: any[]; total?: number; error?: string }> {
     const auth = await requireQuoteActor();
     if (!auth.success) return { success: false, error: auth.error };
-    console.log('[QuotesHistory] Fetching for User:', auth.actor.userId);
-
-    const { page, pageSize, startDate, endDate, customerId, status, searchCode } = filters;
-    const offset = (page - 1) * pageSize;
 
     try {
-        const conditions: string[] = [];
-        const params: any[] = [];
-        let idx = 1;
-
-        if (status) {
-            conditions.push(`q.status = $${idx++}`);
-            params.push(status);
+        const validated = QuoteHistorySchema.safeParse(filters || {});
+        if (!validated.success) {
+            return { success: false, error: validated.error.issues[0]?.message };
         }
 
-        // Search by Code (Partial Match)
-        if (searchCode && searchCode.trim().length > 0) {
-            conditions.push(`q.code ILIKE $${idx++} `);
-            params.push(`% ${searchCode.trim()}% `);
-        }
-
-        // Filter by current user
-        if (auth.actor.userId) {
-            conditions.push(`q.user_id = $${idx++}::text `);
-            params.push(auth.actor.userId);
-        }
-
-        if (customerId) {
-            conditions.push(`q.customer_id = $${idx++}::text `);
-            params.push(customerId);
-        }
-
-        if (startDate) {
-            conditions.push(`q.created_at >= $${idx++} `);
-            params.push(startDate);
-        }
-
-        if (endDate) {
-            // Set end date to end of day
-            const eod = new Date(endDate);
-            eod.setHours(23, 59, 59, 999);
-            conditions.push(`q.created_at <= $${idx++} `);
-            params.push(eod);
-        }
-
-        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')} ` : '';
-
-        // Count total
-        const countRes = await pool.query(
-            `SELECT COUNT(*) FROM quotes q ${whereClause} `,
-            params
-        );
-        const total = parseInt(countRes.rows[0].count);
-
-        // Fetch paginated
-        const res = await pool.query(`
-    SELECT
-    q.id, q.code, q.total, q.created_at, q.valid_until, q.status,
-        q.customer_name, q.customer_phone, q.customer_email,
-        u.name as creator_name
-            FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id::text
-            ${whereClause}
-            ORDER BY q.created_at DESC
-            LIMIT $${idx++} OFFSET $${idx++}
-    `, [...params, pageSize, offset]);
-
-        return { success: true, data: res.rows, total };
+        const result = await listQuotesForActor(auth.actor, validated.data);
+        return { success: true, data: result.quotes, total: result.total };
     } catch (error: any) {
         logger.error({ error }, '[Quotes] Get history error');
         return { success: false, error: 'Error obteniendo historial' };
@@ -1257,47 +1370,56 @@ export async function getQuotesSecure(
  * 🖨️ Get Full Quote Details (for Printing)
  */
 export async function getQuoteDetailsSecure(quoteId: string): Promise<{ success: boolean; data?: any; error?: string }> {
-    console.log('[Quotes] getQuoteDetailsSecure calling with ID:', quoteId);
-
     // Validate UUID
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!quoteId || !uuidRegex.test(quoteId)) {
-        console.error('[Quotes] Invalid UUID provided:', quoteId);
         return { success: false, error: 'ID de cotización inválido' };
     }
 
     try {
-        // Fetch Header
-        const headerRes = await pool.query(`
-    SELECT
-    q.*,
-        u.name as creator_name,
-        l.name as location_name,
-        l.address as location_address
-            FROM quotes q
-            LEFT JOIN users u ON q.user_id = u.id::text
-            LEFT JOIN locations l ON q.location_id::uuid = l.id
-            WHERE q.id = $1::uuid
-        `, [quoteId]);
+        const auth = await requireQuoteActor();
+        if (!auth.success) {
+            return { success: false, error: auth.error };
+        }
 
-        if (headerRes.rowCount === 0) return { success: false, error: 'Cotización no encontrada' };
-        const quote = headerRes.rows[0];
-
-        // Fetch Items
-        const itemsRes = await pool.query(`
-    SELECT * FROM quote_items WHERE quote_id = $1:: uuid
-        `, [quoteId]);
-
-        return {
-            success: true,
-            data: {
-                ...quote,
-                items: itemsRes.rows
+        const client = await pool.connect();
+        try {
+            const quoteScope = await getQuoteForActor(client, auth.actor, quoteId);
+            if (!quoteScope.success) {
+                return { success: false, error: quoteScope.error };
             }
-        };
+
+            const headerRes = await client.query(`
+                SELECT
+                    q.*,
+                    u.name as creator_name,
+                    l.name as location_name,
+                    l.address as location_address
+                FROM quotes q
+                LEFT JOIN users u ON q.user_id = u.id::text
+                LEFT JOIN locations l ON q.location_id::uuid = l.id
+                WHERE q.id = $1::uuid
+            `, [quoteId]);
+
+            if (headerRes.rowCount === 0) return { success: false, error: 'Cotización no encontrada' };
+            const quote = headerRes.rows[0];
+
+            const itemsRes = await client.query(`
+                SELECT * FROM quote_items WHERE quote_id = $1::uuid
+            `, [quoteId]);
+
+            return {
+                success: true,
+                data: {
+                    ...quote,
+                    items: itemsRes.rows
+                }
+            }
+        } finally {
+            client.release();
+        }
 
     } catch (error: any) {
-        console.error('❌ [Quotes] Get Details Error RAW:', error);
         logger.error({ error }, '[Quotes] Get details error');
         return { success: false, error: 'Error obteniendo detalles: ' + (error.message || 'Unknown') };
     }

@@ -43,7 +43,6 @@ const mocks = vi.hoisted(() => {
         pharmaSetState,
         locationState,
         fetchEmployeesSecureMock: vi.fn(),
-        getUsersForLoginSecureMock: vi.fn(),
         fetchLocationsSecureMock: vi.fn(),
     };
 });
@@ -63,7 +62,6 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
 
 vi.mock('@/actions/sync-v2', () => ({
     fetchEmployeesSecure: mocks.fetchEmployeesSecureMock,
-    getUsersForLoginSecure: mocks.getUsersForLoginSecureMock,
     fetchLocationsSecure: mocks.fetchLocationsSecureMock,
 }));
 
@@ -93,10 +91,6 @@ describe('bootstrapRouteShell', () => {
             success: true,
             data: [{ id: 'emp-1', name: 'Ana', role: 'MANAGER', assigned_location_id: 'loc-1' }],
         });
-        mocks.getUsersForLoginSecureMock.mockResolvedValue({
-            success: true,
-            data: [{ id: 'emp-fallback', name: 'Fallback', role: 'MANAGER', assigned_location_id: 'loc-1' }],
-        });
         mocks.fetchLocationsSecureMock.mockResolvedValue({
             success: true,
             data: [{ id: 'loc-1', name: 'Sucursal Centro', default_warehouse_id: 'wh-1' }],
@@ -120,7 +114,7 @@ describe('bootstrapRouteShell', () => {
         expect(mocks.pharmaState.fetchTerminals).toHaveBeenCalledWith('loc-1');
     });
 
-    it('usa getUsersForLoginSecure como fallback si fetchEmployees devuelve no autenticado', async () => {
+    it('no hace fallback público de usuarios cuando fetchEmployees falla', async () => {
         mocks.fetchEmployeesSecureMock.mockResolvedValue({
             success: false,
             error: 'No autenticado',
@@ -128,9 +122,6 @@ describe('bootstrapRouteShell', () => {
 
         await bootstrapRouteShell('/dashboard');
 
-        expect(mocks.getUsersForLoginSecureMock).toHaveBeenCalledTimes(1);
-        expect(mocks.pharmaState.employees).toEqual([
-            { id: 'emp-fallback', name: 'Fallback', role: 'MANAGER', assigned_location_id: 'loc-1' },
-        ]);
+        expect(mocks.pharmaState.employees).toEqual([]);
     });
 });

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/presentation/components/ui/tabs"
 import { getPublicLocationsSecure } from '../../actions/public-network-v2';
 import { createTicketSecure } from '../../actions/queue-v2';
+import { validatePublicKioskAdminPinSecure } from '../../actions/kiosk-auth-v2';
 
 // =============================================================================
 // TYPES
@@ -127,9 +128,6 @@ const QueueKioskPage: React.FC = () => {
     const [pairingCode, setPairingCode] = useState(''); // New State for Pairing Code
     const [isSetupUnlocked, setIsSetupUnlocked] = useState(false);
 
-    // Valid PINs (1213 = admin)
-    const ADMIN_PIN = '1213';
-
     // =============================================================================
     // FULLSCREEN HELPERS
     // =============================================================================
@@ -155,30 +153,55 @@ const QueueKioskPage: React.FC = () => {
     // KIOSK ACTIVATION
     // =============================================================================
 
-    const handleActivateKiosk = (pin: string) => {
-        if (pin === ADMIN_PIN) {
-            setIsKioskActive(true);
+    const handleActivateKiosk = async (pin: string) => {
+        if (!locationId) {
             setActivationPin('');
-            enterFullscreen();
-            toast.success('Modo Kiosk Activado');
-        } else {
-            setActivationPin('');
-            toast.error('PIN Incorrecto');
+            toast.error('Seleccione una sucursal antes de activar el totem');
+            return;
         }
+
+        const result = await validatePublicKioskAdminPinSecure({
+            mode: 'QUEUE',
+            locationId,
+            pin,
+        });
+
+        if (!result.success) {
+            setActivationPin('');
+            toast.error(result.error || 'PIN incorrecto');
+            return;
+        }
+
+        setIsKioskActive(true);
+        setActivationPin('');
+        enterFullscreen();
+        toast.success('Modo Kiosk Activado');
     };
 
-    const handleExitKiosk = (pin: string) => {
-        if (pin === ADMIN_PIN) {
-            setIsKioskActive(false);
-            setShowExitPrompt(false);
+    const handleExitKiosk = async (pin: string) => {
+        if (!locationId) {
             setExitPin('');
-            exitFullscreen();
-            // Navigate back to main app
-            window.location.href = '/';
-        } else {
-            setExitPin('');
-            toast.error('PIN Incorrecto');
+            toast.error('Sucursal no configurada');
+            return;
         }
+
+        const result = await validatePublicKioskAdminPinSecure({
+            mode: 'QUEUE',
+            locationId,
+            pin,
+        });
+
+        if (!result.success) {
+            setExitPin('');
+            toast.error(result.error || 'PIN incorrecto');
+            return;
+        }
+
+        setIsKioskActive(false);
+        setShowExitPrompt(false);
+        setExitPin('');
+        exitFullscreen();
+        window.location.href = '/';
     };
 
     // =============================================================================
@@ -264,14 +287,27 @@ const QueueKioskPage: React.FC = () => {
         setStep('WELCOME');
     };
 
-    const unlockSetup = (pin: string) => {
-        if (pin === '1213') {
-            setIsSetupUnlocked(true);
+    const unlockSetup = async (pin: string) => {
+        if (!locationId) {
             setSetupPin('');
-        } else {
-            setSetupPin('');
-            toast.error('PIN Incorrecto');
+            toast.error('Seleccione una sucursal primero');
+            return;
         }
+
+        const result = await validatePublicKioskAdminPinSecure({
+            mode: 'QUEUE',
+            locationId,
+            pin,
+        });
+
+        if (!result.success) {
+            setSetupPin('');
+            toast.error(result.error || 'PIN incorrecto');
+            return;
+        }
+
+        setIsSetupUnlocked(true);
+        setSetupPin('');
     };
 
     const handlePairWithCode = (code: string) => {

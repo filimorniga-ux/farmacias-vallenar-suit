@@ -2,6 +2,8 @@
 
 import { pool } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
+import { normalizeRole } from '@/lib/pin-rbac';
 import fs from 'fs';
 import path from 'path';
 
@@ -33,6 +35,17 @@ export async function diagnoseDbConnection() {
         timestamp: null as string | null,
         sslConfig: 'Unknown'
     };
+
+    const session = await getValidatedSession();
+    const role = normalizeRole(session?.role);
+
+    if (!session || !['ADMIN', 'GERENTE_GENERAL'].includes(role)) {
+        return {
+            ...diagnosis,
+            connectionStatus: 'FAILED' as const,
+            error: 'Acceso denegado',
+        };
+    }
 
     try {
         // 1. Check Env Var format (basic sanity check)

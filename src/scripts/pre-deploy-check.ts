@@ -27,6 +27,9 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { Pool } from 'pg';
+import { DEV_TEST_ACCOUNT } from './dev-account-support';
+import { evaluateEnvironmentPolicy } from './pre-deploy-env-policy';
 
 // =====================================================
 // COLORES PARA OUTPUT
@@ -85,12 +88,36 @@ function printInfo(text: string) {
     console.log(`  ${emoji.info} ${colors.dim}${text}${colors.reset}`);
 }
 
+function createScriptDbPool() {
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+        throw new Error('DATABASE_URL no está configurada');
+    }
+
+    const isLocalhost = databaseUrl.includes('localhost') || databaseUrl.includes('127.0.0.1');
+
+    return new Pool({
+        connectionString: databaseUrl,
+        ssl: isLocalhost ? undefined : { rejectUnauthorized: false },
+        max: 1,
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 10000,
+    });
+}
+
 // =====================================================
 // VERIFICACIONES
 // =====================================================
 
 let hasErrors = false;
 let warningCount = 0;
+
+function isRealProductionTarget() {
+    const appEnv = String(process.env.APP_ENV || '').trim().toLowerCase();
+    const vercelEnv = String(process.env.VERCEL_ENV || '').trim().toLowerCase();
+
+    return appEnv === 'production' || vercelEnv === 'production';
+}
 
 /**
  * 1. Verificar que el build compile sin errores
@@ -159,15 +186,19 @@ async function checkEnvVars(): Promise<boolean> {
     printSection('3. Environment Variables Verification');
 
     const requiredVars = [
+        'APP_ENV',
         'DATABASE_URL',
-        'NEXTAUTH_SECRET',
-        'NEXTAUTH_URL',
+        'APP_URL',
+        'CONFIG_ENCRYPTION_KEY',
+        'HEALTHCHECK_TOKEN',
     ];
 
     const optionalVars = [
-        'SII_API_KEY',
-        'SII_RUT_EMPRESA',
-        'SMTP_HOST',
+        'NEXT_PUBLIC_APP_URL',
+        'AI_INTERNAL_ENDPOINT_TOKEN',
+        'OPENAI_API_KEY',
+        'AI_DEEPSEEK_API_KEY',
+        'RESEND_API_KEY',
     ];
 
     let allPresent = true;
@@ -196,13 +227,60 @@ async function checkEnvVars(): Promise<boolean> {
 }
 
 /**
+ * 3.5 Verificar separación operativa de entornos
+ */
+async function checkEnvironmentTargetSeparation(): Promise<boolean> {
+    printSection('3.5 Environment Target Separation');
+
+    const result = evaluateEnvironmentPolicy({
+        appEnv: process.env.APP_ENV,
+        vercelEnv: process.env.VERCEL_ENV,
+        appUrl: process.env.APP_URL,
+        publicAppUrl: process.env.NEXT_PUBLIC_APP_URL,
+        databaseUrl: process.env.DATABASE_URL,
+        ci: process.env.CI === 'true',
+    });
+
+    if (result.appEnvironment === 'unknown') {
+        printError('APP_ENV inválida o ausente');
+    } else {
+        printSuccess(`APP_ENV=${result.appEnvironment}`);
+    }
+
+    if (result.normalizedVercelEnv) {
+        printInfo(`VERCEL_ENV=${result.normalizedVercelEnv}`);
+    } else {
+        printInfo('VERCEL_ENV no declarada');
+    }
+
+    for (const info of result.infos) {
+        printInfo(info);
+    }
+
+    for (const warning of result.warnings) {
+        printWarning(warning);
+        warningCount++;
+    }
+
+    if (result.errors.length > 0) {
+        for (const error of result.errors) {
+            printError(error);
+        }
+        return false;
+    }
+
+    printSuccess('Separación staging/production consistente');
+    return true;
+}
+
+/**
  * 4. Verificar conexión a base de datos
  */
 async function checkDatabaseConnection(): Promise<boolean> {
     printSection('4. Database Connection Verification');
 
     try {
-        const { pool } = await import('../lib/db');
+        const pool = createScriptDbPool();
         const client = await pool.connect();
 
         const result = await client.query('SELECT NOW() as current_time, version() as pg_version');
@@ -213,6 +291,7 @@ async function checkDatabaseConnection(): Promise<boolean> {
         printInfo(`Server time: ${current_time}`);
 
         client.release();
+        await pool.end();
         return true;
     } catch (error: any) {
         printError('No se pudo conectar a la base de datos');
@@ -228,10 +307,10 @@ async function checkMigrations(): Promise<boolean> {
     printSection('5. Database Migrations Verification');
 
     try {
-        const { query } = await import('../lib/db');
+        const pool = createScriptDbPool();
 
         // Verificar tabla de migraciones existe
-        const tableCheck = await query(`
+        const tableCheck = await pool.query(`
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
                 WHERE table_name = 'schema_migrations'
@@ -244,7 +323,7 @@ async function checkMigrations(): Promise<boolean> {
         }
 
         // Obtener migraciones aplicadas
-        const migRes = await query(`
+        const migRes = await pool.query(`
             SELECT version, description, applied_at 
             FROM schema_migrations 
             ORDER BY version
@@ -268,6 +347,7 @@ async function checkMigrations(): Promise<boolean> {
         }
 
         printInfo(`Total migraciones aplicadas: ${migRes.rowCount}`);
+        await pool.end();
         return allApplied;
     } catch (error: any) {
         printError('Error verificando migraciones');
@@ -283,9 +363,9 @@ async function checkPinSecurity(): Promise<boolean> {
     printSection('6. PIN Security Verification');
 
     try {
-        const { query } = await import('../lib/db');
+        const pool = createScriptDbPool();
 
-        const result = await query(`
+        const result = await pool.query(`
             SELECT 
                 COUNT(*) FILTER (WHERE access_pin IS NOT NULL AND access_pin_hash IS NULL) as plaintext_count,
                 COUNT(*) FILTER (WHERE access_pin_hash IS NOT NULL) as hashed_count,
@@ -303,9 +383,68 @@ async function checkPinSecurity(): Promise<boolean> {
         }
 
         printSuccess(`Todos los PINs hasheados con bcrypt (${hashed_count}/${total})`);
+        await pool.end();
         return true;
     } catch (error: any) {
         printError('Error verificando seguridad de PINs');
+        printInfo(error.message);
+        return false;
+    }
+}
+
+/**
+ * 6.5 Verificar que la cuenta DEV no quede activa en producción real
+ */
+async function checkDevTestAccount(): Promise<boolean> {
+    printSection('6.5 Dev Test Account Verification');
+
+    try {
+        const pool = createScriptDbPool();
+
+        const result = await pool.query(`
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE is_active = true) as active_count
+            FROM users
+            WHERE email = $1
+               OR name = $2
+               OR job_title = $3
+        `, [DEV_TEST_ACCOUNT.email, DEV_TEST_ACCOUNT.name, DEV_TEST_ACCOUNT.jobTitle]);
+
+        const total = Number(result.rows[0]?.total || 0);
+        const activeCount = Number(result.rows[0]?.active_count || 0);
+
+        if (total > 1) {
+            printError(`Se detectaron ${total} cuentas marcadas como DEV_TEST_ACCOUNT`);
+            printInfo('Debe existir a lo sumo una cuenta de pruebas controlada');
+            return false;
+        }
+
+        if (!isRealProductionTarget()) {
+            if (total === 0) {
+                printInfo('No existe cuenta DEV marcada en este entorno');
+            } else if (activeCount > 0) {
+                printWarning('La cuenta DEV está activa, pero el entorno no está marcado como producción real');
+                warningCount++;
+            } else {
+                printInfo('La cuenta DEV existe y está desactivada');
+            }
+            await pool.end();
+            return true;
+        }
+
+        if (activeCount > 0) {
+            printError('La cuenta DEV_TEST_ACCOUNT sigue activa en un entorno de producción real');
+            printInfo('Ejecute: npm run dev-account:disable');
+            await pool.end();
+            return false;
+        }
+
+        printSuccess('No hay cuenta DEV activa en producción real');
+        await pool.end();
+        return true;
+    } catch (error: any) {
+        printError('Error verificando cuenta DEV de pruebas');
         printInfo(error.message);
         return false;
     }
@@ -318,7 +457,7 @@ async function checkAuditTables(): Promise<boolean> {
     printSection('7. Audit System Verification');
 
     try {
-        const { query } = await import('../lib/db');
+        const pool = createScriptDbPool();
 
         const requiredTables = [
             'audit_log',
@@ -328,7 +467,7 @@ async function checkAuditTables(): Promise<boolean> {
         let allExist = true;
 
         for (const tableName of requiredTables) {
-            const result = await query(`
+            const result = await pool.query(`
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_name = $1
@@ -344,7 +483,7 @@ async function checkAuditTables(): Promise<boolean> {
         }
 
         // Verificar que hay datos en el catálogo
-        const catalogCount = await query('SELECT COUNT(*) as count FROM audit_action_catalog');
+        const catalogCount = await pool.query('SELECT COUNT(*) as count FROM audit_action_catalog');
         const count = parseInt(catalogCount.rows[0].count);
 
         if (count > 0) {
@@ -354,6 +493,7 @@ async function checkAuditTables(): Promise<boolean> {
             warningCount++;
         }
 
+        await pool.end();
         return allExist;
     } catch (error: any) {
         printError('Error verificando sistema de auditoría');
@@ -377,9 +517,11 @@ async function main() {
         { name: 'Build', fn: checkBuild },
         { name: 'Tests', fn: checkTests },
         { name: 'Environment Variables', fn: checkEnvVars },
+        { name: 'Environment Target Separation', fn: checkEnvironmentTargetSeparation },
         { name: 'Database Connection', fn: checkDatabaseConnection },
         { name: 'Migrations', fn: checkMigrations },
         { name: 'PIN Security', fn: checkPinSecurity },
+        { name: 'Dev Test Account', fn: checkDevTestAccount },
         { name: 'Audit System', fn: checkAuditTables },
     ];
 

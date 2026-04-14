@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockQuery = vi.fn();
+const mockPoolQuery = vi.fn();
+const mockPoolRelease = vi.fn();
 const mockGetActorOrFail = vi.fn();
 const mockRequireRole = vi.fn();
 const mockValidatePinForRoles = vi.fn();
@@ -9,7 +11,10 @@ const mockValidatePinForUser = vi.fn();
 vi.mock('@/lib/db', () => ({
     query: (...args: unknown[]) => mockQuery(...args),
     pool: {
-        connect: vi.fn(),
+        connect: vi.fn(async () => ({
+            query: (...args: unknown[]) => mockPoolQuery(...args),
+            release: (...args: unknown[]) => mockPoolRelease(...args),
+        })),
     },
 }));
 
@@ -60,7 +65,10 @@ import {
     getAccountPayablePaymentsSecure,
     getFinancialAccountsSecure,
     getAccountsPayableSummarySecure,
+    getPendingRemittancesSecure,
+    getTreasuryTransactionsSecure,
     registerAccountPayablePaymentSecure,
+    transferFundsSecure,
 } from '@/actions/treasury-v2';
 import { PinRbacError } from '@/lib/pin-rbac';
 
@@ -69,6 +77,8 @@ const SUPPLIER_ID = '123e4567-e89b-12d3-a456-426614174011';
 const ACCOUNT_PAYABLE_ID = '123e4567-e89b-12d3-a456-426614174012';
 const BANK_ACCOUNT_ID = '123e4567-e89b-12d3-a456-426614174013';
 const LOCATION_ID = '123e4567-e89b-12d3-a456-426614174014';
+const SAFE_ACCOUNT_ID = '123e4567-e89b-12d3-a456-426614174015';
+const OTHER_ACCOUNT_ID = '123e4567-e89b-12d3-a456-426614174016';
 
 function setActor(role: string = 'MANAGER', locationId: string = LOCATION_ID) {
     mockGetActorOrFail.mockResolvedValue({
@@ -99,6 +109,7 @@ describe('treasury-v2 shared RBAC contracts', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockPoolQuery.mockResolvedValue({ rows: [] });
         setActor();
     });
 
@@ -112,7 +123,7 @@ describe('treasury-v2 shared RBAC contracts', () => {
     });
 
     it('usa la ubicación del actor para getFinancialAccountsSecure cuando no tiene acceso global', async () => {
-        setActor('CASHIER', 'actor-location');
+        setActor('TESORERO', 'actor-location');
         mockQuery.mockResolvedValue({
             rows: [{ id: 'acc-1', location_id: 'actor-location', name: 'Caja', type: 'SAFE', balance: 0, is_active: true }],
         });
@@ -121,6 +132,122 @@ describe('treasury-v2 shared RBAC contracts', () => {
 
         expect(result.success).toBe(true);
         expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining('FROM financial_accounts'), ['actor-location']);
+    });
+
+    it('getPendingRemittancesSecure limita la ubicación al scope del actor sin acceso global', async () => {
+        setActor('TESORERO', 'actor-location');
+        mockQuery.mockResolvedValue({
+            rows: [{ id: 'rem-1', location_id: 'actor-location', source_terminal_id: 'term-1', amount: 1000, status: 'PENDING_RECEIPT', created_at: new Date(), created_by: ACTOR_ID }],
+        });
+
+        const result = await getPendingRemittancesSecure('requested-location');
+
+        expect(result.success).toBe(true);
+        expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining('FROM treasury_remittances'), ['actor-location']);
+    });
+
+    it('rechaza transferFundsSecure con rol insuficiente', async () => {
+        setActor('CASHIER');
+
+        const result = await transferFundsSecure({
+            fromAccountId: SAFE_ACCOUNT_ID,
+            toAccountId: BANK_ACCOUNT_ID,
+            amount: 1000,
+            description: 'Transferencia inválida por rol',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No tiene permisos');
+        expect(mockPoolQuery).not.toHaveBeenCalled();
+    });
+
+    it('rechaza transferFundsSecure cuando alguna cuenta está fuera del scope del actor', async () => {
+        setActor('TESORERO', 'actor-location');
+
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({
+                rows: [
+                    { id: SAFE_ACCOUNT_ID, name: 'Caja Actor', type: 'SAFE', balance: 900000, location_id: 'actor-location', is_active: true },
+                    { id: OTHER_ACCOUNT_ID, name: 'Banco Externo', type: 'BANK', balance: 100000, location_id: 'other-location', is_active: true },
+                ],
+            })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await transferFundsSecure({
+            fromAccountId: SAFE_ACCOUNT_ID,
+            toAccountId: OTHER_ACCOUNT_ID,
+            amount: 1000,
+            description: 'Transferencia cross-location',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No tiene permisos');
+    });
+
+    it('permite transferFundsSecure dentro del scope del actor', async () => {
+        setActor('MANAGER', 'actor-location');
+
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({
+                rows: [
+                    { id: SAFE_ACCOUNT_ID, name: 'Caja Actor', type: 'SAFE', balance: 900000, location_id: 'actor-location', is_active: true },
+                    { id: BANK_ACCOUNT_ID, name: 'Banco Actor', type: 'BANK', balance: 100000, location_id: 'actor-location', is_active: true },
+                ],
+            })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await transferFundsSecure({
+            fromAccountId: SAFE_ACCOUNT_ID,
+            toAccountId: BANK_ACCOUNT_ID,
+            amount: 1000,
+            description: 'Transferencia válida',
+        });
+
+        expect(result.success).toBe(true);
+    });
+
+    it('rechaza getTreasuryTransactionsSecure con rol insuficiente', async () => {
+        setActor('CASHIER');
+
+        const result = await getTreasuryTransactionsSecure(SAFE_ACCOUNT_ID);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
+    });
+
+    it('rechaza getTreasuryTransactionsSecure para una cuenta fuera del scope del actor', async () => {
+        setActor('TESORERO', 'actor-location');
+        mockQuery.mockResolvedValueOnce({
+            rows: [{ id: SAFE_ACCOUNT_ID, location_id: 'other-location' }],
+        });
+
+        const result = await getTreasuryTransactionsSecure(SAFE_ACCOUNT_ID);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
+    });
+
+    it('permite getTreasuryTransactionsSecure dentro del scope del actor', async () => {
+        setActor('TESORERO', 'actor-location');
+        mockQuery
+            .mockResolvedValueOnce({
+                rows: [{ id: SAFE_ACCOUNT_ID, location_id: 'actor-location' }],
+            })
+            .mockResolvedValueOnce({
+                rows: [{ id: 'tx-1', account_id: SAFE_ACCOUNT_ID, amount: 1000, type: 'IN', description: 'Ingreso', created_at: new Date(), created_by: ACTOR_ID }],
+            });
+
+        const result = await getTreasuryTransactionsSecure(SAFE_ACCOUNT_ID);
+
+        expect(result.success).toBe(true);
+        expect(result.data).toHaveLength(1);
     });
 
     it('rechaza getAccountsPayableSecure con rol insuficiente', async () => {

@@ -3,6 +3,10 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 
+const { mockRequireScopedActor } = vi.hoisted(() => ({
+    mockRequireScopedActor: vi.fn(),
+}));
+
 // Mock de dependencias
 vi.mock('@/lib/db', () => ({
     pool: {
@@ -19,6 +23,15 @@ vi.mock('@sentry/nextjs', () => ({
 // Mock de next/cache
 vi.mock('next/cache', () => ({
     revalidatePath: vi.fn(),
+}));
+
+vi.mock('@/actions/admin-scope', () => ({
+    requireScopedActor: mockRequireScopedActor,
+    PRICING_READ_ROLES: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'],
+    PRICING_GLOBAL_ROLES: ['QF', 'ADMIN', 'GERENTE_GENERAL'],
+    PRICING_WRITE_ROLES: ['QF', 'ADMIN', 'GERENTE_GENERAL'],
+    resolveEffectiveLocation: vi.fn(),
+    hasGlobalScope: vi.fn(),
 }));
 
 describe('Pricing V2 - Cost Change Detection', () => {
@@ -98,6 +111,24 @@ describe('Pricing V2 - Cost Change Detection', () => {
     });
 
     describe('generateMissingCosts', () => {
+        it('should reject unauthorized actors before touching the database', async () => {
+            const { pool } = await import('@/lib/db');
+            const { generateMissingCosts } = await import('@/actions/pricing-v2');
+            (pool.query as ReturnType<typeof vi.fn>).mockClear();
+            mockRequireScopedActor.mockResolvedValueOnce({
+                success: false,
+                error: 'Acceso denegado',
+            });
+
+            const result = await generateMissingCosts();
+
+            expect(result).toEqual({
+                success: false,
+                error: 'Acceso denegado',
+            });
+            expect(pool.query).not.toHaveBeenCalled();
+        });
+
         it('should calculate cost from sale price with 30% margin', () => {
             // costo = precio_venta / 1.30
             const salePrice = 10000;

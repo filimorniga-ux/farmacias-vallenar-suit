@@ -134,7 +134,7 @@ export async function autoCloseGhostSessionsSecure(
                 u.name as user_name
             FROM cash_register_sessions s
             JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN users u ON s.user_id::text = u.id::text
             WHERE s.status = 'OPEN'
               AND s.opened_at < NOW() - INTERVAL '${MAX_SHIFT_HOURS} hours'
         `);
@@ -239,8 +239,8 @@ export async function getRecentSystemIncidentsSecure(): Promise<{
                 s.notes
             FROM cash_register_sessions s
             JOIN terminals t ON s.terminal_id = t.id
-            LEFT JOIN users u ON s.user_id::text = u.id
-            WHERE s.closed_by_user_id = $${params.length + 1}::uuid
+            LEFT JOIN users u ON s.user_id::text = u.id::text
+            WHERE s.closed_by_user_id::text = $${params.length + 1}::text
               AND s.closed_at > NOW() - INTERVAL '24 hours'
               ${locationFilter}
             ORDER BY s.closed_at DESC

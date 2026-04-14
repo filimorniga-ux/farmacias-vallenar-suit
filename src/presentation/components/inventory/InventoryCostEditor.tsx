@@ -5,6 +5,7 @@ import { updateBatchCostSecure } from '../../../actions/inventory-v2';
 import { usePharmaStore } from '../../store/useStore';
 
 import { useQueryClient } from '@tanstack/react-query';
+import { inventoryQueryKeys } from '@/presentation/lib/inventory-query-keys';
 
 interface InventoryCostEditorProps {
     batchId: string;
@@ -14,7 +15,7 @@ interface InventoryCostEditorProps {
 
 export const InventoryCostEditor: React.FC<InventoryCostEditorProps> = ({ batchId, currentCost, productName }) => {
     const queryClient = useQueryClient();
-    const { user, currentLocationId, updateProduct } = usePharmaStore();
+    const { user } = usePharmaStore();
     const [isEditing, setIsEditing] = useState(false);
 
     // Internal numeric state associated with the input
@@ -71,16 +72,7 @@ export const InventoryCostEditor: React.FC<InventoryCostEditorProps> = ({ batchI
                 setStep('COST');
                 setPin('');
 
-                // Optimistic Update: Update store immediately
-                updateProduct(batchId, {
-                    cost_price: Number(localCost),
-                    cost_net: Number(localCost)
-                });
-
-                // Refresh inventory data without reloading the page
-                if (currentLocationId) {
-                    await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
-                }
+                await queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.root });
             } else {
                 toast.error(res.error || 'Error al actualizar');
             }

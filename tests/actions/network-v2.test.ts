@@ -32,7 +32,7 @@ const {
 });
 
 vi.mock('@/lib/db', () => ({
-    query: vi.fn(),
+    query: (...args: unknown[]) => mockQuery(...args),
     pool: {
         connect: () =>
             Promise.resolve({
@@ -97,6 +97,35 @@ describe('network-v2 auth alignment', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('autenticado');
+    });
+
+    it('incluye location_id en el payload de terminales para mantener consistente el selector analytics', async () => {
+        mockQuery.mockResolvedValueOnce({
+            rows: [{
+                id: VALID_LOCATION_ID,
+                name: 'Sucursal Centro',
+                address: 'Dirección',
+                type: 'STORE',
+                phone: null,
+                email: null,
+                manager_id: null,
+                is_active: true,
+                config: {},
+                terminals: [{
+                    id: '550e8400-e29b-41d4-a716-446655440020',
+                    location_id: VALID_LOCATION_ID,
+                    name: 'Caja 1',
+                    status: 'CLOSED',
+                    is_active: true,
+                }],
+            }],
+            rowCount: 1,
+        });
+
+        const result = await networkV2.getOrganizationStructureSecure();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.terminals[0]?.location_id).toBe(VALID_LOCATION_ID);
     });
 
     it('createLocationSecure valida input antes de tocar DB', async () => {

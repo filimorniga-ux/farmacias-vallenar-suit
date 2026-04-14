@@ -4,17 +4,17 @@ import React, { useState, useEffect } from 'react';
 import { useIdleTimer } from '../../hooks/useIdleTimer';
 import LockScreen from './LockScreen';
 import { usePharmaStore } from '../../store/useStore';
-import { useSettingsStore } from '../../store/useSettingsStore';
 import { usePathname } from 'next/navigation';
+import { getOperationalSettingsSecure } from '@/actions/settings-v2';
 
 export default function SessionGuard({ children }: { children: React.ReactNode }) {
     const [isLocked, setIsLocked] = useState(false);
+    const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState(5);
     const user = usePharmaStore((state) => state.user);
-    const { security } = useSettingsStore();
     const pathname = usePathname();
 
-    // Configuration: Dynamic from Store (Minutes to Ms)
-    const TIMEOUT_MS = (security?.idle_timeout_minutes || 5) * 60 * 1000;
+    // Configuration: Dynamic from backend operational settings
+    const TIMEOUT_MS = idleTimeoutMinutes * 60 * 1000;
 
     const handleIdle = () => {
         if (user && !pathname.includes('/login') && !pathname.includes('/reset-password') && !pathname.includes('/forgot-password')) {
@@ -23,6 +23,24 @@ export default function SessionGuard({ children }: { children: React.ReactNode }
     };
 
     useIdleTimer(handleIdle, TIMEOUT_MS);
+
+    useEffect(() => {
+        if (!user) return;
+
+        let cancelled = false;
+
+        getOperationalSettingsSecure()
+            .then((res) => {
+                if (!cancelled && res.success && res.data) {
+                    setIdleTimeoutMinutes(res.data.security.idle_timeout_minutes);
+                }
+            })
+            .catch(() => undefined);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.id]);
 
     // 🔒 Server Session Verification (Remote Logout & Activity Tracking)
     useEffect(() => {

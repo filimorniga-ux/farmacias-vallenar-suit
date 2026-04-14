@@ -50,9 +50,8 @@ const mocks = vi.hoisted(() => {
         ],
         kiosks: [],
         currentLocation: { id: 'loc-1', name: 'Sucursal Centro', type: 'STORE', is_active: true },
-        addLocation: vi.fn(),
+        fetchLocations: vi.fn(),
         switchLocation: vi.fn(),
-        generatePairingCode: vi.fn(() => 'PAIR-1234'),
         registerKiosk: vi.fn(),
     };
 

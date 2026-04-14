@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
-import { Search, ScanBarcode, Loader2, ArrowRight, ArrowLeft, TrendingDown, Pill, FlaskConical, Lock, Scale, FileText, Stethoscope, BookOpen, ChevronRight, Scan } from 'lucide-react';
+import { Search, ScanBarcode, Loader2, ArrowRight, ArrowLeft, TrendingDown, Pill, FlaskConical, Scale, FileText, Stethoscope, BookOpen, ChevronRight, Scan } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
 import { CameraScanner } from '../ui/CameraScanner';
-import { searchProductsAction, type ProductResult } from '@/actions/public/search-products';
+import { searchProductsAction } from '@/actions/public/search-products';
 import { browseProductsAction } from '@/actions/public/browse-products';
 import { searchBioequivalentsAction, findInventoryMatchesAction, getUniqueActiveIngredientsAction, type BioequivalentResult } from '@/actions/public/bioequivalents';
 import { getAlternativesAction, type AlternativeResult } from '@/actions/public/get-alternatives';
 import { matchActiveIngredientAction } from '@/actions/public/match-active-ingredient';
-import { diagnoseDbConnection } from '@/actions/debug/diagnose-db';
+import type { ProductResult } from '@/actions/public/public-product-result';
 import { LegalModal } from './LegalModal';
 import { VirtualKeyboard } from '../ui/VirtualKeyboard';
 import { AlphabetFilter } from '../ui/AlphabetFilter';
@@ -42,12 +42,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
     const [isThinking, setIsThinking] = useState(false); // For local inventory matching
     const inputRef = useRef<HTMLInputElement>(null);
 
-    // Security/Modal State
-    const [isExitPinOpen, setIsExitPinOpen] = useState(false);
-    const [exitPin, setExitPin] = useState('');
-    const [exitError, setExitError] = useState(false);
     const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
-    const exitInputRef = useRef<HTMLInputElement>(null);
 
     // Keyboard State
     // Keyboard & Platform State
@@ -69,7 +64,6 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
         setSelectedBioequivalent(null);
         setInventoryMatches([]);
         setAlternatives([]);
-        setIsExitPinOpen(false);
         setPage(1);
         setHasMore(true);
         setError(null);
@@ -323,17 +317,6 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
         }
     };
 
-    const getExitPin = (val: string) => {
-        setExitPin(val);
-        setExitError(false);
-        if (val === '1213') {
-            onClose();
-        } else if (val.length === 4) {
-            setExitError(true);
-            setTimeout(() => setExitPin(''), 500);
-        }
-    };
-
     // Keyboard & Filter Handlers
     const handleKeyPress = (key: string) => {
         setQuery(prev => prev + key);
@@ -425,25 +408,10 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
                 <div className="flex gap-3">
                     <button
-                        onClick={async () => {
-                            if (confirm('¿Ejecutar diagnóstico de conexión?')) {
-                                try {
-                                    const res = await diagnoseDbConnection();
-                                    alert(JSON.stringify(res, null, 2));
-                                } catch (e: any) {
-                                    alert('Error: ' + e.message);
-                                }
-                            }
-                        }}
-                        className="p-2 opacity-50 hover:opacity-100 text-xs text-slate-400"
-                    >
-                        🔍
-                    </button>
-                    <button
-                        onClick={() => setIsExitPinOpen(true)}
+                        onClick={onClose}
                         className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-bold text-sm tracking-wide"
                     >
-                        <Lock size={16} /> <span className="hidden md:inline">SALIR</span>
+                        <span className="hidden md:inline">SALIR</span>
                     </button>
                 </div>
             </div>
@@ -745,17 +713,17 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                     </div>
                                                     <div className="flex items-end justify-between border-t border-slate-50 pt-3 mt-auto">
                                                         <div className="flex flex-col">
-                                                            {/* Unit Price aligned bottom left */}
                                                             <div className="text-[11px] font-bold text-slate-400">
-                                                                ${Math.ceil(product.price / (product.units_per_box || 1)).toLocaleString()} c/u
+                                                                Precio y stock exactos se confirman en local
                                                             </div>
-                                                            {product.stock > 0 ? (
-                                                                <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded inline-block w-fit mt-1">Disponible</span>
-                                                            ) : (
-                                                                <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded inline-block w-fit mt-1">Agotado</span>
-                                                            )}
+                                                            <span className={`text-xs font-bold px-2 py-0.5 rounded inline-block w-fit mt-1 ${product.availabilityStatus === 'Disponible'
+                                                                    ? 'text-emerald-600 bg-emerald-50'
+                                                                    : 'text-red-600 bg-red-50'
+                                                                }`}>
+                                                                {product.availabilityStatus}
+                                                            </span>
                                                         </div>
-                                                        <div className="text-2xl font-black text-slate-800">${product.price.toLocaleString()}</div>
+                                                        <div className="text-sm font-black text-slate-600 text-right">{product.priceLabel}</div>
                                                     </div>
                                                 </div>
                                             ))}
@@ -844,11 +812,10 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                 </div>
                                             </div>
                                             <div className="text-right">
-                                                <div className="text-3xl font-black text-slate-800">${item.price.toLocaleString()}</div>
-                                                {/* Unit Price in List */}
-                                                <div className="text-[10px] font-bold text-slate-400">
-                                                    ${Math.ceil(item.price / (item.units_per_box || 1)).toLocaleString()} c/u
+                                                <div className={`text-lg font-black ${item.availabilityStatus === 'Disponible' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                    {item.availabilityStatus}
                                                 </div>
+                                                <div className="text-[10px] font-bold text-slate-400">{item.priceLabel}</div>
                                                 <span className="text-xs font-bold text-slate-400 mt-1 inline-block">Ver Ficha <ArrowRight size={12} className="inline ml-1" /></span>
                                             </div>
                                         </div>
@@ -901,7 +868,9 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                             </h4>
                                             <div className="flex justify-between items-end mt-2">
                                                 <span className="text-[10px] font-bold text-slate-400">{product.laboratory}</span>
-                                                <span className="text-lg font-black text-slate-800">${product.price.toLocaleString()}</span>
+                                                <span className={`text-xs font-black px-2 py-1 rounded ${product.availabilityStatus === 'Disponible' ? 'text-emerald-700 bg-emerald-50' : 'text-red-700 bg-red-50'}`}>
+                                                    {product.availabilityStatus}
+                                                </span>
                                             </div>
                                         </div>
                                     ))}
@@ -945,16 +914,15 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                         </div>
                                         <div className="grid grid-cols-2 gap-4 pt-2">
                                             <div>
-                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">PRECIO VENTA</div>
-                                                <div className="text-4xl font-black text-slate-900">${selectedProduct.price.toLocaleString()}</div>
-                                                <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black px-2 py-0.5 rounded mt-1 inline-block">DISPONIBLE</span>
+                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">DISPONIBILIDAD</div>
+                                                <div className={`text-3xl font-black ${selectedProduct.availabilityStatus === 'Disponible' ? 'text-emerald-700' : 'text-red-700'}`}>
+                                                    {selectedProduct.availabilityStatus}
+                                                </div>
+                                                <span className="bg-slate-100 text-slate-600 text-[10px] font-black px-2 py-0.5 rounded mt-1 inline-block">Consulta pública</span>
                                             </div>
                                             <div className="flex flex-col justify-center">
-                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">PRECIO UNITARIO</div>
-                                                <div className="text-xl font-bold text-slate-500">
-                                                    ${Math.ceil(selectedProduct.price / (selectedProduct.units_per_box || 1)).toLocaleString()}
-                                                    <span className="text-xs font-normal ml-1">c/u</span>
-                                                </div>
+                                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">POLÍTICA DE PRECIO</div>
+                                                <div className="text-xl font-bold text-slate-500">{selectedProduct.priceLabel}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -971,7 +939,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                 </div>
                                             </div>
                                         )}
-                                        {selectedProduct.stock <= 0 && (
+                                        {selectedProduct.availabilityStatus !== 'Disponible' && (
                                             <div className="p-4 bg-red-50 text-red-700 rounded-xl border border-red-100 text-center font-bold">
                                                 ❌ PRODUCTO AGOTADO
                                             </div>
@@ -998,16 +966,11 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                         </div>
                                     ) : (
                                         <div className="space-y-3">
-                                            {alternatives.filter(a => String(a.id) !== String(selectedProduct.id)).map((alt, idx) => { // Filter out current product
-                                                const diff = selectedProduct.price - alt.price;
-                                                const isCheaper = diff > 0;
-                                                const isMoreExpensive = diff < 0;
-                                                const absDiff = Math.abs(diff);
-
+                                            {alternatives.filter(a => String(a.id) !== String(selectedProduct.id)).map((alt, idx) => {
                                                 return (
-                                                    <div key={alt.id} className={`flex items-center justify-between p-3 bg-white rounded-xl border transition-all ${isCheaper ? 'border-emerald-200 shadow-md shadow-emerald-50' : 'border-slate-100'}`}>
+                                                    <div key={alt.id} className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-100 transition-all">
                                                         <div className="flex items-center gap-3">
-                                                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs ${isCheaper ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                                            <div className="w-6 h-6 rounded-lg flex items-center justify-center font-bold text-xs bg-slate-100 text-slate-500">
                                                                 {idx + 1}
                                                             </div>
                                                             <div>
@@ -1016,14 +979,12 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                             </div>
                                                         </div>
                                                         <div className="text-right shrink-0 ml-2">
-                                                            <div className={`text-lg font-black ${isCheaper ? 'text-emerald-600' : isMoreExpensive ? 'text-slate-500' : 'text-slate-700'}`}>
-                                                                ${alt.price.toLocaleString()}
+                                                            <div className={`text-sm font-black ${alt.availabilityStatus === 'Disponible' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                                                {alt.availabilityStatus}
                                                             </div>
-                                                            {isCheaper && (
-                                                                <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded block mt-0.5 whitespace-nowrap">
-                                                                    AHORRA ${absDiff.toLocaleString()}
-                                                                </span>
-                                                            )}
+                                                            <span className="text-[9px] font-black text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded block mt-0.5 whitespace-nowrap">
+                                                                {alt.priceLabel}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 );
@@ -1035,29 +996,6 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                         </div>
                     </div>
                 )}
-
-                {/* EXIT PIN & LEGAL MODAL */}
-                {
-                    isExitPinOpen && (
-                        <div className="absolute inset-0 z-[10000] bg-black/95 flex items-center justify-center p-4">
-                            <div className="bg-white rounded-3xl p-8 w-full max-w-md text-center shadow-2xl animate-in zoom-in-95 duration-200">
-                                <Lock size={48} className="mx-auto text-slate-800 mb-4" />
-                                <h3 className="text-2xl font-black text-slate-900 mb-6">Bloqueo de Seguridad</h3>
-                                <input
-                                    ref={exitInputRef}
-                                    type="password"
-                                    value={exitPin}
-                                    onChange={(e) => getExitPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                                    placeholder="••••"
-                                    className={`w-full bg-slate-100 border-2 ${exitError ? 'border-red-500 animate-pulse' : 'border-slate-200 focus:border-cyan-500'} rounded-2xl py-5 text-center text-4xl font-black tracking-[0.5em] outline-none transition-all mb-6`}
-                                    maxLength={4}
-                                    autoFocus
-                                />
-                                <button onClick={() => { setIsExitPinOpen(false); setExitPin(''); }} className="w-full py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors">Cancelar</button>
-                            </div>
-                        </div>
-                    )
-                }
 
                 <LegalModal isOpen={isLegalModalOpen} onClose={() => setIsLegalModalOpen(false)} />
                 {/* SCANNER OVERLAY */}
@@ -1074,4 +1012,3 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
         </div>
     );
 }
-

@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { CartItem } from './cart';
 import { getChileISOString } from '../utils';
-import { safeBrowserStateStorage } from './safePersistStorage';
+import { createScopedBrowserStateStorage } from './safePersistStorage';
+import { buildOwnershipMeta, type QueueOwnershipMeta } from './persistenceScope';
 
-export interface OfflineSale {
+export interface OfflineSale extends QueueOwnershipMeta {
     id: string;
     timestamp: string;
     items: CartItem[];
@@ -22,7 +23,7 @@ export interface OfflineSale {
 
 interface OfflineSalesState {
     pendingSales: OfflineSale[];
-    addOfflineSale: (sale: Omit<OfflineSale, 'id' | 'timestamp' | 'syncStatus' | 'retryCount' | 'lastError'>) => void;
+    addOfflineSale: (sale: Omit<OfflineSale, 'id' | 'timestamp' | 'syncStatus' | 'retryCount' | 'lastError' | keyof QueueOwnershipMeta>) => void;
     removeOfflineSale: (id: string) => void;
     updateOfflineSaleStatus: (id: string, status: 'PENDING' | 'SYNCED' | 'ERROR' | 'CONFLICT', error?: string) => void;
     clearOfflineSales: () => void;
@@ -33,18 +34,26 @@ export const useOfflineSales = create<OfflineSalesState>()(
         (set) => ({
             pendingSales: [],
             addOfflineSale: (sale) =>
-                set((state) => ({
-                    pendingSales: [
-                        ...state.pendingSales,
-                        {
-                            id: crypto.randomUUID(),
-                            timestamp: getChileISOString(),
-                            syncStatus: 'PENDING',
-                            retryCount: 0,
-                            ...sale,
-                        },
-                    ],
-                })),
+                set((state) => {
+                    const ownership = buildOwnershipMeta();
+                    if (!ownership) {
+                        return state;
+                    }
+
+                    return {
+                        pendingSales: [
+                            ...state.pendingSales,
+                            {
+                                id: crypto.randomUUID(),
+                                timestamp: getChileISOString(),
+                                syncStatus: 'PENDING',
+                                retryCount: 0,
+                                ...ownership,
+                                ...sale,
+                            },
+                        ],
+                    };
+                }),
             removeOfflineSale: (id) =>
                 set((state) => ({
                     pendingSales: state.pendingSales.filter((sale) => sale.id !== id),
@@ -66,7 +75,7 @@ export const useOfflineSales = create<OfflineSalesState>()(
         }),
         {
             name: 'farmacias-vallenar-offline-sales',
-            storage: createJSONStorage(() => safeBrowserStateStorage),
+            storage: createJSONStorage(() => createScopedBrowserStateStorage('farmacias-vallenar-offline-sales', { includeDeviceId: false })),
         }
     )
 );

@@ -8,8 +8,10 @@ export interface AlternativeResult {
     name: string;
     sku: string;
     is_bioequivalent: boolean;
-    stock: number;
-    price: number;
+    stock: number | null;
+    price: number | null;
+    availabilityStatus: 'Disponible' | 'Agotado';
+    priceLabel: string;
     laboratory?: string;
     dci?: string;
     format?: string;
@@ -112,8 +114,10 @@ export async function getAlternativesAction(dci: string, currentId: string): Pro
                 name: row.name,
                 sku: row.sku || '',
                 is_bioequivalent: row.is_bioequivalent || false,
-                stock: Number(row.stock),
-                price: Number(row.price),
+                stock: null,
+                price: null,
+                availabilityStatus: Number(row.stock) > 0 ? 'Disponible' as const : 'Agotado' as const,
+                priceLabel: 'Consultar en local',
                 laboratory: details.lab || 'Generico',
                 dci: details.dci || '',
                 format: details.format || '',

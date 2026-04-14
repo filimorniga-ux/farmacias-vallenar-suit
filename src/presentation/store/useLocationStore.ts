@@ -11,7 +11,6 @@ interface LocationState {
     currentLocation: Location | null;
 
     // Actions
-    addLocation: (location: Location) => void;
     setLocations: (locations: Location[]) => void;
     updateLocation: (id: string, data: Partial<Location>) => void;
     switchLocation: (id: string, onSuccess?: () => void) => void;
@@ -23,7 +22,6 @@ interface LocationState {
 
     registerKiosk: (kiosk: KioskConfig) => void;
     updateKioskStatus: (id: string, status: 'ACTIVE' | 'INACTIVE') => void;
-    generatePairingCode: (kioskId: string) => string;
 }
 
 // Mock Initial Data - Removed to force fetch/clean state
@@ -33,16 +31,32 @@ const INITIAL_KIOSKS: KioskConfig[] = [];
 const CACHE_DURATION_MS = 5 * 60 * 1000;
 const SYNC_TIMEOUT_MS = 90000;
 
+type PublicLocationRecord = Omit<Location, 'associated_kiosks'>;
+
+function getUpdatedCurrentLocation(
+    currentLocation: Location | null,
+    nextLocations: Location[],
+) {
+    if (!currentLocation) {
+        return null;
+    }
+
+    return nextLocations.find((location) => location.id === currentLocation.id) || currentLocation;
+}
+
+function withPublicLocationDefaults(locations: PublicLocationRecord[]): Location[] {
+    return locations.map((location) => ({
+        ...location,
+        associated_kiosks: [],
+    }));
+}
+
 export const useLocationStore = create<LocationState>()(
     persist(
         (set, get) => ({
             locations: INITIAL_LOCATIONS,
             kiosks: INITIAL_KIOSKS,
             currentLocation: null,
-
-            addLocation: (location) => set((state) => ({
-                locations: [...state.locations, location]
-            })),
 
             setLocations: (locations) => set({ locations }),
 
@@ -51,7 +65,7 @@ export const useLocationStore = create<LocationState>()(
             loadingSince: undefined,
 
             fetchLocations: async (force = false) => {
-                const state = get() as any;
+                const state = get();
                 const now = Date.now();
                 const shouldUseCache = !force
                     && state.locations.length > 0
@@ -63,10 +77,8 @@ export const useLocationStore = create<LocationState>()(
                 }
 
                 if (state.isLoading) {
-                    console.log('📍 [LocationStore] Fetch already in progress, skipping.');
                     // Safety: If stuck for more than 20s, allow retry
                     if (now - (state.loadingSince || 0) > 20000) {
-                        console.warn('📍 [LocationStore] Fetch seems stuck, resetting isLoading...');
                         set({ isLoading: false, loadingSince: undefined });
                     } else {
                         return;
@@ -77,14 +89,13 @@ export const useLocationStore = create<LocationState>()(
 
                 // Safety Timeout (Extended for Cloud Latency / Dev Cold Start)
                 const timeout = setTimeout(() => {
-                    const currentState = get() as any;
+                    const currentState = get();
                     if (currentState.isLoading) {
                         Sentry.captureMessage('[LocationStore] Sync timeout while fetching locations', {
                             level: 'warning',
                             tags: { module: 'LocationStore', action: 'fetchLocations' },
                             extra: { force, locationCount: currentState.locations?.length || 0 },
                         });
-                        console.warn('📍 [LocationStore] Sync TIMEOUT after 90s - Retry advised');
                         toast.error('La sincronización de ubicaciones está tardando más de lo esperado. Por favor recargue si persiste.');
                         set({ isLoading: false, loadingSince: undefined });
                     }
@@ -95,22 +106,17 @@ export const useLocationStore = create<LocationState>()(
                     const user = usePharmaStore.getState().user;
 
                     if (user) {
-                        // Secure Fetch (Full Org Structure)
                         const { getOrganizationStructureSecure } = await import('@/actions/network-v2');
-                        const res = await getOrganizationStructureSecure(user.id);
+                        const res = await getOrganizationStructureSecure();
 
                         if (res.success && res.data?.locations) {
                             const newLocations = res.data.locations || [];
 
-                            set(state => {
-                                const updatedCurrentLocation = state.currentLocation
-                                    ? newLocations.find(l => l.id === state.currentLocation?.id) || state.currentLocation
-                                    : null;
-
+                            set((currentState) => {
                                 return {
                                     locations: newLocations,
-                                    currentLocation: updatedCurrentLocation,
-                                    lastFetch: Date.now()
+                                    currentLocation: getUpdatedCurrentLocation(currentState.currentLocation, newLocations),
+                                    lastFetch: Date.now(),
                                 };
                             });
                         } else {
@@ -126,17 +132,13 @@ export const useLocationStore = create<LocationState>()(
                             toast.error(res.error || 'No fue posible sincronizar ubicaciones.');
                         }
                     } else {
-                        // Public Fetch (Basic Locations for Context Selector)
                         const { getPublicLocationsSecure } = await import('@/actions/public-network-v2');
                         const res = await getPublicLocationsSecure();
 
                         if (res.success) {
                             set({
-                                locations: res.data.map(l => ({
-                                    ...l,
-                                    associated_kiosks: [] // Default value for public fetch
-                                })),
-                                lastFetch: Date.now()
+                                locations: withPublicLocationDefaults(res.data),
+                                lastFetch: Date.now(),
                             });
                         } else {
                             Sentry.captureMessage('[LocationStore] Public fetch failed', {
@@ -203,13 +205,6 @@ export const useLocationStore = create<LocationState>()(
                     k.id === id ? { ...k, status } : k
                 )
             })),
-
-            generatePairingCode: (kioskId) => {
-                // Simple mock generation
-                const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-                // In a real app, we would save this code temporarily
-                return code;
-            }
         }),
         {
             name: 'location-storage-v2',

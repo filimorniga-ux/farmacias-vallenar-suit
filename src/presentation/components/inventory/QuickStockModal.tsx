@@ -6,6 +6,7 @@ import { quickStockAdjustSecure } from '../../../actions/inventory-v2';
 import { usePharmaStore } from '../../store/useStore';
 
 import { useQueryClient } from '@tanstack/react-query';
+import { inventoryQueryKeys } from '@/presentation/lib/inventory-query-keys';
 
 interface QuickStockModalProps {
     isOpen: boolean;
@@ -20,7 +21,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
     const [pin, setPin] = useState<string>('');
     const [mode, setMode] = useState<'ADD' | 'REMOVE'>('ADD');
     const [isLoading, setIsLoading] = useState(false);
-    const { user, updateStock, currentLocationId } = usePharmaStore();
+    const { user, updateStock } = usePharmaStore();
 
     useEffect(() => {
         if (isOpen) {
@@ -60,14 +61,10 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
                 });
 
                 if (result.success) {
-                    console.log('✅ Adjust Success. Server says new stock:', result.newQuantity);
                     toast.success(`Stock ajustado correctamente`);
 
-                    // Optimistic Update Confirmed
-                    updateStock(product.id, finalAdjustment);
-
                     // Background Sync
-                    queryClient.invalidateQueries({ queryKey: ['inventory'] });
+                    queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.root });
                     onClose();
                     return;
                 } else {

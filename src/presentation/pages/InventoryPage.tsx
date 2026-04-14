@@ -596,7 +596,7 @@ const InventoryPage: React.FC = () => {
         incomplete: false
     });
 
-    const { currentLocationId, setCurrentLocation, user } = usePharmaStore();
+    const { currentLocationId, setCurrentLocation, setInventory, user } = usePharmaStore();
     const { locations } = useLocationStore();
     const activeLocation = locations.find(l => l.id === currentLocationId);
 
@@ -642,6 +642,10 @@ const InventoryPage: React.FC = () => {
     const inventoryData = useMemo(() => {
         return infiniteData?.pages.flatMap(page => page.data) || [];
     }, [infiniteData]);
+
+    useEffect(() => {
+        setInventory(inventoryData);
+    }, [inventoryData, setInventory]);
 
     const meta = infiniteData?.pages[0]?.meta || { total: 0, page: 1, totalPages: 1 };
 

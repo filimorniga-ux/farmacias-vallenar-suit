@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { usePharmaStore } from '../../store/useStore';
 import { InventoryBatch } from '../../../domain/types';
 import { v4 as uuidv4 } from 'uuid';
+import { inventoryQueryKeys } from '@/presentation/lib/inventory-query-keys';
 
 interface BulkImportModalProps {
     isOpen: boolean;
@@ -52,7 +53,6 @@ import { useQueryClient } from '@tanstack/react-query';
 
 const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) => {
     const queryClient = useQueryClient();
-    const { importInventory, currentLocationId } = usePharmaStore();
     const [step, setStep] = useState<'UPLOAD' | 'PREVIEW'>('UPLOAD');
     const [importedData, setImportedData] = useState<ImportedRow[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -409,10 +409,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
 
             const itemsToImport = Array.from(uniqueMap.values());
 
-            // 1. Import to Local Store (Optimistic UI)
-            await importInventory(itemsToImport);
-
-            // 2. Persist to Database (Tiger Cloud)
+            // 1. Persist to Database (Owner canónico)
             const { TigerDataService } = await import('../../../domain/services/TigerDataService');
 
             // Use try/catch for the API call 
@@ -422,8 +419,8 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
 
             successCount = itemsToImport.length;
 
-            // 3. Refresh Data
-            await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+            // 2. Refresh Data
+            await queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.root });
 
             toast.success('Importación Completada', {
                 description: `Se importaron ${successCount} productos con el Formato Oficial.`

@@ -23,7 +23,10 @@ const dbUrl = process.env.DATABASE_URL || '';
 const isCloudDB = dbUrl.includes('tsdb.cloud.timescale.com') || dbUrl.includes('m1xugm0lj9') || dbUrl.includes('supabase.com');
 const isLocalhost = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
 
-// SSL Config: Force rejectUnauthorized: false for cloud/remote
+// Postura runtime actual:
+// para conexiones remotas seguimos usando TLS sin verificación de certificado
+// hasta que infraestructura provea CA bundle o sslmode verificado.
+// No duplicar esta decisión en routes/scripts ad-hoc; todo runtime debe reutilizar esta capa.
 const sslConfig = (!isLocalhost || isCloudDB) ? { rejectUnauthorized: false } : undefined;
 
 if (!isProduction) {

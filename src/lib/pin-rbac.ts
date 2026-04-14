@@ -12,8 +12,6 @@ export const ROLE_GROUPS = {
     TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'] as const,
 } as const;
 
-const DEVELOPMENT_MASTER_PIN = '1213';
-
 export type PinRbacActor = ValidatedSession;
 
 export type PinRbacErrorCode =
@@ -42,7 +40,6 @@ export interface PinAuthorizedUser {
 export interface PinValidationOptions {
     allowLegacyPlaintext?: boolean;
     useRateLimiter?: boolean;
-    allowDevelopmentMasterPin?: boolean;
     requiredMatchUserId?: string;
 }
 
@@ -54,7 +51,7 @@ type PinValidationFailure =
 type PinValidationSuccess = {
     valid: true;
     authorizedBy: PinAuthorizedUser;
-    matchedBy: 'hash' | 'legacy_plaintext' | 'development_master_pin';
+    matchedBy: 'hash' | 'legacy_plaintext';
 };
 
 export type PinValidationResult = PinValidationFailure | PinValidationSuccess;
@@ -101,12 +98,6 @@ export function requireRole(actor: PinRbacActor, allowedRoles: readonly string[]
     return normalizedActor;
 }
 
-function isDevelopmentMasterPinAllowed(pin: string, options: PinValidationOptions) {
-    return process.env.NODE_ENV !== 'production'
-        && options.allowDevelopmentMasterPin === true
-        && pin === DEVELOPMENT_MASTER_PIN;
-}
-
 function buildUserRow(row: PinQueryUserRow): PinAuthorizedUser {
     return {
         id: row.id,
@@ -125,14 +116,6 @@ async function validateAgainstUser(
             valid: false,
             code: 'PIN_USER_MISMATCH',
             error: 'El PIN no corresponde al usuario requerido',
-        };
-    }
-
-    if (isDevelopmentMasterPinAllowed(pin, options)) {
-        return {
-            valid: true,
-            authorizedBy: buildUserRow(candidate),
-            matchedBy: 'development_master_pin',
         };
     }
 

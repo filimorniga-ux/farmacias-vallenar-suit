@@ -164,9 +164,11 @@ const ClientsPage: React.FC = () => {
         }
 
         if (editingCustomer) {
-            updateCustomer(editingCustomer.id, formData);
-            toast.success('Cliente actualizado');
-            setEditingCustomer(null);
+            const success = await updateCustomer(editingCustomer.id, formData);
+            if (success) {
+                toast.success('Cliente actualizado');
+                setEditingCustomer(null);
+            }
         } else {
             const result = await addCustomer(formData as Customer);
             if (result) {
@@ -181,9 +183,12 @@ const ClientsPage: React.FC = () => {
 
     const handleDelete = () => {
         if (deletingCustomer) {
-            deleteCustomer(deletingCustomer.id);
-            toast.success('Cliente eliminado (Soft Delete)');
-            setDeletingCustomer(null);
+            deleteCustomer(deletingCustomer.id).then((success) => {
+                if (success) {
+                    toast.success('Cliente eliminado (Soft Delete)');
+                    setDeletingCustomer(null);
+                }
+            });
         }
     };
 

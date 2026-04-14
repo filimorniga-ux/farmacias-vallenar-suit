@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireApiRoles } from '@/lib/api-auth';
 import { getSiiConfigurationSummary, saveSiiConfiguration } from '@/lib/sii-config';
 
-const SII_CONFIG_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'] as const;
+const SII_CONFIG_ROLES = ['ADMIN', 'GERENTE_GENERAL'] as const;
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';

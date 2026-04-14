@@ -25,9 +25,8 @@ import { revalidatePath } from 'next/cache';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/lib/logger';
 import { Location } from '@/domain/types';
+import { resolveActorResult } from './actor-result';
 import {
-    getActorOrFail,
-    PinRbacError,
     requireRole,
     ROLE_GROUPS,
     validatePinForRoles,
@@ -97,34 +96,18 @@ const ERROR_CODES = {
 // ============================================================================
 
 /**
- * Get session from headers
- */
-type LocationsActor = Awaited<ReturnType<typeof getActorOrFail>>;
-
-async function requireLocationsActor(): Promise<LocationsActor | null> {
-    try {
-        return await getActorOrFail();
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return null;
-        }
-
-        throw error;
-    }
-}
-
-/**
  * Verify ADMIN permissions
  */
-async function verifyAdminPermission(client: any): Promise<{
+async function verifyAdminPermission(): Promise<{
     valid: boolean;
     admin?: { id: string; name: string; role: string };
     error?: string;
 }> {
-    const actor = await requireLocationsActor();
-    if (!actor) {
-        return { valid: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { valid: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
@@ -145,15 +128,16 @@ async function verifyAdminPermission(client: any): Promise<{
 /**
  * Verify MANAGER permissions (Includes ADMIN & GERENTE_GENERAL)
  */
-async function verifyManagerPermission(client: any): Promise<{
+async function verifyManagerPermission(): Promise<{
     valid: boolean;
     manager?: { id: string; name: string; role: string };
     error?: string;
 }> {
-    const actor = await requireLocationsActor();
-    if (!actor) {
-        return { valid: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { valid: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         requireRole(actor, ROLE_GROUPS.MANAGER);
@@ -257,7 +241,7 @@ export async function createLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify ADMIN permission
-        const authCheck = await verifyAdminPermission(client);
+        const authCheck = await verifyAdminPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -338,16 +322,11 @@ export async function createLocationSecure(
 export async function updateLocationSecure(
     data: z.infer<typeof UpdateLocationSchema>
 ): Promise<{ success: boolean; data?: Location; error?: string }> {
-    console.log('🔥 [SERVER ACTION] updateLocationSecure CALLED');
-    console.log('📦 [SERVER ACTION] Payload size:', JSON.stringify(data).length, 'bytes');
-
     // Validate input
     const validated = UpdateLocationSchema.safeParse(data);
     if (!validated.success) {
-        console.error('❌ [SERVER ACTION] Validation Failed:', validated.error);
         return { success: false, error: validated.error.issues[0]?.message };
     }
-    console.log('✅ [SERVER ACTION] Validation passed for:', validated.data.locationId);
 
     const client = await pool.connect();
 
@@ -355,7 +334,7 @@ export async function updateLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify MANAGER permission
-        const authCheck = await verifyManagerPermission(client);
+        const authCheck = await verifyManagerPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -419,9 +398,6 @@ export async function updateLocationSecure(
         // updates.push(`updated_at = NOW()`);  <-- Removed: Column does not exist in schema
         values.push(validated.data.locationId);
 
-        // Monitor updates
-        console.log('📝 [UPDATE LOCATION] BEFORE UPDATE:', { updates, values, locationId: validated.data.locationId });
-
         const res = await client.query(`
             UPDATE locations SET ${updates.join(', ')}
             WHERE id = $${paramIndex}
@@ -429,7 +405,6 @@ export async function updateLocationSecure(
         `, values);
 
         const updatedLocation = res.rows[0];
-        console.log('📝 [UPDATE LOCATION] AFTER UPDATE (RETURNING):', { name: updatedLocation?.name, id: updatedLocation?.id });
 
         // Audit
         await insertLocationAudit(client, {
@@ -441,7 +416,6 @@ export async function updateLocationSecure(
         });
 
         await client.query('COMMIT');
-        console.log('📝 [UPDATE LOCATION] COMMIT DONE');
 
         logger.info({ locationId: validated.data.locationId }, '✏️ [Locations] Location updated');
 
@@ -488,7 +462,7 @@ export async function deactivateLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify MANAGER permission
-        const authCheck = await verifyManagerPermission(client);
+        const authCheck = await verifyManagerPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -589,7 +563,7 @@ export async function transferStockBetweenLocationsSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        const actorCheck = await verifyManagerPermission(client);
+        const actorCheck = await verifyManagerPermission();
         if (!actorCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: actorCheck.error };
@@ -918,7 +892,7 @@ export async function assignUserToLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify ADMIN permission (strict - ADMIN only for assignments)
-        const authCheck = await verifyAdminPermission(client);
+        const authCheck = await verifyAdminPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };

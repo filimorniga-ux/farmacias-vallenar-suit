@@ -10,8 +10,12 @@ import LocationEditModal from '../components/settings/LocationEditModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 
+function createPairingCode() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
 const NetworkPage = () => {
-    const { locations, kiosks, currentLocation, addLocation, switchLocation, generatePairingCode } = useLocationStore();
+    const { locations, kiosks, currentLocation, switchLocation, fetchLocations } = useLocationStore();
     const { employees, user } = usePharmaStore(); // Need employees for Team Mgmt
     const [activeTab, setActiveTab] = useState<'BRANCHES' | 'TEAMS' | 'DEVICES'>('BRANCHES');
 
@@ -43,9 +47,9 @@ const NetworkPage = () => {
                 type: newLocation.type as any
             });
 
-            if (res.success && res.data) {
+            if (res.success) {
                 toast.success('Ubicación creada exitosamente');
-                addLocation(res.data); // Update local store
+                await fetchLocations(true);
                 setIsWizardOpen(false);
                 setNewLocation({ type: 'STORE', name: '', address: '' });
             } else {
@@ -63,24 +67,25 @@ const NetworkPage = () => {
         }
 
         const kioskId = `K-${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+        const pairingCode = createPairingCode();
 
         registerKiosk({
             id: kioskId,
             type: newDevice.type,
             location_id: newDevice.locationId,
             status: 'INACTIVE', // Starts inactive until paired
-            pairing_code: generatePairingCode(kioskId)
+            pairing_code: pairingCode
         });
 
         toast.success(`Dispositivo ${kioskId} creado`);
         setIsDeviceWizardOpen(false);
         setNewDevice({ name: '', type: 'QUEUE', locationId: '' });
         // Optionally show pairing code immediately
-        handleGenerateCode(kioskId);
+        handleGenerateCode();
     };
 
-    const handleGenerateCode = (kioskId: string) => {
-        const code = generatePairingCode(kioskId);
+    const handleGenerateCode = () => {
+        const code = createPairingCode();
         setPairingCode(code);
     };
 
@@ -123,7 +128,6 @@ const NetworkPage = () => {
             const { setCurrentLocation } = usePharmaStore.getState();
             const warehouseId = target.default_warehouse_id || target.id;
             setCurrentLocation(target.id, warehouseId, '');
-            console.log('🔄 NetworkPage: Contexto sincronizado a:', target.name);
         }
     };
 
@@ -334,7 +338,7 @@ const NetworkPage = () => {
                         </div>
 
                         <button
-                            onClick={() => handleGenerateCode(kiosk.id)}
+                            onClick={() => handleGenerateCode()}
                             className="w-full mt-4 py-2 border border-cyan-200 text-cyan-600 font-bold rounded-lg hover:bg-cyan-50 transition flex items-center justify-center gap-2"
                         >
                             <QrCode size={16} /> Generar Código

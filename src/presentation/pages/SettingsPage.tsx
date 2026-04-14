@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet, Bot } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet, Bot } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
 import LoyaltySettings from './settings/LoyaltySettings';
 import InfrastructureBillingPanel from '../components/settings/InfrastructureBillingPanel';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { usePharmaStore } from '../store/useStore';
 import { UsersList } from '../components/settings/UsersList';
 import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
@@ -16,6 +15,7 @@ import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AuditLogTable } from '../components/settings/AuditLogTable';
 import { SecurityPolicyPanel } from '../components/settings/SecurityPolicyPanel';
 import { FinancialAccountsSettings } from '../components/settings/FinancialAccountsSettings';
+import { getOperationalSettingsSecure } from '@/actions/settings-v2';
 
 const SettingsPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -25,12 +25,17 @@ const SettingsPage: React.FC = () => {
         setSearchParams({ tab });
     };
 
-    const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
+    const [operationalSettings, setOperationalSettings] = useState<{
+        sii_enabled: boolean;
+        fiscal_mode: 'FISCAL' | 'INTERNAL';
+        sii_environment: 'CERTIFICACION' | 'PRODUCCION';
+    } | null>(null);
 
     // Estado para gestión de usuarios
     const [usersView, setUsersView] = useState<'list' | 'form'>('list');
     const [selectedUser, setSelectedUser] = useState<EmployeeProfile | null>(null);
+    const canManageSii = user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
 
     const handleEditUser = (user: EmployeeProfile) => {
         setSelectedUser(user);
@@ -47,6 +52,30 @@ const SettingsPage: React.FC = () => {
         setSelectedUser(null);
     };
 
+    useEffect(() => {
+        let cancelled = false;
+
+        getOperationalSettingsSecure()
+            .then((res) => {
+                if (!cancelled && res.success && res.data) {
+                    setOperationalSettings({
+                        sii_enabled: res.data.sii_enabled,
+                        fiscal_mode: res.data.fiscal_mode,
+                        sii_environment: res.data.sii_environment,
+                    });
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setOperationalSettings(null);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     return (
         <div className="p-4 md:p-6 bg-slate-50 min-h-dvh pb-safe">
             <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -55,18 +84,24 @@ const SettingsPage: React.FC = () => {
                     <p className="text-slate-500">Administración del Sistema</p>
                 </div>
 
-                {/* Global SII Toggle */}
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between gap-4 w-full md:w-auto">
                     <div className="text-right">
-                        <p className="text-sm font-bold text-slate-800">Integración SII</p>
-                        <p className="text-xs text-slate-500">{enable_sii_integration ? 'Modo Fiscal (Boleta)' : 'Modo Control Interno'}</p>
+                        <p className="text-sm font-bold text-slate-800">Modo Operativo Fiscal</p>
+                        <p className="text-xs text-slate-500">
+                            {operationalSettings
+                                ? `${operationalSettings.fiscal_mode === 'FISCAL' ? 'Modo Fiscal' : 'Control Interno'} • ${operationalSettings.sii_environment}`
+                                : 'Cargando configuración backend...'}
+                        </p>
                     </div>
-                    <button
-                        onClick={toggleSiiIntegration}
-                        className={`relative w-14 h-8 rounded-full transition-colors duration-300 ${enable_sii_integration ? 'bg-green-500' : 'bg-slate-300'}`}
+                    <div
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                            operationalSettings?.sii_enabled
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-slate-100 text-slate-600'
+                        }`}
                     >
-                        <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transform transition-transform duration-300 ${enable_sii_integration ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </button>
+                        {operationalSettings?.sii_enabled ? 'Backend Activo' : 'Backend Interno'}
+                    </div>
                 </div>
             </header>
 
@@ -106,16 +141,18 @@ const SettingsPage: React.FC = () => {
                         Cajas / Terminales
                     </button>
 
-                    <button
-                        onClick={() => setActiveTab('sii')}
-                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'sii'
-                            ? 'bg-green-50 text-green-700 border-b-2 border-green-600'
-                            : 'text-slate-500 hover:bg-slate-50'
-                            }`}
-                    >
-                        <Receipt size={20} />
-                        Conexión SII
-                    </button>
+                    {canManageSii && (
+                        <button
+                            onClick={() => setActiveTab('sii')}
+                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'sii'
+                                ? 'bg-green-50 text-green-700 border-b-2 border-green-600'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            <Receipt size={20} />
+                            Conexión SII
+                        </button>
+                    )}
                     <button
                         onClick={() => setActiveTab('hardware')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'hardware'
@@ -242,24 +279,17 @@ const SettingsPage: React.FC = () => {
             {activeTab === 'terminals' && <TerminalSettings />}
 
             {activeTab === 'sii' && (
-                enable_sii_integration ? (
+                canManageSii ? (
                     <SiiSettings />
                 ) : (
                     <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 p-12 flex flex-col items-center text-center">
                         <div className="bg-slate-100 p-6 rounded-full mb-6">
-                            <Receipt size={48} className="text-slate-400" />
+                            <Shield size={48} className="text-slate-400" />
                         </div>
-                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Integración SII Desactivada</h2>
-                        <p className="text-slate-500 max-w-md mb-8">
-                            El sistema está operando en modo "Control Interno". Las ventas generarán comprobantes no válidos como boleta.
-                            Active la integración en la parte superior para configurar certificados y folios.
+                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Acceso Restringido</h2>
+                        <p className="text-slate-500 max-w-md">
+                            La configuración fiscal del SII se administra solo desde roles globales y siempre se valida en backend.
                         </p>
-                        <button
-                            onClick={toggleSiiIntegration}
-                            className="px-8 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition shadow-lg"
-                        >
-                            Activar Integración SII
-                        </button>
                     </div>
                 )
             )}

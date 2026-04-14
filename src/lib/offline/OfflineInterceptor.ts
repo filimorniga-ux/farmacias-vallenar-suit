@@ -13,6 +13,7 @@
  */
 
 import { isElectronEnv } from '../../hooks/useOfflineDB';
+import { buildOwnershipMeta, getActivePersistenceScope } from '@/lib/store/persistenceScope';
 
 // ─────────────────────────────────────────────────
 // TYPES (matching Electron API)
@@ -72,8 +73,10 @@ export async function mirrorStoreToSQLite(storeState: {
             pin_hash: e.access_pin || null,
             role: e.role || 'vendedor',
             location_id: e.assigned_location_id || null,
+            token_version: e.token_version || 0,
             is_active: e.is_active !== false ? 1 : 0,
             permissions: e.permissions ? JSON.stringify(e.permissions) : null,
+            last_synced_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
         }));
         tasks.push(api.offlineDB.upsertMany('users', users));
@@ -175,12 +178,21 @@ export async function loadFromSQLite(): Promise<{
 } | null> {
     const api = getAPI();
     if (!api) return null;
+    const activeScope = getActivePersistenceScope();
+    if (!activeScope?.userId) return null;
+
+    const inventoryPromise = activeScope?.locationId
+        ? api.offlineDB.getAll('inventory_batches', { location_id: activeScope.locationId })
+        : api.offlineDB.getAll('inventory_batches');
+    const usersPromise = activeScope?.userId
+        ? api.offlineDB.getAll('users', { is_active: 1, id: activeScope.userId })
+        : api.offlineDB.getAll('users', { is_active: 1 });
 
     const [users, locations, products, inventory, clients] = await Promise.all([
-        api.offlineDB.getAll('users', { is_active: 1 }),
+        usersPromise,
         api.offlineDB.getAll('locations', { is_active: 1 }),
         api.offlineDB.getAll('products', { is_active: 1 }),
-        api.offlineDB.getAll('inventory_batches'),
+        inventoryPromise,
         api.offlineDB.getAll('clients', { is_active: 1 }),
     ]);
 
@@ -217,6 +229,8 @@ export async function saveOfflineSale(sale: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         // Save sale header
@@ -250,20 +264,10 @@ export async function saveOfflineSale(sale: {
                 total: item.total,
             });
 
-            // Update local stock
-            if (item.batchId) {
-                const batch = await api.offlineDB.getById('inventory_batches', item.batchId) as any;
-                if (batch) {
-                    await api.offlineDB.upsert('inventory_batches', {
-                        ...batch,
-                        quantity: Math.max(0, (batch.quantity || 0) - item.quantity),
-                    });
-                }
-            }
         }
 
         // Enqueue for sync
-        await api.sync.enqueue('sales', 'INSERT', sale.id, sale);
+        await api.sync.enqueue('sales', 'INSERT', sale.id, { ...sale, ...ownership });
 
         console.log(`[OfflineInterceptor] 💾 Sale saved offline: ${sale.id}`);
         return true;
@@ -285,6 +289,8 @@ export async function saveOfflineCashOperation(operation: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         if (operation.type === 'open') {
@@ -298,7 +304,7 @@ export async function saveOfflineCashOperation(operation: {
                 synced: 0,
                 ...operation.data,
             });
-            await api.sync.enqueue('cash_sessions', 'INSERT', operation.sessionId, operation);
+            await api.sync.enqueue('cash_sessions', 'INSERT', operation.sessionId, { ...operation, ...ownership });
         } else if (operation.type === 'close') {
             await api.offlineDB.upsert('cash_sessions', {
                 id: operation.sessionId,
@@ -308,7 +314,7 @@ export async function saveOfflineCashOperation(operation: {
                 synced: 0,
                 ...operation.data,
             });
-            await api.sync.enqueue('cash_sessions', 'UPDATE', operation.sessionId, operation);
+            await api.sync.enqueue('cash_sessions', 'UPDATE', operation.sessionId, { ...operation, ...ownership });
         } else if (operation.type === 'movement') {
             const movementId = `cm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             await api.offlineDB.upsert('cash_movements', {
@@ -323,6 +329,7 @@ export async function saveOfflineCashOperation(operation: {
             await api.sync.enqueue('cash_movements', 'INSERT', movementId, {
                 ...operation,
                 movementId,
+                ...ownership,
             });
         }
 
@@ -348,6 +355,8 @@ export async function saveOfflineWMSMovement(movement: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         await api.offlineDB.upsert('wms_movements', {
@@ -363,19 +372,7 @@ export async function saveOfflineWMSMovement(movement: {
             synced: 0,
         });
 
-        // Update local stock for adjustments
-        if (movement.batchId && (movement.type === 'adjustment' || movement.type === 'dispatch')) {
-            const batch = await api.offlineDB.getById('inventory_batches', movement.batchId) as any;
-            if (batch) {
-                const delta = movement.type === 'dispatch' ? -movement.quantity : movement.quantity;
-                await api.offlineDB.upsert('inventory_batches', {
-                    ...batch,
-                    quantity: Math.max(0, (batch.quantity || 0) + delta),
-                });
-            }
-        }
-
-        await api.sync.enqueue('wms_movements', 'INSERT', movement.id, movement);
+        await api.sync.enqueue('wms_movements', 'INSERT', movement.id, { ...movement, ...ownership });
         console.log(`[OfflineInterceptor] 💾 WMS ${movement.type} saved offline`);
         return true;
     } catch (err) {

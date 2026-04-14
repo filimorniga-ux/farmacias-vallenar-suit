@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { getChileISOString } from '../utils';
-import { safeBrowserStateStorage } from './safePersistStorage';
+import { createScopedBrowserStateStorage } from './safePersistStorage';
+import { buildOwnershipMeta, type QueueOwnershipMeta } from './persistenceScope';
 
 export type OutboxItemType = 'CASH_MOVEMENT' | 'CLIENT_CREATE' | 'STOCK_ADJUST' | 'PRODUCT_CREATE';
 
-export interface OutboxItem {
+export interface OutboxItem extends QueueOwnershipMeta {
     id: string;
     type: OutboxItemType;
     payload: any;
@@ -30,19 +31,27 @@ export const useOutboxStore = create<OutboxState>()(
         (set) => ({
             queue: [],
             addToOutbox: (type, payload) =>
-                set((state) => ({
-                    queue: [
-                        ...state.queue,
-                        {
-                            id: crypto.randomUUID(),
-                            type,
-                            payload,
-                            createdAt: getChileISOString(),
-                            status: 'PENDING',
-                            retryCount: 0,
-                        },
-                    ],
-                })),
+                set((state) => {
+                    const ownership = buildOwnershipMeta();
+                    if (!ownership) {
+                        return state;
+                    }
+
+                    return {
+                        queue: [
+                            ...state.queue,
+                            {
+                                id: crypto.randomUUID(),
+                                type,
+                                payload,
+                                createdAt: getChileISOString(),
+                                status: 'PENDING',
+                                retryCount: 0,
+                                ...ownership,
+                            },
+                        ],
+                    };
+                }),
             removeFromOutbox: (id) =>
                 set((state) => ({
                     queue: state.queue.filter((item) => item.id !== id),
@@ -66,7 +75,7 @@ export const useOutboxStore = create<OutboxState>()(
         }),
         {
             name: 'farmacias-vallenar-outbox',
-            storage: createJSONStorage(() => safeBrowserStateStorage),
+            storage: createJSONStorage(() => createScopedBrowserStateStorage('farmacias-vallenar-outbox', { includeDeviceId: false })),
             partialize: (state) => ({ queue: state.queue }), // Don't persist isSyncing
         }
     )

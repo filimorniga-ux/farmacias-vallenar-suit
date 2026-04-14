@@ -269,6 +269,7 @@ npm run dev
 | `MANUAL_DE_USUARIO.md` | Guía paso a paso para operadores |
 | `PROJECT_BIBLE.md` | Decisiones de arquitectura y convenciones |
 | `digitalocean-staging.md` | Guía de despliegue containerizado en DigitalOcean ([docs/deploy/digitalocean-staging.md](docs/deploy/digitalocean-staging.md)) |
+| `environment-targets.md` | Política mínima de separación `staging` / `production` ([docs/operations/environment-targets.md](docs/operations/environment-targets.md)) |
 
 ---
 

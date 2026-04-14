@@ -1,6 +1,7 @@
 
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { DEV_TEST_ACCOUNT } from './dev-account-support';
 
 dotenv.config();
 dotenv.config({ path: '.env.local' });
@@ -63,8 +64,7 @@ async function finalCleanup() {
                 await client.query(`
                 UPDATE users 
                 SET role = 'ADMIN', 
-                    assigned_location_id = NULL,
-                    access_pin = '1213'
+                    assigned_location_id = NULL
                 WHERE email = $1
             `, [email]);
                 console.log(`🔓 Gerente Desbloqueado (Global): ${email}`);
@@ -73,6 +73,7 @@ async function finalCleanup() {
 
         await client.query('COMMIT');
         console.log('\n✅ LIMPIEZA COMPLETADA.');
+        console.log(`ℹ️ No se asignan PINs masivos. Usa ${DEV_TEST_ACCOUNT.ensureCommand} si necesitas la cuenta DEV controlada.`);
 
         // Output Active Location for User
         if (locsRes.rows.length > 0) {

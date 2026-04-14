@@ -1,29 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { Shield, Key, Lock, AlertTriangle, Clock, UserCheck, ExternalLink } from 'lucide-react';
-import { useSettingsStore } from '../../store/useSettingsStore';
-import { toast } from 'sonner';
 import { ActiveSessionsTable } from './ActiveSessionsTable';
 import { Link } from 'react-router-dom';
+import { getOperationalSettingsSecure } from '@/actions/settings-v2';
 
 export const SecurityPolicyPanel: React.FC = () => {
-    const { security, updateSecurityConfig } = useSettingsStore();
-    const [localSettings, setLocalSettings] = useState(security);
+    const [security, setSecurity] = useState({
+        idle_timeout_minutes: 5,
+        max_login_attempts: 5,
+        lockout_duration_minutes: 15,
+    });
 
     useEffect(() => {
-        setLocalSettings(security);
-    }, [security]);
+        let cancelled = false;
 
-    const handleSave = () => {
-        updateSecurityConfig(localSettings);
-        toast.success("Políticas de seguridad actualizadas localmente");
-    };
+        getOperationalSettingsSecure()
+            .then((res) => {
+                if (!cancelled && res.success && res.data) {
+                    setSecurity(res.data.security);
+                }
+            })
+            .catch(() => undefined);
 
-    const handleChange = (field: string, value: number) => {
-        setLocalSettings(prev => ({
-            ...prev,
-            [field]: value
-        }));
-    };
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 mb-8">
@@ -55,7 +57,7 @@ export const SecurityPolicyPanel: React.FC = () => {
                             max="30"
                             step="1"
                             value={security.idle_timeout_minutes}
-                            onChange={(e) => updateSecurityConfig({ idle_timeout_minutes: parseInt(e.target.value) })}
+                            disabled
                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-red-600"
                         />
                         <p className="text-xs text-slate-400 mt-3">
@@ -81,7 +83,7 @@ export const SecurityPolicyPanel: React.FC = () => {
                             max="10"
                             step="1"
                             value={security.max_login_attempts}
-                            onChange={(e) => updateSecurityConfig({ max_login_attempts: parseInt(e.target.value) })}
+                            disabled
                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-amber-500"
                         />
                         <p className="text-xs text-slate-400 mt-3">
@@ -106,7 +108,7 @@ export const SecurityPolicyPanel: React.FC = () => {
                             min="1"
                             max="60"
                             value={security.lockout_duration_minutes}
-                            onChange={(e) => updateSecurityConfig({ lockout_duration_minutes: parseInt(e.target.value) })}
+                            readOnly
                             className="w-full p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none font-bold text-center"
                         />
                         <p className="text-xs text-slate-400 mt-3">
@@ -117,12 +119,9 @@ export const SecurityPolicyPanel: React.FC = () => {
             </div>
 
             <div className="mt-6 flex justify-end">
-                <button
-                    onClick={handleSave}
-                    className="flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition"
-                >
-                    Guardar Políticas
-                </button>
+                <p className="text-sm text-slate-500">
+                    Políticas aplicadas desde backend. Esta vista es solo informativa.
+                </p>
             </div>
             {/* Active Sessions Monitoring */}
             <div className="mt-8">
@@ -161,8 +160,8 @@ export const SecurityPolicyPanel: React.FC = () => {
                     <div className="bg-white/60 p-4 rounded-xl">
                         <p className="text-xs text-slate-500 font-bold uppercase">PIN Maestro</p>
                         <p className="text-sm text-slate-700 mt-2">
-                            El PIN maestro permite activar el kiosko.
-                            Actualmente está configurado como un valor fijo.
+                            El acceso administrativo del kiosko se valida server-side
+                            y no depende de secretos embebidos en el cliente.
                         </p>
                     </div>
                     <div className="bg-white/60 p-4 rounded-xl">

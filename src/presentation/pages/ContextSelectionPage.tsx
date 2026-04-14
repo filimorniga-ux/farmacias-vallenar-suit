@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Store, MapPin, ArrowRight, Warehouse, RefreshCw } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { getPublicLocationsSecure, PublicLocation } from '../../actions/public-network-v2';
+import { readPreferredPublicContext } from '@/presentation/lib/preferredPublicContext';
 
 const ContextSelectionPage: React.FC = () => {
     const [publicLocations, setPublicLocations] = useState<PublicLocation[]>([]);
@@ -11,6 +12,7 @@ const ContextSelectionPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [errorRef, setErrorRef] = useState<string | null>(null);
     const [fallbackLocation, setFallbackLocation] = useState<PublicLocation | null>(null);
+    const [preferredLocationId, setPreferredLocationId] = useState<string | null>(null);
 
     const loadPublicLocations = useCallback(async () => {
         setIsLoading(true);
@@ -38,16 +40,14 @@ const ContextSelectionPage: React.FC = () => {
     // Initial Load
     useEffect(() => {
         let isMounted = true;
-        const storedId = localStorage.getItem('preferred_location_id');
-        const storedName = localStorage.getItem('preferred_location_name');
-        const storedType = localStorage.getItem('preferred_location_type');
+        const storedContext = readPreferredPublicContext(window.localStorage);
 
-        if (storedId && isMounted) {
-            const resolvedType = storedType === 'WAREHOUSE' || storedType === 'HQ' ? storedType : 'STORE';
+        if (storedContext && isMounted) {
+            setPreferredLocationId(storedContext.id);
             setFallbackLocation({
-                id: storedId,
-                name: storedName || 'Última sucursal',
-                type: resolvedType,
+                id: storedContext.id,
+                name: storedContext.name || 'Última sucursal',
+                type: storedContext.type,
                 address: '',
             });
         }
@@ -60,6 +60,7 @@ const ContextSelectionPage: React.FC = () => {
     }, [loadPublicLocations]);
 
     const handleLocationSelect = (loc: PublicLocation) => {
+        setPreferredLocationId(loc.id);
         // 1. Save preference locally (Client-Side State)
         localStorage.setItem('preferred_location_id', loc.id);
         localStorage.setItem('preferred_location_name', loc.name);
@@ -78,7 +79,7 @@ const ContextSelectionPage: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <div data-testid="public-context-page" className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
             {/* Background Ambience - Light Clinical Blue/Teal */}
             <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
                 <div className="absolute top-[5%] left-[10%] w-[600px] h-[600px] bg-sky-200/40 rounded-full blur-[120px]" />
@@ -152,11 +153,13 @@ const ContextSelectionPage: React.FC = () => {
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {publicLocations.map(loc => {
-                                const isPreferred = localStorage.getItem('preferred_location_id') === loc.id;
+                                const isPreferred = preferredLocationId === loc.id;
                                 return (
                                     <button
                                         key={loc.id}
                                         onClick={() => handleLocationSelect(loc)}
+                                        data-testid="public-context-card"
+                                        data-location-name={loc.name}
                                         className={`group relative bg-white border ${isPreferred ? 'border-sky-500 shadow-xl shadow-sky-900/10' : 'border-slate-100'} hover:border-sky-400 rounded-2xl p-6 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-sky-900/5`}
                                     >
                                         <div className="flex items-start justify-between mb-4">

@@ -2,7 +2,14 @@
 
 import { query } from '@/lib/db';
 import { z } from 'zod';
-import { startOfDay, endOfDay, startOfWeek, startOfMonth, formatISO } from 'date-fns';
+import { startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns';
+import {
+    PRODUCT_REPORT_ROLES,
+    ensureEmployeeInLocation,
+    ensureTerminalInLocation,
+    requireReportActor,
+    resolveEffectiveLocation,
+} from './report-scope';
 
 // --- SCHEMA & TYPES ---
 
@@ -33,6 +40,7 @@ export interface ProductSalesRow {
     product_name: string;
     category: string;
     units_sold: number;
+    refunded_units?: number;
     total_amount: number;
     avg_price: number;
     transaction_count: number;
@@ -88,11 +96,40 @@ function getDateRange(period: string, startStr?: string, endStr?: string) {
 
 export async function getProductSalesReportSecure(params: ReportParams) {
     try {
+        const actorResult = await requireReportActor(PRODUCT_REPORT_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
+        const actor = actorResult.actor;
+
         // 1. Parse & Prepare Filters
         const filters = ReportFilterSchema.parse(params);
         const { start, end } = getDateRange(filters.period, filters.startDate, filters.endDate);
-        const locationFilter = normalizeUuidFilter(filters.locationId);
+        const requestedLocationId = normalizeUuidFilter(filters.locationId);
         const terminalFilter = normalizeUuidFilter(filters.terminalId);
+        const employeeFilter = normalizeUuidFilter(filters.employeeId);
+
+        const effectiveLocationResult = resolveEffectiveLocation(actor, requestedLocationId);
+        if (!effectiveLocationResult.success) {
+            return { success: false, error: effectiveLocationResult.error };
+        }
+
+        const effectiveLocationId = effectiveLocationResult.locationId;
+
+        if (effectiveLocationId && terminalFilter) {
+            const terminalAllowed = await ensureTerminalInLocation(terminalFilter, effectiveLocationId);
+            if (!terminalAllowed) {
+                return { success: false, error: 'Acceso denegado a caja fuera de tu ubicación' };
+            }
+        }
+
+        if (effectiveLocationId && employeeFilter) {
+            const employeeAllowed = await ensureEmployeeInLocation(employeeFilter, effectiveLocationId);
+            if (!employeeAllowed) {
+                return { success: false, error: 'Acceso denegado a empleado fuera de tu ubicación' };
+            }
+        }
 
         const queryParams: any[] = [start, end];
         let paramIndex = 3;
@@ -120,9 +157,9 @@ export async function getProductSalesReportSecure(params: ReportParams) {
         `;
 
         // Filter: Location
-        if (locationFilter) {
+        if (effectiveLocationId) {
             sql += ` AND s.location_id::text = $${paramIndex}::text`;
-            queryParams.push(locationFilter);
+            queryParams.push(effectiveLocationId);
             paramIndex++;
         }
 
@@ -134,9 +171,9 @@ export async function getProductSalesReportSecure(params: ReportParams) {
         }
 
         // Filter: Employee
-        if (filters.employeeId && filters.employeeId !== 'ALL') {
+        if (employeeFilter) {
             sql += ` AND s.user_id::text = $${paramIndex}::text`;
-            queryParams.push(filters.employeeId);
+            queryParams.push(employeeFilter);
             paramIndex++;
         }
 

@@ -32,12 +32,28 @@ import { getSessionSecure } from './auth-v2';
 import { recordCostChange, createCostChangeNotification, type CostAlert } from './pricing-v2';
 import { upsertSupplierPrice, generatePriceRecommendations } from './pricing-intelligence';
 import {
-    getActorOrFail,
     type PinAuthorizedUser,
-    PinRbacError,
     ROLE_GROUPS,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
+import {
+    ensurePurchaseOrderInProcurementScope,
+    ensureTransferReferenceInProcurementScope,
+    PROCUREMENT_APPROVER_ROLES,
+    PROCUREMENT_GLOBAL_ROLES,
+    PROCUREMENT_READ_ROLES,
+    PROCUREMENT_WRITE_ROLES,
+    requireProcurementActor,
+    resolveEffectiveProcurementLocation,
+    resolveWarehouseForActor,
+} from './procurement-scope';
+import {
+    cancelPurchaseOrderSecure as cancelSupplyPurchaseOrderSecure,
+    createPurchaseOrderSecure as createSupplyPurchaseOrderSecure,
+    deletePurchaseOrderSecure as deleteSupplyPurchaseOrderSecure,
+    receivePurchaseOrderSecure as receiveSupplyPurchaseOrderSecure,
+    updatePurchaseOrderSecure as updateSupplyPurchaseOrderSecure,
+} from './supply-v2';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -107,25 +123,47 @@ function revalidateProcurementPaths(): void {
 // HELPER FUNCTIONS
 // ============================================================================
 
-async function resolveValidatedProcurementActor(requestedUserId?: string, action = 'procurement-operation') {
-    try {
-        const actor = await getActorOrFail();
-
-        if (requestedUserId && requestedUserId !== actor.userId) {
-            logger.warn(
-                { requestedUserId, actorUserId: actor.userId, action },
-                'Ignoring payload userId in procurement operation; using validated session user'
-            );
-        }
-
-        return { success: true as const, actor };
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return { success: false as const, error: error.message };
-        }
-        logger.error({ error, action }, '[PROCUREMENT-V2] Session resolution error');
-        return { success: false as const, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+async function resolveValidatedProcurementActor(
+    requestedUserId?: string,
+    action = 'procurement-operation',
+    allowedRoles: readonly string[] = PROCUREMENT_WRITE_ROLES,
+) {
+    const actorResult = await requireProcurementActor(allowedRoles, action);
+    if (!actorResult.success) {
+        return { success: false as const, error: actorResult.error };
     }
+
+    const actor = actorResult.actor;
+
+    if (requestedUserId && requestedUserId !== actor.userId) {
+        logger.warn(
+            { requestedUserId, actorUserId: actor.userId, action },
+            'Ignoring payload userId in procurement operation; using validated session user'
+        );
+    }
+
+    return { success: true as const, actor };
+}
+
+async function resolveScopedProcurementRead(
+    requestedLocationId: string | null | undefined,
+    action: string,
+) {
+    const actorResult = await requireProcurementActor(PROCUREMENT_READ_ROLES, action);
+    if (!actorResult.success) {
+        return { success: false as const, error: actorResult.error };
+    }
+
+    const effectiveLocation = resolveEffectiveProcurementLocation(actorResult.actor, requestedLocationId || undefined);
+    if (!effectiveLocation.success) {
+        return { success: false as const, error: effectiveLocation.error };
+    }
+
+    return {
+        success: true as const,
+        actor: actorResult.actor,
+        locationId: effectiveLocation.locationId,
+    };
 }
 
 async function validateApproverPin(client: PoolClient, pin: string, requiredRoles: readonly string[]): Promise<{
@@ -225,7 +263,6 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
     data?: { orderId: string; total: number; requiresApproval: boolean };
     error?: string;
 }> {
-    // 1. Validate input
     const validated = CreatePurchaseOrderSchema.safeParse(data);
     if (!validated.success) {
         return {
@@ -234,122 +271,44 @@ export async function createPurchaseOrderSecure(data: z.infer<typeof CreatePurch
         };
     }
 
-    const auth = await resolveValidatedProcurementActor(validated.data.userId, 'createPurchaseOrderSecure');
+    const auth = await resolveValidatedProcurementActor(validated.data.userId, 'createPurchaseOrderSecure', PROCUREMENT_WRITE_ROLES);
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
-    const actorUserId = auth.actor.userId;
-
-    const client = await pool.connect();
-
-    try {
-        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
-
-        // 2. Validate supplier exists (only if provided)
-        let supplierName = '';
-        if (validated.data.supplierId) {
-            const supplierRes = await client.query(
-                'SELECT id, business_name as name FROM suppliers WHERE id = $1 AND status = $2',
-                [validated.data.supplierId, 'ACTIVE']
-            );
-
-            if (supplierRes.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return { success: false, error: 'Proveedor no encontrado o inactivo' };
-            }
-            supplierName = supplierRes.rows[0].name;
-        }
-
-        // 3. Resolve warehouse
-        let warehouseId = validated.data.warehouseId;
-        if (!warehouseId) {
-            const whRes = await client.query('SELECT id FROM warehouses LIMIT 1');
-            if (whRes.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return { success: false, error: 'No hay bodegas disponibles' };
-            }
-            warehouseId = whRes.rows[0].id;
-        }
-
-        // 4. Calculate total
-        let total = 0;
-        for (const item of validated.data.items) {
-            total += item.quantity * item.unitCost;
-        }
-
-        // 5. Determine approval requirement
-        const requiresApproval = total >= MANAGER_THRESHOLD;
-
-        // 6. Create PO header
-        const orderId = randomUUID();
-        await client.query(`
-            INSERT INTO purchase_orders (
-                id, supplier_id, target_warehouse_id, 
-                created_at, status, created_by, notes
-            ) VALUES ($1, $2, $3, NOW(), 'DRAFT', $4, $5)
-        `, [
-            orderId,
-            validated.data.supplierId,
-            warehouseId,
-            actorUserId,
-            validated.data.notes || null
-        ]);
-
-        // 7. Insert items
-        for (const item of validated.data.items) {
-            // Get SKU if not provided
-            const sku = item.sku || 'UNKNOWN';
-
-            await client.query(`
-                INSERT INTO purchase_order_items (
-                    id, purchase_order_id, sku, name, 
-                    quantity_ordered, cost_price
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-            `, [
-                randomUUID(),
-                orderId,
-                sku,
-                item.productName,
-                item.quantity,
-                item.unitCost
-            ]);
-        }
-
-        // 8. Audit
-        await insertProcurementAudit(client, {
-            actionCode: 'PURCHASE_ORDER_CREATED',
-            userId: actorUserId,
-            orderId,
-            details: {
-                supplier_id: validated.data.supplierId,
-                supplier_name: supplierName || 'UNASSIGNED',
-                warehouse_id: warehouseId,
-                items_count: validated.data.items.length,
-                total,
-                requires_approval: requiresApproval,
-                actor_user_id: actorUserId,
-            }
-        });
-
-        await client.query('COMMIT');
-
-        revalidateProcurementPaths();
-
-        return {
-            success: true,
-            data: { orderId, total, requiresApproval }
-        };
-
-    } catch (error: unknown) {
-        await client.query('ROLLBACK');
-        logger.error({ error }, '[PROCUREMENT-V2] Create PO error');
-        return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Error al crear orden de compra'
-        };
-    } finally {
-        client.release();
+    const warehouseResolution = await resolveWarehouseForActor(auth.actor, validated.data.warehouseId);
+    if (!warehouseResolution.success) {
+        return { success: false, error: warehouseResolution.error };
     }
+
+    const total = validated.data.items.reduce((acc, item) => acc + (item.quantity * item.unitCost), 0);
+    const requiresApproval = total >= MANAGER_THRESHOLD;
+
+    const supplyResult = await createSupplyPurchaseOrderSecure({
+        supplierId: validated.data.supplierId ?? null,
+        targetWarehouseId: warehouseResolution.warehouseId,
+        items: validated.data.items.map((item) => ({
+            sku: item.sku || 'UNKNOWN',
+            name: item.productName,
+            quantity: item.quantity,
+            cost: item.unitCost,
+            productId: null,
+        })),
+        notes: validated.data.notes,
+        status: 'DRAFT',
+    }, auth.actor.userId);
+
+    if (!supplyResult.success || !supplyResult.orderId) {
+        return { success: false, error: supplyResult.error || 'Error al crear orden de compra' };
+    }
+
+    return {
+        success: true,
+        data: {
+            orderId: supplyResult.orderId,
+            total,
+            requiresApproval,
+        },
+    };
 }
 
 /**
@@ -359,7 +318,6 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
     success: boolean;
     error?: string;
 }> {
-    // 1. Validate input
     const validated = ApprovePurchaseOrderSchema.safeParse(data);
     if (!validated.success) {
         return {
@@ -368,7 +326,7 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
         };
     }
 
-    const auth = await resolveValidatedProcurementActor(undefined, 'approvePurchaseOrderSecure');
+    const auth = await resolveValidatedProcurementActor(undefined, 'approvePurchaseOrderSecure', PROCUREMENT_APPROVER_ROLES);
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -379,19 +337,18 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Lock and get order
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(validated.data.orderId, auth.actor, client);
+        if (!scopedOrder.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedOrder.error };
+        }
+
         const orderRes = await client.query(`
-            SELECT id, status, total_amount, supplier_id
+            SELECT id, status, total_amount, supplier_id, target_warehouse_id, notes
             FROM purchase_orders
             WHERE id = $1
             FOR UPDATE NOWAIT
         `, [validated.data.orderId]);
-
-        if (orderRes.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Orden no encontrada' };
-        }
-
         const order = orderRes.rows[0];
 
         if (order.status !== 'DRAFT') {
@@ -418,35 +375,36 @@ export async function approvePurchaseOrderSecure(data: z.infer<typeof ApprovePur
             return { success: false, error: pinCheck.error };
         }
 
-        // 5. Update order status
-        await client.query(`
-            UPDATE purchase_orders
-            SET status = 'APPROVED',
-                approved_at = NOW(),
-                approved_by = $1,
-                approval_notes = $2,
-                updated_at = NOW()
-            WHERE id = $3
-        `, [actorUserId, validated.data.notes, validated.data.orderId]);
+        const itemsRes = await client.query(`
+            SELECT sku, name, quantity_ordered, cost_price
+            FROM purchase_order_items
+            WHERE purchase_order_id = $1
+            ORDER BY id ASC
+        `, [validated.data.orderId]);
 
-        // 6. Audit
-        await insertProcurementAudit(client, {
-            actionCode: 'PURCHASE_ORDER_APPROVED',
-            userId: actorUserId,
-            orderId: validated.data.orderId,
-            details: {
-                total,
-                actor_user_id: actorUserId,
-                authorized_by_id: pinCheck.approver!.id,
-                approved_by_name: pinCheck.approver!.name,
-                approved_by_role: pinCheck.approver!.role,
-                notes: validated.data.notes
-            }
-        });
+        await client.query('ROLLBACK');
 
-        await client.query('COMMIT');
+        const updateResult = await updateSupplyPurchaseOrderSecure(
+            validated.data.orderId,
+            {
+                supplierId: order.supplier_id ? String(order.supplier_id) : null,
+                targetWarehouseId: String(order.target_warehouse_id),
+                notes: `${String(order.notes || '')}${order.notes ? ' | ' : ''}[APPROVED][BY:${pinCheck.approver!.id}] ${validated.data.notes}`,
+                status: 'APPROVED',
+                items: itemsRes.rows.map((item) => ({
+                    sku: String(item.sku),
+                    name: String(item.name || 'Producto'),
+                    quantity: Number(item.quantity_ordered || 0),
+                    cost: Number(item.cost_price || 0),
+                    productId: null,
+                })),
+            },
+            actorUserId,
+        );
 
-        revalidateProcurementPaths();
+        if (!updateResult.success) {
+            return { success: false, error: updateResult.error || 'Error al aprobar orden' };
+        }
 
         return { success: true };
 
@@ -475,7 +433,6 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
     error?: string;
     costAlerts?: CostAlert[];
 }> {
-    // 1. Validate input
     const validated = ReceivePurchaseOrderSchema.safeParse(data);
     if (!validated.success) {
         return {
@@ -484,292 +441,47 @@ export async function receivePurchaseOrderSecure(data: z.infer<typeof ReceivePur
         };
     }
 
-    const auth = await resolveValidatedProcurementActor(validated.data.userId, 'receivePurchaseOrderSecure');
+    const auth = await resolveValidatedProcurementActor(validated.data.userId, 'receivePurchaseOrderSecure', PROCUREMENT_WRITE_ROLES);
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
-    const actorUserId = auth.actor.userId;
-
     const client = await pool.connect();
-
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Lock and get order
-        const orderRes = await client.query(`
-            SELECT po.id, po.status, po.target_warehouse_id, po.supplier_id
-            FROM purchase_orders po
-            WHERE po.id = $1
-            FOR UPDATE NOWAIT
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(validated.data.orderId, auth.actor, client);
+        if (!scopedOrder.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedOrder.error };
+        }
+
+        const itemRes = await client.query(`
+            SELECT id, sku
+            FROM purchase_order_items
+            WHERE purchase_order_id = $1
         `, [validated.data.orderId]);
-
-        if (orderRes.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Orden no encontrada' };
-        }
-
-        const order = orderRes.rows[0];
-
-        if (order.status !== 'APPROVED') {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Orden debe estar aprobada para recibir' };
-        }
-
-        const whLocationRes = await client.query(
-            'SELECT location_id FROM warehouses WHERE id = $1',
-            [order.target_warehouse_id]
+        const skuByItemId = new Map(
+            itemRes.rows.map((row) => [String(row.id), String(row.sku)] as const),
         );
-        const destinationLocationId = whLocationRes.rows[0]?.location_id;
-        if (!destinationLocationId) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'La orden no tiene ubicación de destino válida' };
+
+        await client.query('ROLLBACK');
+
+        const delegated = await receiveSupplyPurchaseOrderSecure({
+            purchaseOrderId: validated.data.orderId,
+            managerPin: validated.data.receiverPin,
+            receivedItems: validated.data.receivedItems.map((item) => ({
+                sku: skuByItemId.get(item.itemId) || '',
+                quantity: item.quantityReceived,
+                lotNumber: item.lotNumber,
+                expiryDate: item.expiryDate ? item.expiryDate.getTime() : undefined,
+            })).filter((item) => item.sku),
+        }, auth.actor.userId);
+
+        if (!delegated.success) {
+            return { success: false, error: delegated.error || 'Error al recibir orden' };
         }
 
-        // 3. Process each received item
-        let totalReceived = 0;
-        const costAlerts: CostAlert[] = [];
-
-        for (const receivedItem of validated.data.receivedItems) {
-            if (receivedItem.quantityReceived <= 0) continue;
-
-            // Get item details
-            const itemRes = await client.query(`
-                SELECT poi.id, poi.sku, poi.name, poi.cost_price
-                FROM purchase_order_items poi
-                WHERE poi.id = $1 AND poi.purchase_order_id = $2
-                FOR UPDATE
-            `, [receivedItem.itemId, validated.data.orderId]);
-
-            if (itemRes.rows.length === 0) continue;
-
-            const item = itemRes.rows[0];
-
-            const product = await resolveCanonicalProductBySku(client, item.sku);
-            if (!product) {
-                await client.query('ROLLBACK');
-                return { success: false, error: `SKU ${item.sku} no encontrado en catálogo maestro` };
-            }
-            const productId = product.id;
-
-            // === COST CHANGE DETECTION ===
-            const incomingCost = Number(item.cost_price || 0);
-            const currentCost = product.costPrice;
-
-            if (incomingCost > 0 && currentCost > 0 && incomingCost !== currentCost) {
-                const changePercent = Number((((incomingCost - currentCost) / currentCost) * 100).toFixed(2));
-
-                costAlerts.push({
-                    sku: item.sku,
-                    productName: product.name,
-                    productId,
-                    oldCost: currentCost,
-                    newCost: incomingCost,
-                    changePercent,
-                    direction: incomingCost > currentCost ? 'UP' : 'DOWN',
-                    supplierId: order.supplier_id,
-                });
-
-                await recordCostChange({
-                    productId,
-                    changeType: 'COST_CHANGE',
-                    fieldChanged: 'cost_net',
-                    oldValue: currentCost,
-                    newValue: incomingCost,
-                    source: 'RECEPTION',
-                    referenceId: validated.data.orderId,
-                    supplierId: order.supplier_id,
-                    locationId: destinationLocationId,
-                    userId: actorUserId,
-                    notes: `OC ${validated.data.orderId.slice(0, 8)} | ${product.name}`,
-                    client,
-                });
-
-                // Actualizar costo maestro del producto
-                await client.query(`
-                    UPDATE products SET cost_net = $1, cost_price = $1 WHERE id::text = $2::text
-                `, [incomingCost, productId]);
-            } else if (incomingCost > 0 && currentCost === 0) {
-                // Producto sin costo previo → registrar como nuevo
-                costAlerts.push({
-                    sku: item.sku,
-                    productName: product.name,
-                    productId,
-                    oldCost: 0,
-                    newCost: incomingCost,
-                    changePercent: 100,
-                    direction: 'NEW',
-                    supplierId: order.supplier_id,
-                });
-
-                await recordCostChange({
-                    productId,
-                    changeType: 'COST_CHANGE',
-                    fieldChanged: 'cost_net',
-                    oldValue: 0,
-                    newValue: incomingCost,
-                    source: 'RECEPTION',
-                    referenceId: validated.data.orderId,
-                    supplierId: order.supplier_id,
-                    locationId: destinationLocationId,
-                    userId: actorUserId,
-                    notes: `Primer costo registrado via OC ${validated.data.orderId.slice(0, 8)}`,
-                    client,
-                });
-
-                await client.query(`
-                    UPDATE products SET cost_net = $1, cost_price = $1 WHERE id::text = $2::text
-                `, [incomingCost, productId]);
-            }
-
-            // Update item received quantity
-            await client.query(`
-                UPDATE purchase_order_items
-                SET quantity_received = COALESCE(quantity_received, 0) + $1
-                WHERE id = $2
-            `, [receivedItem.quantityReceived, receivedItem.itemId]);
-
-            // Create or update inventory batch
-            const lotNumber = receivedItem.lotNumber || `PO-${validated.data.orderId.slice(0, 8)}`;
-            const expiryDate = receivedItem.expiryDate || null;
-
-            // Check if batch exists
-            const batchRes = await client.query(`
-                SELECT id, quantity_real 
-                FROM inventory_batches
-                WHERE product_id = $1 
-                  AND warehouse_id = $2 
-                  AND lot_number = $3
-            `, [productId, order.target_warehouse_id, lotNumber]);
-
-            if (batchRes.rows.length > 0) {
-                // Update existing batch
-                await client.query(`
-                    UPDATE inventory_batches
-                    SET quantity_real = quantity_real + $1,
-                        unit_cost = CASE WHEN COALESCE(unit_cost, 0) = 0 THEN $3 ELSE unit_cost END,
-                        sale_price = CASE WHEN COALESCE(sale_price, 0) = 0 THEN $4 ELSE sale_price END,
-                        updated_at = NOW()
-                    WHERE id = $2
-                `, [
-                    receivedItem.quantityReceived,
-                    batchRes.rows[0].id,
-                    Number(item.cost_price || 0) > 0 ? Number(item.cost_price) : product.costPrice,
-                    product.salePrice,
-                ]);
-            } else {
-                // Create new batch
-                await client.query(`
-                    INSERT INTO inventory_batches (
-                        id, product_id, warehouse_id, lot_number, expiry_date,
-                        quantity_real, sku, name, unit_cost, sale_price, location_id, created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::uuid, NOW())
-                `, [
-                    randomUUID(),
-                    productId,
-                    order.target_warehouse_id,
-                    lotNumber,
-                    expiryDate,
-                    receivedItem.quantityReceived,
-                    item.sku,
-                    product.name || item.name,
-                    Number(item.cost_price || 0) > 0 ? Number(item.cost_price) : product.costPrice,
-                    product.salePrice,
-                    destinationLocationId,
-                ]);
-            }
-
-            // Log stock movement
-            await client.query(`
-                INSERT INTO stock_movements (
-                id, sku, product_name, location_id, movement_type,
-                quantity, timestamp, user_id, notes, reference_type, reference_id
-            ) VALUES ($1, $2, $3, $4, 'PURCHASE_ENTRY', $5, NOW(), $6, $7, 'PURCHASE_ORDER', $8)
-            `, [
-                randomUUID(),
-                item.sku,
-                product.name || item.name,
-                destinationLocationId,
-                receivedItem.quantityReceived,
-                actorUserId,
-                `Recepción de OC ${validated.data.orderId.slice(0, 8)}`,
-                validated.data.orderId
-            ]);
-
-            totalReceived += receivedItem.quantityReceived;
-        }
-
-        // 4. Update order status to RECEIVED
-        await client.query(`
-            UPDATE purchase_orders
-            SET status = 'RECEIVED',
-                received_by = $1
-            WHERE id = $2
-        `, [actorUserId, validated.data.orderId]);
-
-        // 5. Audit
-        await insertProcurementAudit(client, {
-            actionCode: 'PURCHASE_ORDER_RECEIVED',
-            userId: actorUserId,
-            orderId: validated.data.orderId,
-            details: {
-                items_received: validated.data.receivedItems.length,
-                total_units_received: totalReceived,
-                warehouse_id: order.target_warehouse_id,
-                actor_user_id: actorUserId,
-                notes: validated.data.notes
-            }
-        });
-
-        // 6. Create cost change notification if any
-        if (costAlerts.length > 0) {
-            await createCostChangeNotification({
-                alerts: costAlerts,
-                orderId: validated.data.orderId,
-                userId: actorUserId,
-                client,
-            });
-        }
-
-        // 7. Pricing Intelligence — registrar precios de proveedor y generar recomendaciones
-        for (const alert of costAlerts) {
-            try {
-                // Usamos un SAVEPOINT para que si ocurre un error (ej: violación de constraint en recomendación),
-                // no se rompa la transacción PostgreSQL completa de recepción.
-                await client.query('SAVEPOINT intel_sp');
-
-                await upsertSupplierPrice({
-                    productId: alert.productId,
-                    supplierId: alert.supplierId || order.supplier_id,
-                    unitCost: alert.newCost,
-                    orderId: validated.data.orderId,
-                    client,
-                });
-
-                await generatePriceRecommendations({
-                    productId: alert.productId,
-                    incomingCost: alert.newCost,
-                    previousCost: alert.oldCost,
-                    supplierId: alert.supplierId || order.supplier_id,
-                    orderId: validated.data.orderId,
-                    client,
-                });
-
-                await client.query('RELEASE SAVEPOINT intel_sp');
-            } catch (intelError) {
-                // No falla la recepción si la inteligencia de precios falla
-                await client.query('ROLLBACK TO SAVEPOINT intel_sp');
-                logger.error({ intelError, productId: alert.productId }, '[PROCUREMENT-V2] Pricing intelligence error (non-fatal)');
-            }
-        }
-
-        await client.query('COMMIT');
-
-        revalidateProcurementPaths();
-        revalidatePath('/inventario');
-        revalidatePath('/precios');
-
-        return { success: true, costAlerts: costAlerts.length > 0 ? costAlerts : undefined };
-
+        return { success: true };
     } catch (error: unknown) {
         await client.query('ROLLBACK');
         logger.error({ error }, '[PROCUREMENT-V2] Receive PO error');
@@ -789,7 +501,6 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
     success: boolean;
     error?: string;
 }> {
-    // 1. Validate input
     const validated = CancelPurchaseOrderSchema.safeParse(data);
     if (!validated.success) {
         return {
@@ -798,7 +509,7 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
         };
     }
 
-    const auth = await resolveValidatedProcurementActor(undefined, 'cancelPurchaseOrderSecure');
+    const auth = await resolveValidatedProcurementActor(undefined, 'cancelPurchaseOrderSecure', PROCUREMENT_APPROVER_ROLES);
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -809,20 +520,13 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Lock order
-        const orderRes = await client.query(`
-            SELECT id, status, total_amount
-            FROM purchase_orders
-            WHERE id = $1
-            FOR UPDATE NOWAIT
-        `, [validated.data.orderId]);
-
-        if (orderRes.rows.length === 0) {
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(validated.data.orderId, auth.actor, client);
+        if (!scopedOrder.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Orden no encontrada' };
+            return { success: false, error: scopedOrder.error };
         }
 
-        const order = orderRes.rows[0];
+        const order = scopedOrder.order;
 
         if (order.status === 'RECEIVED' || order.status === 'CANCELLED') {
             await client.query('ROLLBACK');
@@ -836,35 +540,17 @@ export async function cancelPurchaseOrderSecure(data: z.infer<typeof CancelPurch
             return { success: false, error: pinCheck.error };
         }
 
-        // 4. Cancel order
-        await client.query(`
-            UPDATE purchase_orders
-            SET status = 'CANCELLED',
-                cancelled_at = NOW(),
-                cancelled_by = $1,
-                cancellation_reason = $2,
-                updated_at = NOW()
-            WHERE id = $3
-        `, [actorUserId, validated.data.reason, validated.data.orderId]);
+        await client.query('ROLLBACK');
 
-        // 5. Audit
-        await insertProcurementAudit(client, {
-            actionCode: 'PURCHASE_ORDER_CANCELLED',
-            userId: actorUserId,
-            orderId: validated.data.orderId,
-            details: {
-                previous_status: order.status,
-                total: order.total_amount,
-                actor_user_id: actorUserId,
-                authorized_by_id: pinCheck.approver!.id,
-                cancelled_by_name: pinCheck.approver!.name,
-                reason: validated.data.reason
-            }
-        });
+        const delegated = await cancelSupplyPurchaseOrderSecure(
+            validated.data.orderId,
+            actorUserId,
+            validated.data.reason,
+        );
 
-        await client.query('COMMIT');
-
-        revalidateProcurementPaths();
+        if (!delegated.success) {
+            return { success: false, error: delegated.error || 'Error al cancelar orden' };
+        }
 
         return { success: true };
 
@@ -887,65 +573,26 @@ export async function deletePurchaseOrderSecure(params: {
     orderId: string;
     userId: string;
 }): Promise<{ success: boolean; error?: string }> {
-
     const { orderId, userId } = params;
     const isTempId = orderId.startsWith('PO-AUTO-') || orderId.startsWith('ORD-');
     if (isTempId) return { success: true };
 
-    const { pool } = await import('@/lib/db');
+    const auth = await resolveValidatedProcurementActor(userId, 'deletePurchaseOrderSecure', PROCUREMENT_APPROVER_ROLES);
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const client = await pool.connect();
-
     try {
-        await client.query('BEGIN');
-
-        // 1. Verificar estado (solo borradores) y obtener ubicación vía warehouse
-        const orderRes = await client.query(`
-            SELECT po.status, po.created_by, w.location_id 
-            FROM purchase_orders po
-            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
-            WHERE po.id = $1 
-            FOR UPDATE
-        `, [orderId]);
-
-        if (orderRes.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Orden no encontrada' };
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(orderId, auth.actor, client);
+        if (!scopedOrder.success) {
+            return { success: false, error: scopedOrder.error };
         }
-
-        const order = orderRes.rows[0];
-
-        if (order.status !== 'DRAFT') {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Solo se pueden eliminar borradores' };
-        }
-
-        // 2. Eliminar items
-        await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [orderId]);
-
-        // 3. Eliminar orden
-        await client.query('DELETE FROM purchase_orders WHERE id = $1', [orderId]);
-
-        // 4. Auditoría
-        await client.query(`
-            INSERT INTO audit_log (
-                user_id, location_id, action_code, 
-                entity_type, entity_id, 
-                description
-            ) VALUES ($1, $2, 'DELETE_PO', 'PURCHASE_ORDER', $3, 'Eliminación de borrador')
-        `, [userId, order.location_id, orderId]);
-
-        await client.query('COMMIT');
-        revalidateProcurementPaths();
-
-        return { success: true };
-
-    } catch (error: unknown) {
-        await client.query('ROLLBACK');
-        logger.error({ error }, '[PROCUREMENT-V2] Delete PO error');
-        return { success: false, error: error instanceof Error ? error.message : 'Error al eliminar orden' };
     } finally {
         client.release();
     }
+
+    return deleteSupplyPurchaseOrderSecure({ orderId, userId: auth.actor.userId });
 }
 
 /**
@@ -970,6 +617,16 @@ export async function getPurchaseOrderHistory(filters?: {
     error?: string;
 }> {
     try {
+        const actorResult = await requireProcurementActor(PROCUREMENT_READ_ROLES, 'getPurchaseOrderHistory');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
+        const effectiveLocation = resolveEffectiveProcurementLocation(actorResult.actor);
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
+
         const page = filters?.page || 1;
         const pageSize = Math.min(filters?.pageSize || 50, 100);
 
@@ -977,6 +634,11 @@ export async function getPurchaseOrderHistory(filters?: {
         const conditions: string[] = [];
         const params: (string | number | Date | null)[] = [];
         let paramIndex = 1;
+
+        if (effectiveLocation.locationId) {
+            conditions.push(`w.location_id::text = $${paramIndex++}::text`);
+            params.push(effectiveLocation.locationId);
+        }
 
         if (filters?.supplierId) {
             conditions.push(`po.supplier_id::text = $${paramIndex++}::text`);
@@ -1011,6 +673,7 @@ export async function getPurchaseOrderHistory(filters?: {
         const countResult = await pool.query(`
             SELECT COUNT(*) as total
             FROM purchase_orders po
+            LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
             ${whereClause}
         `, params);
 
@@ -1162,6 +825,11 @@ export async function generateRestockSuggestionSecure(
     data?: Record<string, unknown>[];
     error?: string;
 }> {
+    const actorResult = await resolveScopedProcurementRead(normalizeUuid(locationId), 'generateRestockSuggestionSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
     const normalizedLimit = Number.isFinite(limit) ? Math.floor(limit) : 100;
     const safeLimit = Math.min(Math.max(normalizedLimit, 1), 500);
     const normalizedSearchQuery = searchQuery?.trim();
@@ -1185,7 +853,7 @@ export async function generateRestockSuggestionSecure(
         return { success: false, error: 'Ventana de análisis debe estar entre 7 y 365 días' };
     }
 
-    const safeLocationId = normalizeUuid(locationId);
+    const safeLocationId = actorResult.locationId || null;
 
     logger.info(
         { supplierId: supplierValidated || null, daysToCover, analysisWindow, locationId: safeLocationId, stockThreshold, searchQuery: safeSearchQuery, limit: safeLimit },
@@ -1718,6 +1386,11 @@ export async function generateSaleBasedSuggestionSecure(
     data?: Record<string, unknown>[];
     error?: string;
 }> {
+    const actorResult = await resolveScopedProcurementRead(normalizeUuid(locationId), 'generateSaleBasedSuggestionSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate dates
     const from = new Date(dateFrom);
     const to = new Date(dateTo);
@@ -1743,7 +1416,7 @@ export async function generateSaleBasedSuggestionSecure(
 
     const safeLimit = Math.min(Math.max(Number.isFinite(limit) ? Math.floor(limit) : 100, 1), 500);
     const safeSearchQuery = searchQuery?.trim()?.slice(0, 120) || undefined;
-    const safeLocationId = normalizeUuid(locationId);
+    const safeLocationId = actorResult.locationId || null;
 
     let supplierValidated: string | undefined;
     if (supplierId) {
@@ -1973,8 +1646,13 @@ export async function getSuggestionAnalysisHistorySecure(params?: {
     limit?: number;
 }): Promise<{ success: boolean; data?: SuggestionAnalysisHistoryItem[]; error?: string }> {
     try {
+        const actorResult = await resolveScopedProcurementRead(normalizeUuid(params?.locationId), 'getSuggestionAnalysisHistorySecure');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const limit = Math.min(Math.max(params?.limit || 10, 1), 50);
-        const safeLocationId = normalizeUuid(params?.locationId);
+        const safeLocationId = actorResult.locationId || null;
 
         const result = await pool.query(`
             SELECT
@@ -2074,8 +1752,13 @@ export async function getTransferHistorySecure(params?: {
     limit?: number;
 }): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
     try {
+        const actorResult = await resolveScopedProcurementRead(normalizeUuid(params?.locationId), 'getTransferHistorySecure');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const limit = Math.min(Math.max(params?.limit || 10, 1), 50);
-        const safeLocationId = normalizeUuid(params?.locationId);
+        const safeLocationId = actorResult.locationId || null;
 
         const result = await pool.query(`
             WITH latest_transfers AS (
@@ -2159,6 +1842,16 @@ export async function getTransferHistorySecure(params?: {
  */
 export async function getTransferDetailHistorySecure(transferId: string): Promise<{ success: boolean; data?: TransferDetail[]; error?: string }> {
     try {
+        const actorResult = await requireProcurementActor(PROCUREMENT_READ_ROLES, 'getTransferDetailHistorySecure');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
+        const scope = await ensureTransferReferenceInProcurementScope(transferId, actorResult.actor);
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+
         const result = await pool.query(`
             WITH aggregated_out AS (
                 SELECT 

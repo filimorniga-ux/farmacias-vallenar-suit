@@ -1,65 +1,80 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { exportCashFlowSecure } from '@/actions/finance-export-v2';
+import { getSessionSecure } from '@/actions/auth-v2';
+import { getCashFlowLedgerSecure } from '@/actions/reports-detail-v2';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as actionModule from '@/actions/finance-export-v2';
-import * as dbModule from '@/lib/db';
+const generateReportMock = vi.hoisted(() => vi.fn());
 
-const validUserId = '550e8400-e29b-41d4-a716-446655440001';
-
-const { mockCookies } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn((key) => {
-            if (key === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440001' };
-            if (key === 'user_role') return { value: 'MANAGER' };
-            if (key === 'x-user-location') return { value: 'loc-1' };
-            return undefined;
-        })
-    }
+vi.mock('@/actions/auth-v2', () => ({
+    getSessionSecure: vi.fn(),
 }));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn(() => Promise.resolve({ get: () => null })),
-    cookies: vi.fn(() => Promise.resolve(mockCookies))
+vi.mock('@/actions/reports-detail-v2', () => ({
+    getCashFlowLedgerSecure: vi.fn(),
+    getTaxSummarySecure: vi.fn(),
+    getPayrollPreviewSecure: vi.fn(),
+    getInventoryValuationSecure: vi.fn(),
+    getLogisticsKPIsSecure: vi.fn(),
+    getStockMovementsDetailSecure: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
-    query: vi.fn((sql: string) => {
-        if (typeof sql === 'string' && (sql.includes('FROM users') || sql.includes('FROM sessions'))) {
-            return Promise.resolve({
-                rows: [{ id: '550e8400-e29b-41d4-a716-446655440001', role: 'MANAGER', is_active: true, name: 'Test User', assigned_location_id: 'loc-1' }],
-                rowCount: 1
-            });
-        }
-        return Promise.resolve({ rows: [], rowCount: 0 });
-    }),
-    pool: { connect: vi.fn() }
+    query: vi.fn().mockResolvedValue({ rows: [], rowCount: 1 }),
 }));
 
 vi.mock('@/lib/excel-generator', () => ({
-    ExcelService: class { generateReport = vi.fn().mockResolvedValue(Buffer.from('test')) }
+    ExcelService: class {
+        async generateReport(...args: unknown[]) {
+            return generateReportMock(...args);
+        }
+    },
 }));
 
-vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-
-beforeEach(() => {
-    vi.clearAllMocks();
-});
+vi.mock('@/lib/logger', () => ({
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 
 describe('Finance Export V2', () => {
-    it('should export cash flow successfully during success path', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{ id: '1', timestamp: new Date(), description: 'Venta', amount_in: 100 }],
-            rowCount: 1, command: '', oid: 0, fields: []
-        });
+    beforeEach(() => {
+        vi.clearAllMocks();
+        vi.mocked(getSessionSecure).mockResolvedValue({
+            userId: 'u1',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        } as any);
 
-        const result = await actionModule.exportCashFlowSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
+        vi.mocked(getCashFlowLedgerSecure).mockResolvedValue({
+            success: true,
+            data: [
+                {
+                    id: '1',
+                    timestamp: Date.now(),
+                    description: 'Venta',
+                    category: 'SALE',
+                    amount_in: 100,
+                    amount_out: 0,
+                    user_name: 'Test',
+                },
+            ],
+        } as any);
+
+        generateReportMock.mockResolvedValue(Buffer.from('cash-flow'));
+    });
+
+    it('exporta flujo de caja usando la misma action de lectura', async () => {
+        const result = await exportCashFlowSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
         expect(result.success).toBe(true);
         expect(typeof result.data).toBe('string');
         expect(result.filename).toContain('Flujo');
+        expect(getCashFlowLedgerSecure).toHaveBeenCalledWith({ startDate: '2024-01-01', endDate: '2024-01-31' });
     });
 
-    it('should fail authentication if headers/cookies missing', async () => {
-        vi.mocked(mockCookies.get).mockReturnValueOnce(undefined);
-        const result = await actionModule.exportCashFlowSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
+    it('falla autenticación si no hay sesión', async () => {
+        vi.mocked(getSessionSecure).mockResolvedValueOnce(null);
+        const result = await exportCashFlowSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
         expect(result.success).toBe(false);
         expect(result.error).toContain('autenticado');
     });

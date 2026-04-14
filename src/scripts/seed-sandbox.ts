@@ -2,6 +2,8 @@
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
 import path from 'path';
+import bcrypt from 'bcryptjs';
+import { DEV_TEST_ACCOUNT } from './dev-account-support';
 
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
@@ -35,13 +37,63 @@ async function seedSandbox() {
         `);
         const locationId = locRes.rows[0].id;
 
-        // 3. Insertar Usuario de Prueba (PIN 1213)
-        console.log('👤 Creando administrador de prueba (PIN: 1213)...');
+        // 3. Insertar Cuenta DEV controlada
+        console.log(`👤 Asegurando cuenta DEV controlada (${DEV_TEST_ACCOUNT.email})...`);
+        const hashedPin = await bcrypt.hash(DEV_TEST_ACCOUNT.pin, 10);
         await client.query(`
-            INSERT INTO users (full_name, pin_hash, role, assigned_location_id, is_active)
-            VALUES ('Admin Sandbox', '1213', 'ADMIN', $1, true)
-            ON CONFLICT DO NOTHING;
-        `, [locationId]);;
+            INSERT INTO users (
+                id,
+                rut,
+                name,
+                email,
+                role,
+                access_pin_hash,
+                access_pin,
+                job_title,
+                status,
+                is_active,
+                assigned_location_id,
+                session_token,
+                token_version,
+                created_at,
+                updated_at
+            )
+            SELECT
+                gen_random_uuid(),
+                '22.222.222-2',
+                $2,
+                $3,
+                $4,
+                $5,
+                NULL,
+                $6,
+                'ACTIVE',
+                true,
+                $1,
+                NULL,
+                1,
+                NOW(),
+                NOW()
+            )
+            WHERE NOT EXISTS (
+                SELECT 1 FROM users WHERE email = $3 OR job_title = $6 OR name = $2
+            );
+        `, [locationId, DEV_TEST_ACCOUNT.name, DEV_TEST_ACCOUNT.email, DEV_TEST_ACCOUNT.role, hashedPin, DEV_TEST_ACCOUNT.jobTitle]);
+
+        await client.query(`
+            UPDATE users
+            SET role = $4,
+                access_pin_hash = $5,
+                access_pin = NULL,
+                job_title = $6,
+                status = 'ACTIVE',
+                is_active = true,
+                assigned_location_id = $1,
+                session_token = NULL,
+                token_version = COALESCE(token_version, 1) + 1,
+                updated_at = NOW()
+            WHERE email = $3 OR job_title = $6 OR name = $2
+        `, [locationId, DEV_TEST_ACCOUNT.name, DEV_TEST_ACCOUNT.email, DEV_TEST_ACCOUNT.role, hashedPin, DEV_TEST_ACCOUNT.jobTitle]);
 
         // 4. Insertar Terminal de Prueba
         console.log('💻 Registrando terminal de prueba...');
@@ -60,7 +112,7 @@ async function seedSandbox() {
             ON CONFLICT DO NOTHING;
         `);
 
-        console.log('✅ Sandbox poblado con éxito.');
+        console.log(`✅ Sandbox poblado con éxito. Cuenta DEV lista con ${DEV_TEST_ACCOUNT.ensureCommand}.`);
         client.release();
     } catch (err) {
         console.error('❌ Error inyectando semillas:', err);

@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { X, User, DollarSign, Monitor, Lock, MapPin, LockKeyhole, ArrowRight, RotateCcw, AlertTriangle, ChevronDown } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 // V2: Funciones atómicas seguras
-import { openTerminalAtomic, openTerminalWithPinValidation, forceCloseTerminalShift, getTerminalStatusAtomic, getTerminalsByLocationSecure } from '../../../actions/terminals-v2';
+import { openTerminalWithPinValidation, forceCloseTerminalShift, getTerminalsByLocationSecure } from '../../../actions/terminals-v2';
 import { useTerminalSession } from '../../../hooks/useTerminalSession';
-import { Terminal } from '@/domain/types';
+import { EmployeeProfile, Terminal } from '@/domain/types';
 import { resolvePreferredTerminalSelection } from './shift-management-utils';
 
 interface ShiftManagementModalProps {
@@ -35,8 +35,8 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const openShift = usePharmaStore((state) => state.openShift);
     const resumeShift = usePharmaStore((state) => state.resumeShift);
     const fetchTerminals = usePharmaStore((state) => state.fetchTerminals);
+    const terminals = usePharmaStore((state) => state.terminals);
     const user = usePharmaStore((state) => state.user);
-    const syncData = usePharmaStore((state) => state.syncData);
     const fetchLocations = useLocationStore((state) => state.fetchLocations);
     const locations = useLocationStore((state) => state.locations);
     const { saveSession } = useTerminalSession(); // Hook para persistencia local segura
@@ -47,33 +47,44 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     const [openingAmount, setOpeningAmount] = useState('');
     const [managerPin, setManagerPin] = useState('');
     const [step, setStep] = useState<'DETAILS' | 'AUTH'>('DETAILS');
-    const [openableTerminals, setOpenableTerminals] = useState<Terminal[]>([]);
     const [isForceLoading, setIsForceLoading] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false); // Estado de carga para evitar doble clic
-    const [loadedCashiers, setLoadedCashiers] = useState<any[]>([]); // Cajeros cargados del servidor
+    const [loadedCashiers, setLoadedCashiers] = useState<EmployeeProfile[]>([]); // Cajeros cargados del servidor
     const [locationTerminals, setLocationTerminals] = useState<Terminal[]>([]);
 
-    // Cargar empleados directamente del servidor cuando se abre el modal
+    // Reutiliza seed del shell y solo hace fallback a server cuando faltan empleados/ubicaciones.
     useEffect(() => {
-        if (isOpen) {
+        if (!isOpen) return;
+
+        if (locations.length === 0) {
             fetchLocations();
-            // Forzar carga de empleados desde el servidor
-            import('../../../actions/sync-v2').then(async (m) => {
-                console.log('📥 Loading cashiers from server...');
-                let result = await m.fetchEmployeesSecure();
-                // Fallback si no hay sesión
-                if (!result.success) {
-                    result = await m.getUsersForLoginSecure();
-                }
-                if (result.success && result.data) {
-                    console.log(`✅ Loaded ${result.data.length} employees from server`);
-                    setLoadedCashiers(result.data);
-                } else {
-                    console.warn('⚠️ Could not load employees:', result.error);
-                }
-            });
         }
-    }, [isOpen, fetchLocations]);
+
+        if (employees.length > 0) {
+            setLoadedCashiers((current) => (current.length > 0 ? [] : current));
+            return;
+        }
+
+        let cancelled = false;
+
+        import('../../../actions/sync-v2').then(async (m) => {
+            console.log('📥 Loading cashiers from server...');
+            const result = await m.fetchEmployeesSecure();
+
+            if (cancelled) return;
+
+            if (result.success && result.data) {
+                console.log(`✅ Loaded ${result.data.length} employees from server`);
+                setLoadedCashiers(result.data as EmployeeProfile[]);
+            } else {
+                console.warn('⚠️ Could not load employees:', result.error);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, fetchLocations, locations.length, employees.length]);
 
     // Auto-select user's location and restrict options
     useEffect(() => {
@@ -125,39 +136,61 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     });
 
     useEffect(() => {
-        if (selectedLocation) {
-            // V2: getTerminalsByLocationSecure para obtener terminales disponibles
-            getTerminalsByLocationSecure(selectedLocation).then((res) => {
-                if (res.success && res.data) {
-                    const scoped = res.data as Terminal[];
-                    setLocationTerminals(scoped);
-                    const available = res.data.filter((t: any) => t.status !== 'OPEN');
-                    setOpenableTerminals(available as Terminal[]);
-                    const preferredTerminal = resolvePreferredTerminalSelection({
-                        terminals: scoped,
-                        userId: user?.id,
-                        currentSelection: selectedTerminal
-                    });
-                    setSelectedTerminal(preferredTerminal);
-                } else {
-                    setLocationTerminals([]);
-                    setOpenableTerminals([]);
-                    setSelectedTerminal('');
-                }
-            }).catch(() => {
-                setLocationTerminals([]);
-                setOpenableTerminals([]);
-                setSelectedTerminal('');
-            });
-
-            // 2. Keep store in sync, but UI renders from fresh scoped snapshot.
-            fetchTerminals(selectedLocation);
-        } else {
+        if (!selectedLocation) {
             setLocationTerminals([]);
-            setOpenableTerminals([]);
             setSelectedTerminal('');
+            return;
         }
-    }, [selectedLocation, selectedTerminal, user?.id, fetchTerminals]);
+
+        const seededTerminals = terminals.filter((terminal) => terminal.location_id === selectedLocation);
+        if (seededTerminals.length > 0) {
+            setLocationTerminals(seededTerminals);
+            return;
+        }
+
+        let cancelled = false;
+        setLocationTerminals([]);
+
+        getTerminalsByLocationSecure(selectedLocation).then((res) => {
+            if (cancelled) return;
+
+            if (res.success && res.data) {
+                setLocationTerminals(res.data as Terminal[]);
+            } else {
+                setLocationTerminals([]);
+            }
+        }).catch(() => {
+            if (!cancelled) {
+                setLocationTerminals([]);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedLocation, terminals]);
+
+    useEffect(() => {
+        if (!selectedLocation) {
+            setSelectedTerminal('');
+            return;
+        }
+
+        const preferredTerminal = resolvePreferredTerminalSelection({
+            terminals: locationTerminals,
+            userId: user?.id,
+            currentSelection: selectedTerminal
+        });
+
+        if (preferredTerminal !== selectedTerminal) {
+            setSelectedTerminal(preferredTerminal);
+        }
+    }, [selectedLocation, locationTerminals, user?.id, selectedTerminal]);
+
+    const openableTerminals = useMemo(
+        () => locationTerminals.filter((terminal) => terminal.status !== 'OPEN'),
+        [locationTerminals]
+    );
 
     // Render from fresh location-scoped terminals to avoid stale "ghost" sessions from store cache.
     const displayTerminals = locationTerminals;
@@ -203,12 +236,6 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                     toast.success('✅ Sistema optimizado: Sesiones fantasmas cerradas.');
                     // Refresh data
                     fetchTerminals(selectedLocation);
-                    getTerminalsByLocationSecure(selectedLocation).then((res) => {
-                        if (res.success && res.data) {
-                            const available = res.data.filter((t: any) => t.status !== 'OPEN');
-                            setOpenableTerminals(available as Terminal[]);
-                        }
-                    });
                 }
             }
         };
@@ -228,15 +255,7 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
             const res = await forceCloseTerminalShift(selectedTerminal, currentUserId, 'Cierre forzado por usuario');
             if (res.success) {
                 toast.success('Terminal liberada exitosamente');
-                // Refresh list - V2
-                const refreshed = await getTerminalsByLocationSecure(selectedLocation);
-                if (refreshed.success && refreshed.data) {
-                    const scoped = refreshed.data as Terminal[];
-                    setLocationTerminals(scoped);
-                    const available = refreshed.data.filter((t: any) => t.status !== 'OPEN');
-                    setOpenableTerminals(available as Terminal[]);
-                }
-                // Also refresh main lists
+                // Refresh list
                 fetchTerminals(selectedLocation);
             } else {
                 toast.error('Error al liberar: ' + res.error);

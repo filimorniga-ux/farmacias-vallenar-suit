@@ -331,6 +331,11 @@ export async function deactivateSupplierSecure(supplierId: string, reason: strin
  * 📋 Get Suppliers List
  */
 export async function getSuppliersListSecure() {
+    const session = await getSessionSecure();
+    if (!session || !ALLOWED_ROLES.includes(session.role)) {
+        return { success: false, error: 'Sin permisos (403)' };
+    }
+
     try {
         const res = await pool.query(`
             SELECT 
@@ -362,6 +367,11 @@ export async function getSuppliersListSecure() {
  * 🔍 Get Single Supplier
  */
 export async function getSupplierSecure(supplierId: string) {
+    const session = await getSessionSecure();
+    if (!session || !ALLOWED_ROLES.includes(session.role)) {
+        return { success: false, error: 'Sin permisos (403)' };
+    }
+
     try {
         const res = await pool.query('SELECT * FROM suppliers WHERE id = $1', [supplierId]);
         if (res.rowCount === 0) return { success: false, error: 'No encontrado' };

@@ -7,8 +7,6 @@ test.describe('Monthly Closing Module - Smoke (Read Only)', () => {
 
         const loggedIn = await loginAsManager(page, {
             module: 'Administración',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch(() => false);
         test.skip(!loggedIn, 'Login/contexto no disponible para Cierre Mensual');
 

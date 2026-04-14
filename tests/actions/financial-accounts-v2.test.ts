@@ -137,4 +137,101 @@ describe('Financial Accounts V2', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('autenticado');
     });
+
+    it('should reject updateFinancialAccountSecure when account is outside actor scope', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: 'manager-session',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        mockQuery
+            .mockResolvedValueOnce(undefined) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{ id: 'account-1', name: 'Cuenta Remota', location_id: 'loc-2' }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce(undefined); // ROLLBACK
+
+        const result = await financialAccountsV2.updateFinancialAccountSecure(
+            { accountId: '123e4567-e89b-12d3-a456-426614174000', name: 'Renombrada' },
+            '1234',
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('fuera de su alcance');
+    });
+
+    it('should reject moving account to another location for local manager', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: 'manager-session',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        mockQuery
+            .mockResolvedValueOnce(undefined) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{ id: 'account-1', name: 'Caja Central', location_id: 'loc-1' }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce(undefined); // ROLLBACK
+
+        const result = await financialAccountsV2.updateFinancialAccountSecure(
+            {
+                accountId: '123e4567-e89b-12d3-a456-426614174000',
+                locationId: '123e4567-e89b-12d3-a456-426614174111',
+            },
+            '1234',
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('otra ubicación');
+    });
+
+    it('should reject getAccountBalance when account is outside actor scope', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: 'manager-session',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockQuery.mockResolvedValueOnce({
+            rows: [{ id: 'account-1', location_id: 'loc-2', name: 'Cuenta Remota' }],
+            rowCount: 1,
+        });
+
+        const result = await financialAccountsV2.getAccountBalance('123e4567-e89b-12d3-a456-426614174000');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('fuera de su alcance');
+    });
+
+    it('should reject getAccountHistory when account is outside actor scope', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: 'manager-session',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockQuery.mockResolvedValueOnce({
+            rows: [{ id: 'account-1', location_id: 'loc-2', name: 'Cuenta Remota' }],
+            rowCount: 1,
+        });
+
+        const result = await financialAccountsV2.getAccountHistory('123e4567-e89b-12d3-a456-426614174000');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('fuera de su alcance');
+    });
 });

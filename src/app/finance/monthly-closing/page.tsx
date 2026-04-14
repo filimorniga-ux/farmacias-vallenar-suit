@@ -76,13 +76,22 @@ type EntryRow = {
 
 type TotalsState = {
     incomes: { cash: number; transfer: number; card: number; total: number };
-    expenses: { daily: number; transferOut: number; payroll: number; fixed: number; tax: number; owner: number; total: number };
+    expenses: {
+        daily: number;
+        transferOut: number;
+        payroll: number;
+        fixed: number;
+        socialSecurity: number;
+        tax: number;
+        owner: number;
+        total: number;
+    };
     netResult: number;
 };
 
 const emptyTotals: TotalsState = {
     incomes: { cash: 0, transfer: 0, card: 0, total: 0 },
-    expenses: { daily: 0, transferOut: 0, payroll: 0, fixed: 0, tax: 0, owner: 0, total: 0 },
+    expenses: { daily: 0, transferOut: 0, payroll: 0, fixed: 0, socialSecurity: 0, tax: 0, owner: 0, total: 0 },
     netResult: 0,
 };
 
@@ -137,8 +146,7 @@ export default function MonthlyClosingPage() {
     const [reopenReason, setReopenReason] = useState('');
 
     const isClosed = data.status === 'CLOSED';
-    const isAdmin =
-        user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL' || user?.role === 'MANAGER';
+    const canReopen = user?.role === 'ADMIN';
     const canEdit = !isClosed;
 
     const incomeTotals = data.totals?.incomes || emptyTotals.incomes;
@@ -457,7 +465,7 @@ export default function MonthlyClosingPage() {
                     )}
                 </div>
                 <div className="flex items-center gap-3">
-                    {isClosed && isAdmin && (
+                    {isClosed && canReopen && (
                         <button
                             onClick={() => setShowReopenModal(true)}
                             className="px-4 py-2 rounded-lg font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors flex items-center gap-2 text-sm"
@@ -571,6 +579,11 @@ export default function MonthlyClosingPage() {
                             <div className="text-rose-700 font-mono font-black text-2xl tracking-tighter">
                                 ${expenseTotals.total.toLocaleString('es-CL')}
                             </div>
+                            {expenseTotals.socialSecurity > 0 && (
+                                <div className="text-[11px] text-rose-600 font-medium">
+                                    Seguridad social: ${expenseTotals.socialSecurity.toLocaleString('es-CL')}
+                                </div>
+                            )}
                             <div className="text-[10px] uppercase tracking-widest font-bold text-rose-600/60">Total Egresos</div>
                         </div>
                     </div>

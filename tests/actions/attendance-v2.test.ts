@@ -4,13 +4,12 @@ const {
     mockQuery,
     mockClientQuery,
     mockRelease,
-    mockCheckRateLimit,
-    mockRecordFailedAttempt,
-    mockResetAttempts,
     mockGetActorOrFail,
     mockRequireRole,
     mockValidatePinForRoles,
     mockValidatePinForUser,
+    mockVerifyKioskSessionToken,
+    mockValidateAttendanceKioskExitPinSecure,
     PinRbacError,
 } = vi.hoisted(() => {
     class MockPinRbacError extends Error {
@@ -27,13 +26,12 @@ const {
         mockQuery: vi.fn(),
         mockClientQuery: vi.fn(),
         mockRelease: vi.fn(),
-        mockCheckRateLimit: vi.fn(),
-        mockRecordFailedAttempt: vi.fn(),
-        mockResetAttempts: vi.fn(),
         mockGetActorOrFail: vi.fn(),
         mockRequireRole: vi.fn(),
         mockValidatePinForRoles: vi.fn(),
         mockValidatePinForUser: vi.fn(),
+        mockVerifyKioskSessionToken: vi.fn(),
+        mockValidateAttendanceKioskExitPinSecure: vi.fn(),
         PinRbacError: MockPinRbacError,
     };
 });
@@ -63,14 +61,15 @@ vi.mock('@/lib/pin-rbac', () => ({
     validatePinForUser: (...args: unknown[]) => mockValidatePinForUser(...args),
 }));
 
-vi.mock('@/lib/rate-limiter', () => ({
-    checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
-    recordFailedAttempt: (...args: unknown[]) => mockRecordFailedAttempt(...args),
-    resetAttempts: (...args: unknown[]) => mockResetAttempts(...args),
+vi.mock('@/lib/kiosk-session', () => ({
+    verifyKioskSessionToken: (...args: unknown[]) => mockVerifyKioskSessionToken(...args),
+}));
+
+vi.mock('@/actions/kiosk-auth-v2', () => ({
+    validateAttendanceKioskExitPinSecure: (...args: unknown[]) => mockValidateAttendanceKioskExitPinSecure(...args),
 }));
 
 vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([['x-forwarded-for', '127.0.0.1']])),
     cookies: vi.fn(async () => ({ get: vi.fn(() => undefined) })),
 }));
 
@@ -93,12 +92,14 @@ const ACTOR_ID = '550e8400-e29b-41d4-a716-446655440010';
 const MANAGER_ID = '550e8400-e29b-41d4-a716-446655440011';
 const EMPLOYEE_ID = '550e8400-e29b-41d4-a716-446655440012';
 const ATTENDANCE_ID = '550e8400-e29b-41d4-a716-446655440013';
+const LOCATION_ID = '550e8400-e29b-41d4-a716-446655440020';
+const OTHER_LOCATION_ID = '550e8400-e29b-41d4-a716-446655440021';
 
 function setActor(role: string = 'CASHIER') {
     mockGetActorOrFail.mockResolvedValue({
         userId: ACTOR_ID,
         role,
-        locationId: 'loc-1',
+        locationId: LOCATION_ID,
         userName: 'Actor',
         tokenVersion: 1,
         sessionToken: 'session-token',
@@ -119,7 +120,6 @@ describe('attendance-v2 shared PIN/RBAC contracts', () => {
         setActor();
         mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
         mockClientQuery.mockResolvedValue({ rows: [], rowCount: 0 });
-        mockCheckRateLimit.mockReturnValue({ allowed: true });
         mockValidatePinForRoles.mockResolvedValue({
             valid: true,
             authorizedBy: {
@@ -138,6 +138,18 @@ describe('attendance-v2 shared PIN/RBAC contracts', () => {
             },
             matchedBy: 'hash',
         });
+        mockVerifyKioskSessionToken.mockReturnValue({
+            valid: true,
+            payload: {
+                version: 1,
+                mode: 'ATTENDANCE',
+                locationId: LOCATION_ID,
+                authorizedBy: MANAGER_ID,
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + 60_000,
+            },
+        });
+        mockValidateAttendanceKioskExitPinSecure.mockResolvedValue({ success: true });
     });
 
     it('rechaza getMyAttendanceHistory sin sesión válida', async () => {
@@ -160,8 +172,13 @@ describe('attendance-v2 shared PIN/RBAC contracts', () => {
         expect(result.error).toContain('managers');
     });
 
-    it('validateEmployeePinSecure usa el helper compartido y permite la excepción de desarrollo vía opciones', async () => {
-        const result = await attendanceV2.validateEmployeePinSecure(EMPLOYEE_ID, '1213');
+    it('validateEmployeePinSecure exige kiosko pareado y valida solo contra el PIN real del empleado', async () => {
+        mockQuery.mockResolvedValueOnce({
+            rows: [{ id: EMPLOYEE_ID, name: 'Empleado', assigned_location_id: LOCATION_ID }],
+            rowCount: 1,
+        });
+
+        const result = await attendanceV2.validateEmployeePinSecure(EMPLOYEE_ID, '9999', 'attendance-token');
 
         expect(result.success).toBe(true);
         expect(result.valid).toBe(true);
@@ -169,12 +186,38 @@ describe('attendance-v2 shared PIN/RBAC contracts', () => {
         expect(mockValidatePinForUser).toHaveBeenCalledWith(
             expect.objectContaining({ query: expect.any(Function) }),
             EMPLOYEE_ID,
-            '1213',
+            '9999',
             expect.objectContaining({
                 allowLegacyPlaintext: true,
-                allowDevelopmentMasterPin: true,
             })
         );
+    });
+
+    it('rechaza validateEmployeePinSecure si el empleado está fuera de la sucursal del kiosko', async () => {
+        mockQuery.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+        const result = await attendanceV2.validateEmployeePinSecure(EMPLOYEE_ID, '9999', 'attendance-token');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('sucursal del kiosko');
+        expect(mockValidatePinForUser).not.toHaveBeenCalled();
+    });
+
+    it('rechaza registerAttendanceSecure sin sesión ni token de kiosko', async () => {
+        mockGetActorOrFail.mockRejectedValue(
+            new ImportedPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.')
+        );
+
+        const result = await attendanceV2.registerAttendanceSecure({
+            userId: EMPLOYEE_ID,
+            type: 'CHECK_IN',
+            locationId: LOCATION_ID,
+            method: 'PIN',
+            overtimeMinutes: 0,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No autenticado');
     });
 
     it('approveOvertimeSecure audita con el actor de sesión y no con el autorizador del PIN', async () => {
@@ -230,21 +273,41 @@ describe('attendance-v2 shared PIN/RBAC contracts', () => {
         });
     });
 
-    it('validateKioskExitPin usa el helper compartido con rate limit externo por IP', async () => {
-        const result = await attendanceV2.validateKioskExitPin('1213');
+    it('getTodayAttendanceSecure fuerza scope efectivo y enmascara datos sensibles para manager', async () => {
+        setActor('MANAGER');
+        mockClientQuery.mockResolvedValueOnce({
+            rows: [{
+                id: EMPLOYEE_ID,
+                name: 'Empleado Uno',
+                rut: '12345678-9',
+                job_title: 'CAJERO',
+                role: 'CASHIER',
+                assigned_location_id: LOCATION_ID,
+                current_status: 'CHECK_IN',
+                last_log_time: new Date('2026-04-02T12:00:00.000Z'),
+                last_location_id: LOCATION_ID,
+                last_login_ip: '10.0.0.7',
+            }],
+            rowCount: 1,
+        });
+
+        const result = await attendanceV2.getTodayAttendanceSecure();
+
+        expect(result.success).toBe(true);
+        expect(mockClientQuery).toHaveBeenCalledWith(expect.stringContaining('WHERE u.is_active = true'), [LOCATION_ID]);
+        expect(result.data?.[0]).toMatchObject({
+            rut: '12*****-9',
+            last_login_ip: null,
+        });
+    });
+
+    it('validateKioskExitPin delega la validación al hardening server-side del kiosko', async () => {
+        const result = await attendanceV2.validateKioskExitPin('9999', 'attendance-token');
 
         expect(result.valid).toBe(true);
-        expect(mockCheckRateLimit).toHaveBeenCalledWith('kiosk_exit_127.0.0.1');
-        expect(mockValidatePinForRoles).toHaveBeenCalledWith(
-            expect.objectContaining({ query: expect.any(Function) }),
-            '1213',
-            ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
-            expect.objectContaining({
-                allowLegacyPlaintext: true,
-                allowDevelopmentMasterPin: true,
-                useRateLimiter: false,
-            })
-        );
-        expect(mockResetAttempts).toHaveBeenCalledWith('kiosk_exit_127.0.0.1');
+        expect(mockValidateAttendanceKioskExitPinSecure).toHaveBeenCalledWith({
+            pin: '9999',
+            kioskToken: 'attendance-token',
+        });
     });
 });

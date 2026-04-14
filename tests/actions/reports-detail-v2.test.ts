@@ -37,6 +37,7 @@ vi.mock('@/lib/db', () => ({
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/pin-rbac', () => ({
     getActorOrFail: vi.fn(),
+    normalizeRole: vi.fn((role?: string) => String(role || '').trim().toUpperCase()),
     requireRole: vi.fn((actor, allowedRoles: readonly string[]) => {
         if (!allowedRoles.includes(actor.role)) {
             throw new PinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
@@ -173,16 +174,134 @@ describe('Reports V2 - Tax Summary', () => {
 });
 
 describe('Reports V2 - Inventory Valuation', () => {
-    it('should return totals for warehouse', async () => {
+    it('should return totals for scoped location when manager has no explicit warehouse', async () => {
         vi.mocked(dbModule.query).mockResolvedValueOnce({
             rows: [{ total_units: 50, total_cost: 5000, total_sale: 8000 }],
             rowCount: 1, command: '', oid: 0, fields: []
+        }).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 1, command: 'INSERT', oid: 0, fields: []
         });
 
-        const result = await reportsV2.getInventoryValuationSecure('loc-1');
+        const result = await reportsV2.getInventoryValuationSecure();
         expect(result.success).toBe(true);
         expect(result.data.total_items).toBe(50);
         expect(result.data.potential_gross_margin).toBe(3000);
+
+        const sql = String(vi.mocked(dbModule.query).mock.calls[0]?.[0] || '');
+        const params = (vi.mocked(dbModule.query).mock.calls[0]?.[1] || []) as unknown[];
+
+        expect(sql).toContain('JOIN warehouses w ON ib.warehouse_id::text = w.id::text');
+        expect(sql).toContain('w.location_id::text = $1::text');
+        expect(params[0]).toBe('loc-1');
+    });
+
+    it('should deny warehouse from another location to non-global manager', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{ location_id: 'loc-2' }],
+            rowCount: 1, command: 'SELECT', oid: 0, fields: []
+        });
+
+        const result = await reportsV2.getInventoryValuationSecure('warehouse-foreign');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ubicación');
+    });
+});
+
+describe('Reports V2 - Financial Scope', () => {
+    it('should scope financial summary to manager location', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{ total: 1000 }], rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{ total: 100 }], rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 0, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: []
+            });
+
+        const result = await reportsV2.getDetailedFinancialSummarySecure('2024-01-01', '2024-01-31');
+
+        expect(result.success).toBe(true);
+
+        const salesCall = vi.mocked(dbModule.query).mock.calls.find(([sql]) =>
+            String(sql).includes('FROM sales')
+        );
+        const refundsCall = vi.mocked(dbModule.query).mock.calls.find(([sql]) =>
+            String(sql).includes('FROM refunds')
+        );
+        const cashMovementsCall = vi.mocked(dbModule.query).mock.calls.find(([sql]) =>
+            String(sql).includes('FROM cash_movements')
+        );
+
+        expect(String(salesCall?.[0] || '')).toContain('location_id::text = $3::text');
+        expect(String(refundsCall?.[0] || '')).toContain('location_id::text = $3::text');
+        expect(String(cashMovementsCall?.[0] || '')).toContain('location_id::text = $3::text');
+        expect((salesCall?.[1] || [])[2]).toBe('loc-1');
+    });
+});
+
+describe('Reports V2 - Logistics Scope', () => {
+    it('should deny cross-location filter for logistics KPIs', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{ location_id: 'loc-2' }],
+            rowCount: 1, command: 'SELECT', oid: 0, fields: []
+        });
+
+        const result = await reportsV2.getLogisticsKPIsSecure('2024-01-01', '2024-01-31', 'warehouse-foreign');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ubicación');
+    });
+
+    it('should allow global admin access to another location for stock movements', async () => {
+        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+            userId: 'admin-1',
+            role: 'ADMIN',
+            userName: 'Admin Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{ location_id: 'loc-2' }],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'mov-1',
+                        timestamp: new Date('2024-01-05T10:00:00.000Z'),
+                        movement_type: 'TRANSFER_OUT',
+                        quantity: -2,
+                        product_name: 'Producto Test',
+                        sku: 'SKU-1',
+                        user_name: 'Operador',
+                        reason: 'Ajuste',
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [],
+                rowCount: 1, command: 'INSERT', oid: 0, fields: []
+            });
+
+        const result = await reportsV2.getStockMovementsDetailSecure(
+            'ALL',
+            '2024-01-01',
+            '2024-01-31',
+            'warehouse-global',
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0].id).toBe('mov-1');
     });
 });
 

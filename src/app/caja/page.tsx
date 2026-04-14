@@ -356,7 +356,7 @@ export default function CajaPage() {
 
     return (
         <RouteGuard allowedRoles={['ADMIN', 'QF', 'CASHIER', 'MANAGER', 'GERENTE_GENERAL']}>
-            <div className="min-h-screen bg-gray-50 p-4">
+            <div data-testid="caja-page" className="min-h-screen bg-gray-50 p-4">
                 <div className="max-w-7xl mx-auto">
                     {/* Header / Status Bar */}
                     <div className="mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl shadow-sm">
@@ -365,12 +365,12 @@ export default function CajaPage() {
                                 🛒 Punto de Venta
                             </h1>
                             {sessionInfo ? (
-                                <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+                                <span data-testid="caja-status-open" className="text-sm text-green-600 font-medium flex items-center gap-1">
                                     <div className="w-2 h-2 rounded-full bg-green-500"></div>
                                     Caja Abierta: {sessionInfo.terminalName}
                                 </span>
                             ) : (
-                                <span className="text-sm text-red-500 font-medium flex items-center gap-1">
+                                <span data-testid="caja-status-closed" className="text-sm text-red-500 font-medium flex items-center gap-1">
                                     <AlertCircle size={14} />
                                     {error || 'Caja Cerrada'}
                                 </span>
@@ -406,6 +406,7 @@ export default function CajaPage() {
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                                     <input
+                                        data-testid="caja-search-input"
                                         type="text"
                                         placeholder="Escanear código o buscar nombre..."
                                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
@@ -544,6 +545,7 @@ export default function CajaPage() {
                                 </div>
 
                                 <button
+                                    data-testid="caja-confirm-payment"
                                     onClick={handlePayment}
                                     disabled={cart.length === 0 || isProcessing || !sessionId}
                                     className={cn(

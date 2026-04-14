@@ -1,28 +1,44 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { usePharmaStore } from '../store/useStore';
 import TimeFilter, { DateRange } from '../components/bi/TimeFilter';
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { TrendingUp, DollarSign, FileText, Package, Users, Download, AlertTriangle, CheckCircle, RefreshCw, ArrowDown, ArrowUp, Clock, X, ChevronDown } from 'lucide-react';
+import { TrendingUp, DollarSign, FileText, Package, Users, Download, RefreshCw, ArrowDown, ArrowUp, Clock, X, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 
 // V2 Backend Actions - Todas las funciones seguras
 import {
     getCashFlowLedgerSecure, getTaxSummarySecure, getInventoryValuationSecure,
     getDetailedFinancialSummarySecure, getLogisticsKPIsSecure, getStockMovementsDetailSecure,
-    CashFlowEntry, TaxSummary, InventoryValuation, PayrollPreview, LogisticsKPIs
+    CashFlowEntry, TaxSummary, InventoryValuation, LogisticsKPIs, PayrollPreview
 } from '../../actions/reports-detail-v2';
-import { exportPayrollSecure, exportTaxSummarySecure, exportAttendanceSecure } from '../../actions/finance-export-v2';
-import { generateCashReportSecure } from '../../actions/cash-export-v2';
+import { exportCashFlowSecure, exportLogisticsReportSecure, exportTaxSummarySecure } from '../../actions/finance-export-v2';
+import { exportAttendanceSummarySecure } from '../../actions/attendance-export-v2';
 
-import { HRReportTab } from '../components/reports/HRReportTab';
-import { CashReceiptsReport } from '../components/reports/CashReceiptsReport';
+const LazyHRReportTab = lazy(async () => {
+    const module = await import('../components/reports/HRReportTab');
+    return { default: module.HRReportTab };
+});
 
+const LazyCashReceiptsReport = lazy(async () => {
+    const module = await import('../components/reports/CashReceiptsReport');
+    return { default: module.CashReceiptsReport };
+});
 
-const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const REPORTS_STALE_TIME_MS = 1000 * 60 * 5;
+
+function TabLoadingFallback({ label }: { label: string }) {
+    return (
+        <div className="flex justify-center items-center h-64 text-gray-500">
+            <RefreshCw className="w-8 h-8 text-blue-500 animate-spin mr-3" />
+            <span>{label}</span>
+        </div>
+    );
+}
 
 const ReportsPage: React.FC = () => {
-    const navigate = useNavigate();
+    const router = useRouter();
+    const queryClient = useQueryClient();
     const { currentWarehouseId, currentLocationId } = usePharmaStore();
     const [activeTab, setActiveTab] = useState<'cash' | 'tax' | 'logistics' | 'hr' | 'receipts'>('cash');
     const [dateRange, setDateRange] = useState<DateRange>(() => {
@@ -32,119 +48,191 @@ const ReportsPage: React.FC = () => {
             to: new Date(now.getFullYear(), now.getMonth() + 1, 0)
         };
     });
-    const [loading, setLoading] = useState(false);
-
-    // Data States
-    const [cashLedger, setCashLedger] = useState<CashFlowEntry[]>([]);
-    const [summary, setSummary] = useState<any>(null); // New State
-    const [taxData, setTaxData] = useState<TaxSummary | null>(null);
-    const [logisticsData, setLogisticsData] = useState<InventoryValuation | null>(null);
-    const [logisticsKPIs, setLogisticsKPIs] = useState<LogisticsKPIs | null>(null);
-    const [payrollData, setPayrollData] = useState<PayrollPreview[]>([]);
 
     // Logistics Detail State
     const [activeDetailType, setActiveDetailType] = useState<'IN' | 'OUT' | null>(null);
-    const [movementDetail, setMovementDetail] = useState<any[]>([]);
-    const [loadingDetail, setLoadingDetail] = useState(false);
+    const [hrRoleFilter, setHrRoleFilter] = useState<string>('ALL');
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    const handleShowDetail = async (type: 'IN' | 'OUT') => {
+    const startIso = dateRange.from.toISOString();
+    const endIso = dateRange.to.toISOString();
+    const effectiveLocationId = currentLocationId || undefined;
+    const effectiveWarehouseOrLocationId = currentWarehouseId || currentLocationId || '';
+
+    const cashQuery = useQuery({
+        queryKey: ['reports', 'cash', startIso, endIso, effectiveLocationId ?? 'all'],
+        enabled: activeTab === 'cash',
+        staleTime: REPORTS_STALE_TIME_MS,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const [ledgerResult, summaryResult] = await Promise.all([
+                getCashFlowLedgerSecure({ startDate: startIso, endDate: endIso }),
+                getDetailedFinancialSummarySecure(startIso, endIso),
+            ]);
+
+            if (!ledgerResult.success || !ledgerResult.data) {
+                throw new Error(ledgerResult.error || 'Error cargando flujo de caja');
+            }
+
+            if (!summaryResult.success || !summaryResult.data) {
+                throw new Error(summaryResult.error || 'Error cargando resumen financiero');
+            }
+
+            return {
+                ledger: ledgerResult.data,
+                summary: summaryResult.data,
+            };
+        },
+    });
+
+    const taxQuery = useQuery({
+        queryKey: ['reports', 'tax', dateRange.from.getFullYear(), dateRange.from.getMonth() + 1],
+        enabled: activeTab === 'tax',
+        staleTime: REPORTS_STALE_TIME_MS,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const monthStr = `${dateRange.from.getFullYear()}-${(dateRange.from.getMonth() + 1).toString().padStart(2, '0')}`;
+            const result = await getTaxSummarySecure(monthStr);
+
+            if (!result.success || !result.data) {
+                throw new Error(result.error || 'Error cargando datos tributarios');
+            }
+
+            return result.data;
+        },
+    });
+
+    const logisticsQuery = useQuery({
+        queryKey: ['reports', 'logistics', startIso, endIso, effectiveWarehouseOrLocationId || 'all'],
+        enabled: activeTab === 'logistics',
+        staleTime: REPORTS_STALE_TIME_MS,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const [valuationResult, kpiResult] = await Promise.all([
+                getInventoryValuationSecure(effectiveWarehouseOrLocationId),
+                getLogisticsKPIsSecure(startIso, endIso, effectiveWarehouseOrLocationId),
+            ]);
+
+            if (!valuationResult.success || !valuationResult.data) {
+                throw new Error(valuationResult.error || 'Error cargando valoración de inventario');
+            }
+
+            if (!kpiResult.success || !kpiResult.data) {
+                throw new Error(kpiResult.error || 'Error cargando KPIs logísticos');
+            }
+
+            return {
+                valuation: valuationResult.data as InventoryValuation,
+                kpis: kpiResult.data as LogisticsKPIs,
+            };
+        },
+    });
+
+    const logisticsDetailQuery = useQuery({
+        queryKey: ['reports', 'logistics', 'detail', activeDetailType ?? 'none', startIso, endIso, effectiveWarehouseOrLocationId || 'all'],
+        enabled: activeTab === 'logistics' && activeDetailType !== null,
+        staleTime: REPORTS_STALE_TIME_MS,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const result = await getStockMovementsDetailSecure(
+                activeDetailType as 'IN' | 'OUT',
+                startIso,
+                endIso,
+                effectiveWarehouseOrLocationId,
+            );
+
+            if (!result.success || !result.data) {
+                throw new Error(result.error || 'Error cargando detalles');
+            }
+
+            return result.data;
+        },
+    });
+
+    const loading =
+        activeTab === 'cash'
+            ? cashQuery.isLoading
+            : activeTab === 'tax'
+                ? taxQuery.isLoading
+                : activeTab === 'logistics'
+                    ? logisticsQuery.isLoading
+                    : false;
+
+    const cashLedger: CashFlowEntry[] = cashQuery.data?.ledger ?? [];
+    const summary = cashQuery.data?.summary ?? null;
+    const taxData: TaxSummary | null = taxQuery.data ?? null;
+    const logisticsData: InventoryValuation | null = logisticsQuery.data?.valuation ?? null;
+    const logisticsKPIs: LogisticsKPIs | null = logisticsQuery.data?.kpis ?? null;
+    const movementDetail = logisticsDetailQuery.data ?? [];
+    const loadingDetail = logisticsDetailQuery.isLoading;
+    const payrollData: PayrollPreview[] = [];
+
+    const handleShowDetail = (type: 'IN' | 'OUT') => {
         if (activeDetailType === type) {
             setActiveDetailType(null); // Toggle off
             return;
         }
 
         setActiveDetailType(type);
-        setLoadingDetail(true);
-        try {
-            const whId = currentWarehouseId || currentLocationId || '';
-            // V2: getStockMovementsDetailSecure
-            const res = await getStockMovementsDetailSecure(type, dateRange.from.toISOString(), dateRange.to.toISOString(), whId);
-            if (res.success && res.data) {
-                setMovementDetail(res.data);
-            } else {
-                toast.error(res.error || 'Error cargando detalles');
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error('Error cargando detalles');
-        } finally {
-            setLoadingDetail(false);
-        }
     };
 
-    // Fetch Logic
-    const fetchData = useCallback(async () => {
-        // If receipts tab, no need to fetch here as component handles it internally
-        if (activeTab === 'receipts') return;
-
-        setLoading(true);
-        try {
-            if (activeTab === 'cash') {
-                const [res, summaryRes] = await Promise.all([
-                    getCashFlowLedgerSecure({ startDate: dateRange.from.toISOString(), endDate: dateRange.to.toISOString() }),
-                    getDetailedFinancialSummarySecure(dateRange.from.toISOString(), dateRange.to.toISOString())
-                ]);
-
-                if (res.success && res.data) {
-                    setCashLedger(res.data);
-                } else {
-                    toast.error(res.error || 'Error cargando flujo de caja');
-                }
-
-                if (summaryRes.success && summaryRes.data) {
-                    setSummary(summaryRes.data);
-                } else {
-                    if (!res.success) toast.error(summaryRes.error || 'Error cargando resumen financiero');
-                }
-
-            } else if (activeTab === 'tax') {
-                // Format YYYY-MM
-                const monthStr = `${dateRange.from.getFullYear()}-${(dateRange.from.getMonth() + 1).toString().padStart(2, '0')}`;
-                const res = await getTaxSummarySecure(monthStr);
-
-                if (res.success && res.data) {
-                    setTaxData(res.data);
-                } else {
-                    toast.error(res.error || 'Error cargando datos tributarios');
-                }
-
-            } else if (activeTab === 'logistics') {
-                const whId = currentWarehouseId || currentLocationId || ''; // Fallback
-                const [res, kpiRes] = await Promise.all([
-                    getInventoryValuationSecure(whId),
-                    getLogisticsKPIsSecure(dateRange.from.toISOString(), dateRange.to.toISOString(), whId)
-                ]);
-
-                if (res.success && res.data) {
-                    setLogisticsData(res.data as InventoryValuation);
-                } else {
-                    toast.error(res.error || 'Error cargando valoración de inventario');
-                }
-
-                if (kpiRes.success && kpiRes.data) {
-                    setLogisticsKPIs(kpiRes.data);
-                } else {
-                    toast.error(kpiRes.error || 'Error cargando KPIs logísticos');
-                }
-
-            } else if (activeTab === 'hr') {
-                // Note: getPayrollPreviewSecure requires PIN, skipping for now - HR tab uses HRReportTab
-                setPayrollData([]);
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error('Error cargando reporte');
-        } finally {
-            setLoading(false);
+    useEffect(() => {
+        if (cashQuery.error instanceof Error && activeTab === 'cash') {
+            toast.error(cashQuery.error.message);
         }
-    }, [activeTab, dateRange, currentWarehouseId, currentLocationId]);
+    }, [activeTab, cashQuery.error]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        if (taxQuery.error instanceof Error && activeTab === 'tax') {
+            toast.error(taxQuery.error.message);
+        }
+    }, [activeTab, taxQuery.error]);
+
+    useEffect(() => {
+        if (logisticsQuery.error instanceof Error && activeTab === 'logistics') {
+            toast.error(logisticsQuery.error.message);
+        }
+    }, [activeTab, logisticsQuery.error]);
+
+    useEffect(() => {
+        if (logisticsDetailQuery.error instanceof Error && activeTab === 'logistics' && activeDetailType) {
+            toast.error(logisticsDetailQuery.error.message);
+        }
+    }, [activeTab, activeDetailType, logisticsDetailQuery.error]);
+
+    useEffect(() => {
+        if (activeTab !== 'logistics') {
+            setActiveDetailType(null);
+        }
+    }, [activeTab]);
 
     // Export Logic
     const [isExporting, setIsExporting] = useState(false);
+
+    const handleRefresh = async () => {
+        setIsRefreshing(true);
+        try {
+            if (activeTab === 'cash') {
+                await cashQuery.refetch();
+            } else if (activeTab === 'tax') {
+                await taxQuery.refetch();
+            } else if (activeTab === 'logistics') {
+                await logisticsQuery.refetch();
+                if (activeDetailType) {
+                    await logisticsDetailQuery.refetch();
+                }
+            } else if (activeTab === 'hr') {
+                await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ['reports', 'attendance-summary'] }),
+                    queryClient.invalidateQueries({ queryKey: ['reports', 'attendance-kpis'] }),
+                ]);
+            } else if (activeTab === 'receipts') {
+                await queryClient.invalidateQueries({ queryKey: ['reports', 'receipts'] });
+            }
+        } finally {
+            setIsRefreshing(false);
+        }
+    };
 
     const handleExportExcel = async () => {
         setIsExporting(true);
@@ -157,19 +245,28 @@ const ReportsPage: React.FC = () => {
 
             // V2: Usar función específica según tab
             if (activeTab === 'cash') {
-                result = await generateCashReportSecure({ startDate, endDate, locationId });
+                result = await exportCashFlowSecure({ startDate, endDate, locationId });
             } else if (activeTab === 'tax') {
                 const monthStr = `${dateRange.from.getFullYear()}-${(dateRange.from.getMonth() + 1).toString().padStart(2, '0')}`;
                 result = await exportTaxSummarySecure(monthStr);
             } else if (activeTab === 'hr') {
-                result = await exportAttendanceSecure({ startDate, endDate, locationId });
+                result = await exportAttendanceSummarySecure({
+                    startDate,
+                    endDate,
+                    locationId,
+                    role: hrRoleFilter !== 'ALL' ? hrRoleFilter : undefined,
+                });
             } else if (activeTab === 'receipts') {
                 toast.info('Utilice el botón de exportar dentro de la tabla de recibos.');
                 setIsExporting(false);
                 return;
-            } else {
-                // Logistics - use cash flow as fallback
-                result = await generateCashReportSecure({ startDate, endDate, locationId });
+            } else if (activeTab === 'logistics') {
+                result = await exportLogisticsReportSecure({
+                    startDate,
+                    endDate,
+                    warehouseId: currentWarehouseId || currentLocationId || undefined,
+                    movementType: activeDetailType || undefined,
+                });
             }
 
             if (result.success && result.data) {
@@ -206,7 +303,7 @@ const ReportsPage: React.FC = () => {
     const activeTabLabel = tabs.find((tab) => tab.id === activeTab)?.label ?? 'Reportes';
 
     return (
-        <div className="p-3 md:p-6 space-y-4 md:space-y-6 h-[calc(100dvh-80px)] overflow-y-auto bg-gray-50 pb-safe touch-pan-y overscroll-contain">
+        <div data-testid="reports-page" className="p-3 md:p-6 space-y-4 md:space-y-6 h-[calc(100dvh-80px)] overflow-y-auto bg-gray-50 pb-safe touch-pan-y overscroll-contain">
             {/* Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="min-w-0">
@@ -218,19 +315,20 @@ const ReportsPage: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-2 w-full md:flex md:flex-wrap md:w-auto">
                     <button
-                        onClick={() => navigate('/reports/sales-by-product')}
+                        data-testid="reports-sales-by-product-button"
+                        onClick={() => router.push('/reports/sales-by-product')}
                         className="col-span-2 md:col-span-1 min-h-11 px-4 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl hover:bg-slate-50 flex items-center justify-center gap-2 font-bold shadow-sm transition-colors"
                     >
                         <Package className="w-5 h-5" />
                         Ventas por Producto
                     </button>
 
-                    <button onClick={fetchData} className="min-h-11 p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 transition flex items-center justify-center">
-                        <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                    <button onClick={handleRefresh} className="min-h-11 p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 text-gray-600 transition flex items-center justify-center">
+                        <RefreshCw className={`w-5 h-5 ${(loading || isRefreshing) ? 'animate-spin' : ''}`} />
                     </button>
                     <button
                         onClick={handleExportExcel}
-                        disabled={isExporting || loading}
+                        disabled={isExporting || loading || isRefreshing}
                         className="min-h-11 px-4 md:px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 flex items-center justify-center gap-2 font-bold shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                         {isExporting ? <RefreshCw className="animate-spin w-5 h-5" /> : <Download className="w-5 h-5" />}
@@ -572,12 +670,21 @@ const ReportsPage: React.FC = () => {
                     )}
 
                     {!loading && activeTab === 'receipts' && (
-                        <CashReceiptsReport startDate={dateRange.from} endDate={dateRange.to} />
+                        <Suspense fallback={<TabLoadingFallback label="Cargando recibos..." />}>
+                            <LazyCashReceiptsReport startDate={dateRange.from} endDate={dateRange.to} />
+                        </Suspense>
                     )}
 
                     {!loading && activeTab === 'hr' && (
                         <div className="space-y-8">
-                            <HRReportTab dateRange={dateRange} locationId={currentLocationId || undefined} />
+                            <Suspense fallback={<TabLoadingFallback label="Cargando reporte de asistencia..." />}>
+                                <LazyHRReportTab
+                                    dateRange={dateRange}
+                                    locationId={currentLocationId || undefined}
+                                    roleFilter={hrRoleFilter}
+                                    onRoleFilterChange={setHrRoleFilter}
+                                />
+                            </Suspense>
 
                             <div className="border-t border-gray-200 pt-8 animate-in slide-in-from-right-4">
                                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4">

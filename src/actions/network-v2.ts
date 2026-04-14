@@ -18,9 +18,8 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
+import { resolveActorResult } from './actor-result';
 import {
-    getActorOrFail,
-    PinRbacError,
     requireRole,
     ROLE_GROUPS,
     validatePinForRoles,
@@ -40,15 +39,6 @@ const CreateLocationSchema = z.object({
     type: z.enum(['STORE', 'WAREHOUSE', 'HQ']).default('STORE'),
 });
 
-const UpdateLocationSchema = z.object({
-    locationId: UUIDSchema,
-    name: z.string().min(3).max(100).optional(),
-    address: z.string().min(5).max(200).optional(),
-    phone: z.string().max(50).optional(),
-    email: z.string().email().optional(),
-    managerId: UUIDSchema.optional(),
-});
-
 const CreateTerminalSchema = z.object({
     name: z.string().min(2).max(50),
     module_number: z.string().max(20).optional(),
@@ -65,28 +55,6 @@ const UpdateTerminalSchema = z.object({
 });
 
 
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-type NetworkActor = Awaited<ReturnType<typeof getActorOrFail>>;
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-async function requireNetworkActor(): Promise<NetworkActor | null> {
-    try {
-        return await getActorOrFail();
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return null;
-        }
-
-        throw error;
-    }
-}
 
 async function validateAdminPin(
     client: any,
@@ -115,33 +83,6 @@ async function validateAdminPin(
     }
 }
 
-async function validateManagerPin(
-    client: any,
-    pin: string
-): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string }; error?: string }> {
-    try {
-        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
-            allowLegacyPlaintext: true,
-            useRateLimiter: true,
-        });
-
-        if (!result.valid) {
-            return { valid: false, error: result.error || 'PIN de manager inválido' };
-        }
-
-        return {
-            valid: true,
-            manager: {
-                id: result.authorizedBy.id,
-                name: result.authorizedBy.name,
-                role: result.authorizedBy.role,
-            },
-        };
-    } catch {
-        return { valid: false, error: 'Error validando PIN' };
-    }
-}
-
 // ============================================================================
 // GET ORGANIZATION STRUCTURE
 // ============================================================================
@@ -149,22 +90,20 @@ async function validateManagerPin(
 /**
  * 🏢 Obtener Estructura Organizacional (con RBAC)
  */
-export async function getOrganizationStructureSecure(explicitUserId?: string): Promise<{
+export async function getOrganizationStructureSecure(): Promise<{
     success: boolean;
     data?: { locations: any[]; terminals: any[] };
     error?: string;
 }> {
-    console.time('⏱️ [Network] getOrganizationStructureSecure');
-    const actor = await requireNetworkActor();
-    void explicitUserId; // Legacy compatibility: retained in signature but no longer trusted as identity source.
-
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
         let locationFilter = '';
         const params: any[] = [];
+        const actor = auth.actor;
         const userRole = actor.role.toUpperCase();
 
         if (!ROLE_GROUPS.MANAGER.includes(userRole as typeof ROLE_GROUPS.MANAGER[number]) && actor.locationId) {
@@ -174,7 +113,6 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
             locationFilter = 'WHERE l.is_active = true';
         }
 
-        console.log('📡 [Network] Fetching structure for user role:', userRole);
         const res = await query(`
             SELECT 
                 l.id, l.name, l.address, l.type, l.phone, l.email, l.manager_id,
@@ -183,6 +121,7 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
                     json_agg(
                         json_build_object(
                             'id', t.id,
+                            'location_id', t.location_id,
                             'name', t.name,
                             'status', t.status,
                             'is_active', t.is_active
@@ -212,7 +151,6 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
 
         const terminals = res.rows.flatMap((row: any) => row.terminals);
 
-        console.timeEnd('⏱️ [Network] getOrganizationStructureSecure');
         return { success: true, data: { locations, terminals } };
 
     } catch (error: any) {
@@ -232,10 +170,11 @@ export async function createLocationSecure(
     data: z.infer<typeof CreateLocationSchema>,
     adminPin: string
 ): Promise<{ success: boolean; locationId?: string; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -296,99 +235,6 @@ export async function createLocationSecure(
 }
 
 // ============================================================================
-// UPDATE LOCATION
-// ============================================================================
-
-/**
- * ✏️ Actualizar Ubicación (MANAGER + PIN)
- */
-export async function updateLocationSecure(
-    data: z.infer<typeof UpdateLocationSchema>,
-    managerPin: string
-): Promise<{ success: boolean; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
-    }
-    try {
-        requireRole(actor, ROLE_GROUPS.MANAGER);
-    } catch {
-        return { success: false, error: 'Requiere permisos de MANAGER' };
-    }
-
-    const validated = UpdateLocationSchema.safeParse(data);
-    if (!validated.success) {
-        return { success: false, error: validated.error.issues[0]?.message };
-    }
-
-    const { locationId, name, address, phone, email, managerId } = validated.data;
-    const client = await pool.connect();
-
-    try {
-        await client.query('BEGIN');
-
-        // Validar PIN MANAGER
-        const pinResult = await validateManagerPin(client, managerPin);
-        const validManager = pinResult.valid ? pinResult.manager! : null;
-        if (!validManager) {
-            await client.query('ROLLBACK');
-            return { success: false, error: pinResult.error || 'PIN de manager inválido' };
-        }
-
-        // Obtener valores anteriores
-        const prevRes = await client.query('SELECT * FROM locations WHERE id = $1', [locationId]);
-        if (prevRes.rowCount === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Ubicación no encontrada' };
-        }
-        const prev = prevRes.rows[0];
-
-        // Actualizar
-        const updates: string[] = ['updated_at = NOW()'];
-        const params: any[] = [];
-        let idx = 1;
-
-        if (name) { updates.push(`name = $${idx++}`); params.push(name); }
-        if (address) { updates.push(`address = $${idx++}`); params.push(address); }
-        if (phone !== undefined) { updates.push(`phone = $${idx++}`); params.push(phone); }
-        if (email !== undefined) { updates.push(`email = $${idx++}`); params.push(email); }
-        if (managerId !== undefined) { updates.push(`manager_id = $${idx++}`); params.push(managerId); }
-
-        params.push(locationId);
-        await client.query(`UPDATE locations SET ${updates.join(', ')} WHERE id = $${idx}`, params);
-
-        // Auditar
-        await client.query(`
-            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
-            VALUES ($1, 'LOCATION_UPDATED', 'LOCATION', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [actor.userId, locationId, JSON.stringify({
-            name: prev.name,
-            address: prev.address,
-        }), JSON.stringify({
-            name,
-            address,
-            phone,
-            email,
-            authorized_by: validManager.name,
-            authorized_by_id: validManager.id,
-        })]);
-
-        await client.query('COMMIT');
-
-        logger.info({ locationId }, '✏️ [Network] Location updated');
-        revalidatePath('/settings/organization');
-        return { success: true };
-
-    } catch (error: any) {
-        await client.query('ROLLBACK');
-        logger.error({ error }, '[Network] Update location error');
-        return { success: false, error: 'Error actualizando ubicación' };
-    } finally {
-        client.release();
-    }
-}
-
-// ============================================================================
 // CREATE TERMINAL
 // ============================================================================
 
@@ -399,10 +245,11 @@ export async function createTerminalSecure(
     data: z.infer<typeof CreateTerminalSchema>,
     adminPin: string
 ): Promise<{ success: boolean; terminalId?: string; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -480,10 +327,11 @@ export async function updateTerminalSecure(
     data: z.infer<typeof UpdateTerminalSchema>,
     adminPin: string
 ): Promise<{ success: boolean; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -570,10 +418,11 @@ export async function deleteTerminalSecure(
     terminalId: string,
     adminPin: string
 ): Promise<{ success: boolean; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -641,10 +490,11 @@ export async function assignEmployeeSecure(
     locationId: string,
     adminPin: string
 ): Promise<{ success: boolean; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -711,10 +561,11 @@ export async function deactivateLocationSecure(
     adminPin: string,
     reason: string
 ): Promise<{ success: boolean; error?: string }> {
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.ADMIN);
     } catch {
@@ -795,10 +646,11 @@ export async function updateLocationConfigSecure(
         return { success: false, error: 'ID de ubicación inválido' };
     }
 
-    const actor = await requireNetworkActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
     try {
         requireRole(actor, ROLE_GROUPS.MANAGER);
     } catch {

@@ -16,9 +16,11 @@
 import { pool, query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
+import { getSiiConfigurationSummary } from '@/lib/sii-config';
+import { resolveActorResult } from './actor-result';
 import {
-    getActorOrFail,
     PinRbacError,
+    type PinRbacActor,
     ROLE_GROUPS,
     requireRole,
     validatePinForRoles,
@@ -42,7 +44,6 @@ const PUBLIC_SETTINGS = [
 const PRIVATE_SETTINGS = [
     'ADMIN_EMAIL',
     'SUPPORT_EMAIL',
-    'MAINTENANCE_MODE',
     'MAX_SHIFT_HOURS',
     'AUTO_CLOSE_ENABLED',
 ];
@@ -55,6 +56,17 @@ const CRITICAL_SETTINGS = [
     'SMTP_PASSWORD',
     'API_SECRET_KEY',
 ];
+const ENV_MANAGED_SETTINGS = ['MAINTENANCE_MODE'] as const;
+const OPERATIONAL_SECURITY_KEYS = {
+    idleTimeoutMinutes: 'SECURITY_IDLE_TIMEOUT_MINUTES',
+    maxLoginAttempts: 'SECURITY_MAX_LOGIN_ATTEMPTS',
+    lockoutDurationMinutes: 'SECURITY_LOCKOUT_DURATION_MINUTES',
+} as const;
+const DEFAULT_OPERATIONAL_SECURITY = {
+    idle_timeout_minutes: 5,
+    max_login_attempts: 5,
+    lockout_duration_minutes: 15,
+} as const;
 
 // Caché para lecturas
 const settingsCache = new Map<string, { value: string; expiresAt: number }>();
@@ -64,19 +76,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 // HELPERS
 // ============================================================================
 
-async function requireSettingsActor() {
-    try {
-        const actor = await getActorOrFail();
-        return { success: true as const, actor };
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return { success: false as const, error: 'No autenticado' };
-        }
-
-        throw error;
-    }
-}
-
 function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | null {
     if (PUBLIC_SETTINGS.includes(key)) return 'PUBLIC';
     if (PRIVATE_SETTINGS.includes(key)) return 'PRIVATE';
@@ -84,8 +83,21 @@ function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | nu
     return null;
 }
 
+function isEnvManagedSetting(key: string) {
+    return ENV_MANAGED_SETTINGS.includes(key as (typeof ENV_MANAGED_SETTINGS)[number]);
+}
+
+async function readOperationalNumberSetting(key: string, fallback: number) {
+    const res = await query(
+        'SELECT value FROM app_settings WHERE key = $1 LIMIT 1',
+        [key],
+    );
+    const parsed = Number(res.rows[0]?.value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function ensureSettingsRole(
-    actor: Awaited<ReturnType<typeof getActorOrFail>>,
+    actor: PinRbacActor,
     allowedRoles: readonly string[],
     errorMessage: string
 ) {
@@ -111,6 +123,10 @@ function ensureSettingsRole(
 export async function getPublicSettingSecure(
     key: string
 ): Promise<{ success: boolean; value?: string | null; error?: string }> {
+    if (isEnvManagedSetting(key)) {
+        return { success: false, error: 'Setting gestionado por entorno de despliegue' };
+    }
+
     if (!PUBLIC_SETTINGS.includes(key)) {
         return { success: false, error: 'Setting no disponible públicamente' };
     }
@@ -148,12 +164,16 @@ export async function getPublicSettingSecure(
 export async function getPrivateSettingSecure(
     key: string
 ): Promise<{ success: boolean; value?: string | null; error?: string }> {
+    if (isEnvManagedSetting(key)) {
+        return { success: false, error: 'Setting gestionado por entorno de despliegue' };
+    }
+
     const category = getSettingCategory(key);
     if (category === null) {
         return { success: false, error: 'Setting no reconocido' };
     }
 
-    const auth = await requireSettingsActor();
+    const auth = await resolveActorResult();
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -189,6 +209,63 @@ export async function getPrivateSettingSecure(
     }
 }
 
+export async function getOperationalSettingsSecure(): Promise<{
+    success: boolean;
+    data?: {
+        sii_enabled: boolean;
+        fiscal_mode: 'FISCAL' | 'INTERNAL';
+        sii_environment: 'CERTIFICACION' | 'PRODUCCION';
+        security: {
+            idle_timeout_minutes: number;
+            max_login_attempts: number;
+            lockout_duration_minutes: number;
+        };
+    };
+    error?: string;
+}> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    try {
+        const [siiSummary, idleTimeoutMinutes, maxLoginAttempts, lockoutDurationMinutes] = await Promise.all([
+            getSiiConfigurationSummary(),
+            readOperationalNumberSetting(
+                OPERATIONAL_SECURITY_KEYS.idleTimeoutMinutes,
+                DEFAULT_OPERATIONAL_SECURITY.idle_timeout_minutes,
+            ),
+            readOperationalNumberSetting(
+                OPERATIONAL_SECURITY_KEYS.maxLoginAttempts,
+                DEFAULT_OPERATIONAL_SECURITY.max_login_attempts,
+            ),
+            readOperationalNumberSetting(
+                OPERATIONAL_SECURITY_KEYS.lockoutDurationMinutes,
+                DEFAULT_OPERATIONAL_SECURITY.lockout_duration_minutes,
+            ),
+        ]);
+
+        const siiEnabled = Boolean(siiSummary.hasCertificate);
+
+        return {
+            success: true,
+            data: {
+                sii_enabled: siiEnabled,
+                fiscal_mode: siiEnabled ? 'FISCAL' : 'INTERNAL',
+                sii_environment: siiSummary.ambiente,
+                security: {
+                    idle_timeout_minutes: idleTimeoutMinutes,
+                    max_login_attempts: maxLoginAttempts,
+                    lockout_duration_minutes: lockoutDurationMinutes,
+                },
+            },
+        };
+    } catch (error: any) {
+        logger.error({ error }, '[Settings] Get operational settings error');
+        return { success: false, error: 'Error obteniendo configuración operativa' };
+    }
+}
+
 // ============================================================================
 // UPDATE SETTING
 // ============================================================================
@@ -201,12 +278,16 @@ export async function updateSettingSecure(
     value: string,
     adminPin?: string
 ): Promise<{ success: boolean; error?: string }> {
+    if (isEnvManagedSetting(key)) {
+        return { success: false, error: 'Setting gestionado por entorno de despliegue' };
+    }
+
     const category = getSettingCategory(key);
     if (category === null) {
         return { success: false, error: 'Setting no reconocido' };
     }
 
-    const auth = await requireSettingsActor();
+    const auth = await resolveActorResult();
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -299,7 +380,7 @@ export async function getAllSettingsSecure(): Promise<{
     data?: { key: string; value: string; category: string; updated_at: Date }[];
     error?: string;
 }> {
-    const auth = await requireSettingsActor();
+    const auth = await resolveActorResult();
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -317,7 +398,7 @@ export async function getAllSettingsSecure(): Promise<{
         const data = res.rows.map((row: any) => ({
             key: row.key,
             value: row.value,
-            category: getSettingCategory(row.key) || 'UNKNOWN',
+            category: isEnvManagedSetting(row.key) ? 'ENV' : (getSettingCategory(row.key) || 'UNKNOWN'),
             updated_at: row.updated_at,
         }));
 
@@ -339,7 +420,7 @@ export async function getAllSettingsSecure(): Promise<{
 export async function getSettingHistorySecure(
     key: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    const auth = await requireSettingsActor();
+    const auth = await resolveActorResult();
     if (!auth.success) {
         return { success: false, error: auth.error };
     }

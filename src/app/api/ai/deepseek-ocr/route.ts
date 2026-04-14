@@ -154,13 +154,26 @@ function unauthorizedResponse() {
     );
 }
 
+function notConfiguredResponse() {
+    return NextResponse.json(
+        {
+            success: false,
+            error: 'OCR interno no configurado',
+            code: 'DEEPSEEK_OCR_NOT_CONFIGURED',
+        },
+        { status: 503 }
+    );
+}
+
 export async function POST(request: NextRequest) {
     const expectedInternalToken = getInternalDeepSeekTokenHeader();
-    if (expectedInternalToken) {
-        const providedToken = request.headers.get('x-internal-ocr-token');
-        if (providedToken !== expectedInternalToken) {
-            return unauthorizedResponse();
-        }
+    if (!expectedInternalToken) {
+        return notConfiguredResponse();
+    }
+
+    const providedToken = request.headers.get('x-internal-ocr-token');
+    if (providedToken !== expectedInternalToken) {
+        return unauthorizedResponse();
     }
 
     const bodyResult = await request.json().catch(() => null);

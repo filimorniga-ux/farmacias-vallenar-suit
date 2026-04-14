@@ -31,6 +31,13 @@ import {
     isInternalDeepSeekRoute,
     resolveDeepSeekOcrEndpoint,
 } from '@/lib/ai/deepseek-endpoint';
+import {
+    PROCUREMENT_READ_ROLES,
+    PROCUREMENT_WRITE_ROLES,
+    requireProcurementActor,
+    resolveEffectiveProcurementLocation,
+    type ProcurementActor,
+} from './procurement-scope';
 
 // ============================================================================
 // TIPOS
@@ -110,6 +117,11 @@ export interface ProductMatch {
     productName: string;
     sku: string;
     currentStock?: number;
+}
+
+interface SmartInvoiceLocationLookup {
+    id: string;
+    name: string;
 }
 
 // ============================================================================
@@ -279,6 +291,20 @@ async function getSession(): Promise<{ userId: string; role: string; locationId?
         locationId: session.locationId,
         userName: session.userName,
     };
+}
+
+async function requireInvoiceParserActor(
+    allowedRoles: readonly string[],
+    action: string,
+): Promise<{ success: true; actor: ProcurementActor } | { success: false; error: string }> {
+    return requireProcurementActor(allowedRoles, action);
+}
+
+function resolveInvoiceParserLocation(
+    actor: ProcurementActor,
+    requestedLocationId?: string | null,
+): { success: true; locationId?: string } | { success: false; error: string } {
+    return resolveEffectiveProcurementLocation(actor, requestedLocationId);
 }
 
 /**
@@ -547,7 +573,7 @@ async function callDeepSeekOCR(
     const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
     const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
     if (!endpoint) {
-        throw new Error('DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o NEXT_PUBLIC_APP_URL');
+        throw new Error('DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o APP_URL');
     }
 
     const internalToken = getInternalDeepSeekTokenHeader();
@@ -826,6 +852,57 @@ async function matchInvoiceItems(items: ParsedInvoiceItem[], supplierId?: string
 // ============================================================================
 
 /**
+ * 📍 Ubicaciones disponibles para Smart Invoice
+ * Scopeadas por actor y con payload mínimo.
+ */
+export async function getSmartInvoiceLocationsSecure(): Promise<{
+    success: boolean;
+    data?: SmartInvoiceLocationLookup[];
+    error?: string;
+}> {
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'getSmartInvoiceLocationsSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const effectiveLocation = resolveInvoiceParserLocation(actorResult.actor);
+    if (!effectiveLocation.success) {
+        return { success: false, error: effectiveLocation.error };
+    }
+
+    try {
+        const params: string[] = [];
+        let whereClause = 'WHERE is_active = true';
+
+        if (effectiveLocation.locationId) {
+            params.push(effectiveLocation.locationId);
+            whereClause += ` AND id::text = $${params.length}::text`;
+        }
+
+        const result = await query(
+            `
+                SELECT id::text AS id, name
+                FROM locations
+                ${whereClause}
+                ORDER BY name ASC
+            `,
+            params,
+        );
+
+        return {
+            success: true,
+            data: result.rows.map((row) => ({
+                id: String(row.id || ''),
+                name: String(row.name || ''),
+            })),
+        };
+    } catch (error: any) {
+        logger.error({ error }, '[Invoice Parser] Error getting scoped locations');
+        return { success: false, error: 'Error obteniendo ubicaciones' };
+    }
+}
+
+/**
  * 📄 Parsear documento de factura con IA
  */
 
@@ -846,13 +923,22 @@ export async function parseInvoiceDocumentSecure(
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    // Verificar sesión
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_WRITE_ROLES, 'parseInvoiceDocumentSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
-    const { fileBase64, fileType, fileName, locationId, allowDuplicate } = validated.data;
+    const actor = actorResult.actor;
+    const { fileBase64, fileType, fileName, allowDuplicate } = validated.data;
+    const effectiveLocation = resolveInvoiceParserLocation(actor, validated.data.locationId);
+    if (!effectiveLocation.success || !effectiveLocation.locationId) {
+        return {
+            success: false,
+            error: effectiveLocation.success ? 'No se pudo resolver la ubicación' : effectiveLocation.error,
+        };
+    }
+
+    const locationId = effectiveLocation.locationId;
 
     // Validar tamaño (base64 es ~33% más grande que el archivo original)
     const estimatedSize = (fileBase64.length * 3) / 4;
@@ -882,7 +968,7 @@ export async function parseInvoiceDocumentSecure(
         const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
         const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
         if (!endpoint) {
-            return { success: false, error: 'DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o NEXT_PUBLIC_APP_URL' };
+            return { success: false, error: 'DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o APP_URL' };
         }
     }
 
@@ -914,7 +1000,7 @@ export async function parseInvoiceDocumentSecure(
         await query(`
             INSERT INTO audit_log (user_id, location_id, action_code, entity_type, entity_id)
             VALUES ($1, $2, 'INVOICE_PARSE_STARTED', 'INVOICE_PARSING', $3)
-        `, [session.userId, locationId, parsingId]);
+        `, [actor.userId, locationId, parsingId]);
 
         // Llamar a la IA
         const aiResult = await callAIWithRetry(
@@ -927,7 +1013,7 @@ export async function parseInvoiceDocumentSecure(
             },
             fileBase64,
             fileType,
-            session.userId,
+            actor.userId,
             locationId,
             parsingId
         );
@@ -1015,7 +1101,7 @@ export async function parseInvoiceDocumentSecure(
                         parsedData.supplier.website,
                         parsedData.supplier.address,
                         null, null, // region/commune pending
-                        session.userId
+                        actor.userId
                     ]);
 
                     supplierId = newSupplierId;
@@ -1099,7 +1185,7 @@ export async function parseInvoiceDocumentSecure(
             fileHash,
             Buffer.from(fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64, 'base64').toString('base64'), // original_file_data as base64 string
             locationId,
-            session.userId,
+            actor.userId,
         ]);
 
         // Auditar completado
@@ -1107,7 +1193,7 @@ export async function parseInvoiceDocumentSecure(
             INSERT INTO audit_log (user_id, location_id, action_code, entity_type, entity_id, new_values)
             VALUES ($1, $2, 'INVOICE_PARSE_COMPLETED', 'INVOICE_PARSING', $3, $4::jsonb)
         `, [
-            session.userId,
+            actor.userId,
             locationId,
             parsingId,
             JSON.stringify({
@@ -1158,14 +1244,14 @@ export async function parseInvoiceDocumentSecure(
             fileType,
             await calculateHash(fileBase64),
             locationId,
-            session.userId,
+            actor.userId,
         ]);
 
         // Auditar error
         await query(`
             INSERT INTO audit_log (user_id, location_id, action_code, entity_type, entity_id, new_values)
             VALUES ($1, $2, 'INVOICE_PARSE_FAILED', 'INVOICE_PARSING', $3, $4::jsonb)
-        `, [session.userId, locationId, parsingId, JSON.stringify({ error: error.message })]);
+        `, [actor.userId, locationId, parsingId, JSON.stringify({ error: error.message })]);
 
         return {
             success: false,
@@ -1195,10 +1281,12 @@ export async function approveInvoiceParsingSecure(
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_WRITE_ROLES, 'approveInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
+
+    const actor = actorResult.actor;
 
     const { parsingId, mappings: manualMappings, itemsData, skipUnmapped, createAccountPayable, supplierData: enrichedSupplierData } = validated.data;
 
@@ -1223,6 +1311,25 @@ export async function approveInvoiceParsingSecure(
         if (!['PENDING', 'VALIDATED', 'MAPPING', 'ERROR', 'PARTIAL'].includes(parsing.status)) {
             await client.query('ROLLBACK');
             return { success: false, error: `No se puede aprobar un parsing con estado ${parsing.status}` };
+        }
+
+        const parsingLocationId = String(parsing.location_id || '') || undefined;
+        const parsingScope = resolveInvoiceParserLocation(actor, parsingLocationId);
+        if (!parsingScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: parsingScope.error };
+        }
+
+        const destinationScope = resolveInvoiceParserLocation(
+            actor,
+            validated.data.destinationLocationId || parsingLocationId,
+        );
+        if (!destinationScope.success || !destinationScope.locationId) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: destinationScope.success ? 'No se pudo resolver la ubicación destino' : destinationScope.error,
+            };
         }
 
         // Actualizar estado a PROCESSING
@@ -1459,14 +1566,13 @@ export async function approveInvoiceParsingSecure(
                 parsing.total_amount,
                 parsingId,
                 parsing.location_id,
-                session.userId,
+                actor.userId,
             ]);
         }
 
         // 4. Crear Stock (Inventory Batches)
         let stockCreatedCount = 0;
-        // Usar la ubicación destino seleccionada o la del usuario/parsing por defecto
-        const targetLocationId = validated.data.destinationLocationId || parsing.location_id;
+        const targetLocationId = destinationScope.locationId;
 
         for (const item of items) {
             if (item.mapping_status === 'MAPPED' && item.mapped_product_id) {
@@ -1509,7 +1615,7 @@ export async function approveInvoiceParsingSecure(
                     product?.name || item.mapped_product_name || 'Desconocido',
                     targetLocationId,
                     item.quantity,
-                    session.userId,
+                    actor.userId,
                     batchId,
                     parsingId
                 ]);
@@ -1542,7 +1648,7 @@ export async function approveInvoiceParsingSecure(
             JSON.stringify(items),
             mappedCount,
             unmappedCount,
-            session.userId,
+            actor.userId,
             parsingId
         ]);
 
@@ -1573,8 +1679,8 @@ export async function approveInvoiceParsingSecure(
                     parsing.original_file_type === 'pdf' ? 'application/pdf' : 'image/jpeg',
                     parsing.original_file_size || 0,
                     parsing.original_file_data || null,
-                    session.userId,
-                    session.userName || null
+                    actor.userId,
+                    actor.userName || null
                 ]);
                 logger.info({ parsingId, supplierId }, '📎 Invoice copied to supplier_account_documents');
             } catch (copyError: any) {
@@ -1622,12 +1728,36 @@ export async function rejectInvoiceParsingSecure(
         return { success: false, error: 'Motivo de rechazo requerido (mínimo 5 caracteres)' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_WRITE_ROLES, 'rejectInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
+    const actor = actorResult.actor;
+
     try {
+        const parsingRes = await query(
+            `
+                SELECT location_id::text AS location_id
+                FROM invoice_parsings
+                WHERE id = $1
+                LIMIT 1
+            `,
+            [parsingId],
+        );
+
+        if (parsingRes.rows.length === 0) {
+            return { success: false, error: 'Parsing no encontrado o no se puede rechazar' };
+        }
+
+        const parsingScope = resolveInvoiceParserLocation(
+            actor,
+            String(parsingRes.rows[0]?.location_id || '') || undefined,
+        );
+        if (!parsingScope.success) {
+            return { success: false, error: parsingScope.error };
+        }
+
         const res = await query(`
             UPDATE invoice_parsings SET
                 status = 'REJECTED',
@@ -1636,7 +1766,7 @@ export async function rejectInvoiceParsingSecure(
             rejected_at = NOW()
             WHERE id = $3 AND status IN('PENDING', 'VALIDATED', 'MAPPING')
             RETURNING id
-            `, [reason, session.userId, parsingId]);
+            `, [reason, actor.userId, parsingId]);
 
         if (res.rowCount === 0) {
             return { success: false, error: 'Parsing no encontrado o no se puede rechazar' };
@@ -1646,7 +1776,7 @@ export async function rejectInvoiceParsingSecure(
         await query(`
             INSERT INTO audit_log(user_id, action_code, entity_type, entity_id, new_values)
             VALUES($1, 'INVOICE_REJECTED', 'INVOICE_PARSING', $2, $3:: jsonb)
-                `, [session.userId, parsingId, JSON.stringify({ reason })]);
+                `, [actor.userId, parsingId, JSON.stringify({ reason })]);
 
         logger.info({ parsingId, reason }, '❌ Invoice parsing rejected');
 
@@ -1689,18 +1819,27 @@ export async function getPendingParsingsSecure(options: {
     const safePage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
     const safePageSize = Number.isFinite(pageSize) ? Math.min(100, Math.max(1, Math.floor(pageSize))) : 20;
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'getPendingParsingsSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    if (locationId && !UUIDSchema.safeParse(locationId).success) {
+        return { success: false, error: 'ID de ubicación inválido' };
+    }
+
+    const effectiveLocation = resolveInvoiceParserLocation(actorResult.actor, locationId);
+    if (!effectiveLocation.success) {
+        return { success: false, error: effectiveLocation.error };
     }
 
     try {
         const params: any[] = [];
         let whereClause = 'WHERE 1=1';
 
-        if (locationId) {
-            params.push(locationId);
-            whereClause += ` AND ip.location_id = $${params.length}`;
+        if (effectiveLocation.locationId) {
+            params.push(effectiveLocation.locationId);
+            whereClause += ` AND ip.location_id::text = $${params.length}::text`;
         }
 
         if (status && status !== 'ALL') {
@@ -1829,8 +1968,20 @@ export async function searchProductsForMappingSecure(
         return { success: false, error: 'Término de búsqueda muy corto' };
     }
 
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'searchProductsForMappingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const effectiveLocation = resolveInvoiceParserLocation(actorResult.actor);
+    if (!effectiveLocation.success) {
+        return { success: false, error: effectiveLocation.error };
+    }
+
     try {
         const sanitized = searchTerm.replace(/[%_]/g, '');
+        const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
+        const scopedLocationId = effectiveLocation.locationId || null;
 
         const res = await query(`
         SELECT
@@ -1838,7 +1989,12 @@ export async function searchProductsForMappingSecure(
             p.name as product_name,
             p.sku,
             COALESCE(
-                (SELECT SUM(quantity_real) FROM inventory_batches WHERE product_id = p.id),
+                (
+                    SELECT SUM(quantity_real)
+                    FROM inventory_batches
+                    WHERE product_id = p.id
+                      AND ($4::text IS NULL OR location_id::text = $4::text)
+                ),
             0
                 ) as current_stock
             FROM products p
@@ -1850,7 +2006,7 @@ export async function searchProductsForMappingSecure(
                 CASE WHEN p.sku ILIKE $2 THEN 0 ELSE 1 END,
             p.name
             LIMIT $3
-            `, [`%${sanitized}%`, `${sanitized}%`, limit]);
+            `, [`%${sanitized}%`, `${sanitized}%`, safeLimit, scopedLocationId]);
 
         return {
             success: true,
@@ -1879,9 +2035,9 @@ export async function getInvoiceParsingSecure(
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'getInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
@@ -1905,6 +2061,13 @@ export async function getInvoiceParsingSecure(
         }
 
         const data = res.rows[0];
+        const scope = resolveInvoiceParserLocation(
+            actorResult.actor,
+            String(data.location_id || '') || undefined,
+        );
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
 
         // Convertir imagen a base64 si existe
         if (data.original_file_data) {
@@ -1931,25 +2094,32 @@ export async function deleteInvoiceParsingSecure(
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    // Solo ADMIN, QF o GERENTE_GENERAL pueden eliminar
-    const role = session.role;
-    if (!MANAGER_ROLES.includes(role)) {
-        return { success: false, error: 'No tiene permisos para eliminar' };
+    const actorResult = await requireInvoiceParserActor(MANAGER_ROLES, 'deleteInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
         // Verificar estado antes de eliminar
-        const checkRes = await query(`SELECT status FROM invoice_parsings WHERE id = $1`, [parsingId]);
+        const checkRes = await query(
+            `
+                SELECT status, location_id::text AS location_id
+                FROM invoice_parsings
+                WHERE id = $1
+            `,
+            [parsingId],
+        );
         if (checkRes.rows.length === 0) {
             return { success: false, error: 'Registro no encontrado' };
         }
 
-        const status = checkRes.rows[0].status;
+        const scope = resolveInvoiceParserLocation(
+            actorResult.actor,
+            String(checkRes.rows[0]?.location_id || '') || undefined,
+        );
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
 
         // Si ya está completada, no debería eliminarse por seguridad de trazabilidad de stock/pagos
         // a menos que sea un ADMIN. Pero para simplificar el flujo duplicado, permitiremos eliminar
@@ -1958,7 +2128,7 @@ export async function deleteInvoiceParsingSecure(
 
         await query(`DELETE FROM invoice_parsings WHERE id = $1`, [parsingId]);
 
-        logger.info({ parsingId, deletedBy: session.userId }, '[Invoice Parser] Parsing deleted');
+        logger.info({ parsingId, deletedBy: actorResult.actor.userId }, '[Invoice Parser] Parsing deleted');
 
         revalidateInvoiceProcurementPaths();
         return { success: true };

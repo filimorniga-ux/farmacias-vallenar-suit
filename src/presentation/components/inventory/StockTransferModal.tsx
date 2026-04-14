@@ -7,6 +7,7 @@ import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 
 import { useQueryClient } from '@tanstack/react-query';
+import { inventoryQueryKeys } from '@/presentation/lib/inventory-query-keys';
 
 interface StockTransferModalProps {
     isOpen: boolean;
@@ -91,7 +92,7 @@ const StockTransferModal: React.FC<StockTransferModalProps> = ({ isOpen, onClose
         try {
             await transferStock(selectedBatchId, selectedTargetWarehouse, qtyNum);
             // toast.success('Transferencia realizada'); // Handled by Store
-            await queryClient.invalidateQueries({ queryKey: ['inventory', currentLocationId] });
+            await queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.root });
             onClose();
             // Reset form
             setSelectedProductSku('');

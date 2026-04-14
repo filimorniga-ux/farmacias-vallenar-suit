@@ -1,9 +1,82 @@
 import { NextResponse } from 'next/server';
+import type { PoolClient } from 'pg';
+
 import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
 import { pool } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 const VALID_ACTIONS = new Set(['TRUNCATE', 'UNDO_IMPORT', 'ANALYZE_DUPLICATES']);
+
+async function resetProductsStockSummary(
+    client: PoolClient,
+    productIds?: string[],
+) {
+    if (productIds && productIds.length > 0) {
+        await client.query(
+            `
+                UPDATE products p
+                SET stock_total = COALESCE(t.total_stock, 0),
+                    stock_actual = COALESCE(t.total_stock, 0),
+                    updated_at = NOW()
+                FROM (
+                    SELECT product_id::text AS product_id, COALESCE(SUM(quantity_real), 0) AS total_stock
+                    FROM inventory_batches
+                    WHERE product_id::text = ANY($1::text[])
+                    GROUP BY product_id::text
+                ) t
+                WHERE p.id::text = t.product_id
+            `,
+            [productIds],
+        );
+
+        await client.query(
+            `
+                UPDATE products
+                SET stock_total = 0,
+                    stock_actual = 0,
+                    updated_at = NOW()
+                WHERE id::text = ANY($1::text[])
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM inventory_batches ib
+                      WHERE ib.product_id::text = products.id::text
+                  )
+            `,
+            [productIds],
+        );
+
+        return;
+    }
+
+    await client.query(
+        `
+            UPDATE products p
+            SET stock_total = COALESCE(t.total_stock, 0),
+                stock_actual = COALESCE(t.total_stock, 0),
+                updated_at = NOW()
+            FROM (
+                SELECT product_id::text AS product_id, COALESCE(SUM(quantity_real), 0) AS total_stock
+                FROM inventory_batches
+                GROUP BY product_id::text
+            ) t
+            WHERE p.id::text = t.product_id
+        `,
+    );
+
+    await client.query(
+        `
+            UPDATE products
+            SET stock_total = 0,
+                stock_actual = 0,
+                updated_at = NOW()
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM inventory_batches ib
+                WHERE ib.product_id::text = products.id::text
+            )
+        `,
+    );
+}
 
 export async function POST(request: Request) {
     const auth = await requireApiRoles(OPERATIONS_API_ROLES);
@@ -27,7 +100,6 @@ export async function POST(request: Request) {
             '[MaintenanceRoute] Executing maintenance action'
         );
 
-        // 1. TRUNCATE (Empty Inventory)
         if (action === 'TRUNCATE') {
             if (confirmation !== 'BORRAR') {
                 return NextResponse.json({ error: 'Invalid confirmation code' }, { status: 403 });
@@ -35,67 +107,72 @@ export async function POST(request: Request) {
 
             await client.query('BEGIN');
             transactionStarted = true;
-            // Truncate products and cascade to related tables (like lotes if FK exists)
-            // Also resetting sequence if needed, but TRUNCATE handles data.
-            await client.query('TRUNCATE TABLE products CASCADE');
+
+            await client.query('DELETE FROM inventory_batches');
+            await resetProductsStockSummary(client);
+
             await client.query('COMMIT');
             transactionStarted = false;
 
             logger.warn(
                 { actorUserId: auth.session.userId, actorRole: auth.session.role },
-                '[MaintenanceRoute] Inventory truncated'
+                '[MaintenanceRoute] Canonical inventory truncate completed'
             );
             return NextResponse.json({ success: true, message: 'Inventario vaciado correctamente.' });
         }
 
-        // 2. UNDO IMPORT (Delete recent items)
         if (action === 'UNDO_IMPORT') {
             await client.query('BEGIN');
             transactionStarted = true;
-            // Delete products created in the last 10 minutes
-            // Assuming 'created_at' exists. If not, we might need another heuristic or just rely on IDs if sequential.
-            // Let's check if created_at exists first or use a safe fallback? 
-            // The user prompt implies created_at usage.
 
-            const res = await client.query(`
-                DELETE FROM products 
-                WHERE created_at > NOW() - INTERVAL '10 minutes'
-                RETURNING id
-            `);
+            const deletedRes = await client.query(
+                `
+                    WITH deleted_batches AS (
+                        DELETE FROM inventory_batches
+                        WHERE created_at > NOW() - INTERVAL '10 minutes'
+                        RETURNING product_id::text AS product_id
+                    )
+                    SELECT
+                        COUNT(*)::int AS deleted_count,
+                        ARRAY_REMOVE(array_agg(DISTINCT product_id), NULL) AS product_ids
+                    FROM deleted_batches
+                `,
+            );
+
+            const deletedCount = Number(deletedRes.rows[0]?.deleted_count || 0);
+            const productIds = Array.isArray(deletedRes.rows[0]?.product_ids)
+                ? deletedRes.rows[0].product_ids.map((id: unknown) => String(id))
+                : [];
+
+            await resetProductsStockSummary(client, productIds);
 
             await client.query('COMMIT');
             transactionStarted = false;
 
             logger.warn(
-                { actorUserId: auth.session.userId, actorRole: auth.session.role, deletedCount: res.rowCount ?? 0 },
-                '[MaintenanceRoute] Undo import completed'
+                { actorUserId: auth.session.userId, actorRole: auth.session.role, deletedCount },
+                '[MaintenanceRoute] Canonical undo import completed'
             );
             return NextResponse.json({
                 success: true,
-                message: `Se eliminaron ${res.rowCount} productos creados en los últimos 10 minutos.`
+                message: `Se revirtieron ${deletedCount} lotes creados en los últimos 10 minutos.`,
             });
         }
 
-        // 3. ANALYZE DUPLICATES
-        if (action === 'ANALYZE_DUPLICATES') {
-            // Find products with same name (case insensitive) or same SKU
-            // Group by name/sku and count > 1
-            const res = await client.query(`
-                SELECT name, COUNT(*) as count, array_agg(id) as ids
+        const res = await client.query(
+            `
+                SELECT sku, COUNT(*) as count, array_agg(id) as ids
                 FROM products
-                GROUP BY name
+                GROUP BY sku
                 HAVING COUNT(*) > 1
                 LIMIT 50
-            `);
+            `,
+        );
 
-            return NextResponse.json({
-                success: true,
-                duplicates: res.rows
-            });
-        }
-
-        return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
-
+        return NextResponse.json({
+            success: true,
+            duplicates: res.rows,
+        });
     } catch (error) {
         if (transactionStarted) {
             await client.query('ROLLBACK');
@@ -106,7 +183,7 @@ export async function POST(request: Request) {
         );
         return NextResponse.json(
             { error: 'Maintenance action failed', code: 'MAINTENANCE_ACTION_FAILED' },
-            { status: 500 }
+            { status: 500 },
         );
     } finally {
         client.release();

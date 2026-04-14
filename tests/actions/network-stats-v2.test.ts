@@ -5,6 +5,7 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import * as networkStatsV2 from '@/actions/network-stats-v2';
 import { getValidatedSession } from '@/lib/server-session';
+import { query } from '@/lib/db';
 
 vi.mock('@/lib/db', () => ({ query: vi.fn() }));
 vi.mock('@/lib/server-session', () => ({
@@ -58,5 +59,28 @@ describe('Network Stats V2 - Validation', () => {
         const result = await networkStatsV2.getLocationHealthSecure('invalid');
         expect(result.success).toBe(false);
         expect(result.error).toContain('inválido');
+    });
+
+    it('usa quantity_real y cash_register_sessions en las métricas canónicas', async () => {
+        vi.mocked(query)
+            .mockResolvedValueOnce({ rows: [{ count: '2' }], rowCount: 1 } as any)
+            .mockResolvedValueOnce({ rows: [{ count: '1' }], rowCount: 1 } as any)
+            .mockResolvedValueOnce({ rows: [{ count: '3' }], rowCount: 1 } as any);
+
+        const result = await networkStatsV2.getLocationHealthSecure('550e8400-e29b-41d4-a716-446655440000');
+
+        expect(result.success).toBe(true);
+        expect(String(vi.mocked(query).mock.calls[0]?.[0])).toContain('quantity_real < stock_min');
+        expect(String(vi.mocked(query).mock.calls[1]?.[0])).toContain('FROM cash_register_sessions');
+        expect(String(vi.mocked(query).mock.calls[1]?.[0])).not.toContain('FROM shifts');
+    });
+
+    it('mantiene el contrato de stock alerts usando quantity_real como stock_actual', async () => {
+        vi.mocked(query).mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
+
+        await networkStatsV2.getStockAlertsSecure('550e8400-e29b-41d4-a716-446655440000');
+
+        expect(String(vi.mocked(query).mock.calls[0]?.[0])).toContain('ib.quantity_real as stock_actual');
+        expect(String(vi.mocked(query).mock.calls[0]?.[0])).not.toContain('ib.stock_actual');
     });
 });

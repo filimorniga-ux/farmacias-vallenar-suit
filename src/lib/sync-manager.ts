@@ -1,4 +1,5 @@
 import { useOutboxStore, OutboxItem } from './store/outboxStore';
+import { getActivePersistenceScope, hasMatchingOwnership } from './store/persistenceScope';
 
 // Dynamic imports for actions to avoid server-side issues in client context if needed, 
 // though these are standard imports for Next.js actions.
@@ -36,9 +37,15 @@ export const processOutboxQueue = async () => {
     try {
         console.log(`📡 [SyncManager] Processing ${itemsToSync.length} outbox items...`);
         setSyncing(true);
+        const activeScope = getActivePersistenceScope();
 
         for (const item of itemsToSync) {
             try {
+                if (!hasMatchingOwnership(item, activeScope)) {
+                    updateOutboxItemStatus(item.id, 'CONFLICT', 'La operación offline pertenece a otra sesión o ubicación.');
+                    continue;
+                }
+
                 let result: { success: boolean; error?: string } = { success: false, error: 'Unknown action' };
 
                 // Router

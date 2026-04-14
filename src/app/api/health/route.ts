@@ -1,7 +1,30 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
-export async function GET() {
+function isAuthorized(request: NextRequest) {
+    const expectedToken = process.env.HEALTHCHECK_TOKEN;
+
+    if (!expectedToken) {
+        return process.env.NODE_ENV !== 'production';
+    }
+
+    const tokenFromHeader = request.headers.get('x-health-token');
+    const tokenFromQuery = request.nextUrl.searchParams.get('token');
+    return tokenFromHeader === expectedToken || tokenFromQuery === expectedToken;
+}
+
+export async function GET(request: NextRequest) {
+    if (!isAuthorized(request)) {
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'Unauthorized',
+                code: 'HEALTH_UNAUTHORIZED',
+            },
+            { status: 401 }
+        );
+    }
+
     try {
         // Medir latencia de DB
         const start = Date.now();

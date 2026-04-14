@@ -1,7 +1,6 @@
-import { getScheduleData, getStaff, getWeeklyHoursSummary } from '@/actions/scheduler-v2';
+import { getScheduleData, getSchedulerPageContext, getStaff, getWeeklyHoursSummary } from '@/actions/scheduler-v2';
 import { SchedulerContainer } from '@/presentation/components/scheduler/SchedulerContainer';
 import { startOfWeek, parseISO, format } from 'date-fns';
-import { pool } from '@/lib/db';
 
 export default async function SchedulerPage({
     searchParams,
@@ -20,16 +19,11 @@ export default async function SchedulerPage({
     queryEnd.setDate(queryEnd.getDate() + 42);
     const queryEndStr = format(queryEnd, 'yyyy-MM-dd');
 
-    // Determine Location ID
-    let locationId = params.location;
-    if (!locationId) {
-        const locationRes = await pool.query("SELECT id FROM locations WHERE is_active = true LIMIT 1");
-        locationId = locationRes.rows[0]?.id;
+    const schedulerScope = await getSchedulerPageContext(params.location);
+    if (!schedulerScope.success || !schedulerScope.locationId) {
+        return <div className="p-10 text-center">{schedulerScope.error || 'No fue posible cargar el scheduler.'}</div>;
     }
-
-    if (!locationId) {
-        return <div className="p-10 text-center">No hay sucursales activas configuradas.</div>;
-    }
+    const locationId = schedulerScope.locationId;
 
     const weekStartStr = format(weekStart, 'yyyy-MM-dd');
 

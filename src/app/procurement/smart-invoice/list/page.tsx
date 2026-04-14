@@ -20,9 +20,9 @@ import {
     rejectInvoiceParsingSecure,
     getInvoiceParsingSecure,
     deleteInvoiceParsingSecure,
+    getSmartInvoiceLocationsSecure,
     type InvoiceParsing
 } from '@/actions/invoice-parser-v2';
-import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { Store } from 'lucide-react';
 import ProductFormModal from '@/presentation/components/inventory/ProductFormModal';
@@ -113,17 +113,19 @@ export default function InvoiceListPage() {
     const [parsingToApprove, setParsingToApprove] = useState<InvoiceParsing | null>(null);
     const [targetLocationId, setTargetLocationId] = useState<string>('');
     const [isApproving, setIsApproving] = useState(false);
+    const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
 
     // Edit Product State
     const [editingProduct, setEditingProduct] = useState<any>(null);
     const [isLoadingProduct, setIsLoadingProduct] = useState(false);
 
-    // Store
-    const { locations, fetchLocations } = useLocationStore();
-
     useEffect(() => {
-        fetchLocations();
-    }, [fetchLocations]);
+        getSmartInvoiceLocationsSecure().then((result) => {
+            if (result.success && result.data) {
+                setLocations(result.data);
+            }
+        });
+    }, []);
 
     // ========================================================================
     // CARGAR DATOS (Servidor)

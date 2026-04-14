@@ -31,7 +31,7 @@ export const brand = {
     logoIcon: process.env.NEXT_PUBLIC_BRAND_LOGO_ICON ?? '/logo-horizontal.png',
 
     /** Email de soporte técnico */
-    supportEmail: process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? 'soporte@farmaciasvallenar.cl',
+    supportEmail: process.env.NEXT_PUBLIC_BRAND_SUPPORT_EMAIL ?? process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? 'soporte@farmaciasvallenar.cl',
 
     /** Nombre corto para tickets y documentos */
     companyShortName: process.env.NEXT_PUBLIC_BRAND_SHORT_NAME ?? 'Farmacia Vallenar',

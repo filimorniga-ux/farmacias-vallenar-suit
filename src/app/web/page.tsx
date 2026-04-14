@@ -3,8 +3,15 @@
 import { useState } from 'react';
 import { Search, MapPin, Clock, Phone, Facebook, Instagram, LogIn, Pill, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import { searchPublicProducts, PublicProduct } from '@/actions/public-search';
+import { searchPublicProductsSecure } from '@/actions/public-search-v2';
 import { cn } from '@/lib/utils';
+
+type PublicProduct = {
+    id: string;
+    name: string;
+    dci: string | null;
+    status: 'Disponible' | 'Agotado';
+};
 
 export default function WebPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -19,8 +26,8 @@ export default function WebPage() {
         setIsSearching(true);
         setHasSearched(true);
         try {
-            const products = await searchPublicProducts(searchTerm);
-            setResults(products);
+            const response = await searchPublicProductsSecure(searchTerm);
+            setResults(response.success && response.data ? response.data : []);
         } catch (error) {
             console.error('Search failed', error);
             setResults([]);

@@ -3,18 +3,9 @@ import * as dashboardV2 from '@/actions/dashboard-v2';
 import * as dbModule from '@/lib/db';
 import { getValidatedSession } from '@/lib/server-session';
 
-const { mockHeaders } = vi.hoisted(() => ({
-    mockHeaders: {
-        get: vi.fn()
-    }
-}));
-
 vi.mock('@/lib/db', () => ({ query: vi.fn(), pool: { connect: vi.fn() } }));
 vi.mock('@/lib/server-session', () => ({
     getValidatedSession: vi.fn(),
-}));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => mockHeaders)
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
@@ -27,10 +18,6 @@ beforeEach(() => {
         userName: 'Admin',
         tokenVersion: 1,
         sessionToken: 'token',
-    });
-    mockHeaders.get.mockImplementation((key) => {
-        if (key === 'x-terminal-id') return 'term-1';
-        return null;
     });
 });
 
@@ -57,7 +44,13 @@ describe('Dashboard V2 - RBAC', () => {
             tokenVersion: 1,
             sessionToken: 'token',
         });
-        mockHeaders.get.mockImplementation((key) => (key === 'x-terminal-id' ? null : null));
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 0,
+            command: '',
+            oid: 0,
+            fields: [],
+        });
 
         const result = await dashboardV2.getFinancialMetricsSecure({
             dateRange: { from: new Date('2024-04-01T00:00:00Z'), to: new Date('2024-04-02T00:00:00Z') }
@@ -65,6 +58,47 @@ describe('Dashboard V2 - RBAC', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('terminal');
+    });
+
+    it('ignora el terminal solicitado por cliente y usa la sesión activa del cajero', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: '550e8400-e29b-41d4-a716-446655440000',
+            role: 'CAJERO',
+            locationId: '550e8400-e29b-41d4-a716-446655440001',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{ terminal_id: '550e8400-e29b-41d4-a716-446655440010', location_id: '550e8400-e29b-41d4-a716-446655440001' }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: [],
+            })
+            .mockResolvedValue({
+                rows: [{ total_sales: 1000, total: 1000, count: 5, cash: 500, debit: 300, credit: 200, transfer: 0 }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: [],
+            });
+
+        const result = await dashboardV2.getFinancialMetricsSecure({
+            dateRange: { from: new Date('2024-05-01T00:00:00Z'), to: new Date('2024-05-02T00:00:00Z') },
+            terminalId: '550e8400-e29b-41d4-a716-446655440099',
+        });
+
+        expect(result.success).toBe(true);
+
+        const auditCall = vi.mocked(dbModule.query).mock.calls.find((call) =>
+            String(call[0]).includes("INSERT INTO audit_log")
+        );
+        expect(auditCall).toBeDefined();
+        const auditPayload = JSON.parse(String(auditCall?.[1]?.[1] || '{}')) as { terminal_id?: string };
+        expect(auditPayload.terminal_id).toBe('550e8400-e29b-41d4-a716-446655440010');
     });
 });
 

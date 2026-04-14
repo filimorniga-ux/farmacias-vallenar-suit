@@ -15,7 +15,6 @@
 
 import { query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { getValidatedSession } from '@/lib/server-session';
 
@@ -74,13 +73,41 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 // HELPERS
 // ============================================================================
 
+async function resolveActiveTerminalId(userId: string, locationId?: string): Promise<string | undefined> {
+    const result = await query(
+        `
+            SELECT crs.terminal_id, t.location_id
+            FROM cash_register_sessions crs
+            JOIN terminals t ON t.id = crs.terminal_id
+            WHERE crs.user_id = $1::uuid
+              AND crs.closed_at IS NULL
+            ORDER BY crs.opened_at DESC
+            LIMIT 1
+        `,
+        [userId],
+    );
+
+    const row = result.rows[0] as { terminal_id?: string; location_id?: string } | undefined;
+    if (!row?.terminal_id) {
+        return undefined;
+    }
+
+    if (locationId && row.location_id && row.location_id !== locationId) {
+        logger.warn({ userId, sessionLocationId: locationId, terminalLocationId: row.location_id }, '[Dashboard] Active terminal out of session scope');
+        return undefined;
+    }
+
+    return row.terminal_id;
+}
+
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; terminalId?: string } | null> {
     try {
         const session = await getValidatedSession();
         if (!session) return null;
-
-        const headersList = await headers();
-        const terminalId = headersList.get('x-terminal-id');
+        const normalizedRole = String(session.role || '').trim().toUpperCase();
+        const terminalId = normalizedRole === 'CASHIER' || normalizedRole === 'CAJERO'
+            ? await resolveActiveTerminalId(session.userId, session.locationId)
+            : undefined;
         return {
             userId: session.userId,
             role: session.role,

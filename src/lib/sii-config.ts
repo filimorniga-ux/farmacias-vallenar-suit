@@ -2,6 +2,7 @@ import 'server-only';
 
 import crypto from 'crypto';
 import { validateCertificate } from '@/domain/logic/sii/crypto';
+import { getConfigEncryptionKey } from '@/lib/config-encryption';
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import type { SiiAmbiente, SiiConfiguration } from '@/domain/types';
@@ -49,23 +50,8 @@ export interface SiiEmissionConfig {
     certificatePassword: string;
 }
 
-function getEncryptionKey(): Buffer {
-    const key = process.env.CONFIG_ENCRYPTION_KEY;
-
-    if (!key) {
-        const fallback = process.env.DATABASE_URL || 'farmacias-vallenar-default-key-32b';
-        return crypto.createHash('sha256').update(fallback).digest();
-    }
-
-    if (key.length === 64) {
-        return Buffer.from(key, 'hex');
-    }
-
-    return crypto.createHash('sha256').update(key).digest();
-}
-
 function encryptValue(plaintext: string): string {
-    const key = getEncryptionKey();
+    const key = getConfigEncryptionKey();
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
 
@@ -83,7 +69,7 @@ function decryptValue(encryptedValue: string): string {
         throw new Error('Formato de secreto SII inválido');
     }
 
-    const key = getEncryptionKey();
+    const key = getConfigEncryptionKey();
     const iv = Buffer.from(ivHex, 'hex');
     const authTag = Buffer.from(authTagHex, 'hex');
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);

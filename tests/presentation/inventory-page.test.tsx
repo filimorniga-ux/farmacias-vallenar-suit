@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
         suppliers: [],
         updateStock: vi.fn(),
         addNewProduct: vi.fn(),
+        setInventory: vi.fn(),
         setCurrentLocation: vi.fn(),
     };
 

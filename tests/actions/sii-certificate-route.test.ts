@@ -61,6 +61,7 @@ describe('SII certificate route', () => {
 
         expect(response.status).toBe(401);
         expect(payload.code).toBe('AUTH_UNAUTHORIZED');
+        expect(mocks.requireApiRolesMock).toHaveBeenCalledWith(['ADMIN', 'GERENTE_GENERAL']);
         expect(mocks.getSiiConfigurationSummaryMock).not.toHaveBeenCalled();
     });
 
@@ -78,6 +79,7 @@ describe('SII certificate route', () => {
 
         expect(response.status).toBe(403);
         expect(payload.code).toBe('AUTH_FORBIDDEN');
+        expect(mocks.requireApiRolesMock).toHaveBeenCalledWith(['ADMIN', 'GERENTE_GENERAL']);
         expect(mocks.saveSiiConfigurationMock).not.toHaveBeenCalled();
     });
 
@@ -167,10 +169,10 @@ describe('SII certificate route', () => {
         mocks.requireApiRolesMock.mockResolvedValueOnce({
             ok: true,
             session: {
-                userId: 'manager-1',
-                role: 'MANAGER',
+                userId: 'gg-1',
+                role: 'GERENTE_GENERAL',
                 locationId: 'loc-1',
-                userName: 'Manager',
+                userName: 'Gerente General',
             },
         });
         mocks.getSiiConfigurationSummaryMock.mockResolvedValueOnce(SAFE_SUMMARY);
@@ -181,6 +183,7 @@ describe('SII certificate route', () => {
         expect(response.status).toBe(200);
         expect(payload.success).toBe(true);
         expect(payload.data).toEqual(SAFE_SUMMARY);
+        expect(mocks.requireApiRolesMock).toHaveBeenCalledWith(['ADMIN', 'GERENTE_GENERAL']);
         expect(payload.data).not.toHaveProperty('certificatePfxBase64');
         expect(payload.data).not.toHaveProperty('certificatePassword');
     });

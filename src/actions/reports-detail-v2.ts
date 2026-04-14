@@ -18,6 +18,13 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getSessionSecure } from './auth-v2';
 import {
+    ensureWarehouseInLocation,
+    hasGlobalReportScope,
+    requireReportActor,
+    resolveEffectiveLocation,
+    resolveLocationFromWarehouseOrLocation,
+} from './report-scope';
+import {
     getActorOrFail,
     PinRbacError,
     requireRole,
@@ -350,27 +357,66 @@ export async function getTaxSummarySecure(
 export async function getInventoryValuationSecure(
     warehouseId?: string
 ): Promise<{ success: boolean; data?: any; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireReportActor(MANAGER_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado' };
+    const actor = actorResult.actor;
+
+    let requestedLocationId: string | undefined;
+    let scopedWarehouseId: string | undefined;
+
+    if (warehouseId) {
+        requestedLocationId = await resolveLocationFromWarehouseOrLocation(warehouseId);
+        if (!requestedLocationId) {
+            return { success: false, error: 'Bodega o ubicación inválida' };
+        }
+
+        const warehouseScopeResult = resolveEffectiveLocation(actor, requestedLocationId);
+        if (!warehouseScopeResult.success) {
+            return { success: false, error: warehouseScopeResult.error };
+        }
+
+        requestedLocationId = warehouseScopeResult.locationId;
+
+        if (requestedLocationId) {
+            const warehouseExistsInLocation = await ensureWarehouseInLocation(warehouseId, requestedLocationId);
+            if (warehouseExistsInLocation) {
+                scopedWarehouseId = warehouseId;
+            }
+        }
+    } else {
+        const locationScopeResult = resolveEffectiveLocation(actor);
+        if (!locationScopeResult.success) {
+            return { success: false, error: locationScopeResult.error };
+        }
+
+        requestedLocationId = locationScopeResult.locationId;
     }
 
-    // Filtrar por ubicación
-    const filterWarehouseId = warehouseId || session.locationId;
-
-    const cacheKey = getCacheKey('inventory', { warehouseId: filterWarehouseId });
+    const cacheKey = getCacheKey('inventory', {
+        warehouseId: scopedWarehouseId,
+        locationId: requestedLocationId,
+    });
     const cached = getFromCache(cacheKey);
     if (cached) {
         return { success: true, data: cached };
     }
 
     try {
-        const params = filterWarehouseId ? [filterWarehouseId] : [];
-        const warehouseFilter = filterWarehouseId ? 'AND ib.warehouse_id::text = $1' : '';
+        const params: string[] = [];
+        let filters = '';
+
+        if (requestedLocationId) {
+            filters += ` AND w.location_id::text = $${params.length + 1}::text`;
+            params.push(requestedLocationId);
+        }
+
+        if (scopedWarehouseId) {
+            filters += ` AND ib.warehouse_id::text = $${params.length + 1}::text`;
+            params.push(scopedWarehouseId);
+        }
 
         const aggRes = await query(`
             SELECT 
@@ -380,13 +426,14 @@ export async function getInventoryValuationSecure(
                 SUM(ib.quantity_real * COALESCE(ib.sale_price, p.sale_price, 0)) as total_sale
             FROM inventory_batches ib
             JOIN products p ON ib.product_id::text = p.id::text
-            WHERE ib.quantity_real > 0 ${warehouseFilter}
+            JOIN warehouses w ON ib.warehouse_id::text = w.id::text
+            WHERE ib.quantity_real > 0 ${filters}
         `, params);
 
         const totals = aggRes.rows[0];
 
         const data = {
-            warehouse_id: filterWarehouseId || 'ALL',
+            warehouse_id: scopedWarehouseId || requestedLocationId || 'ALL',
             total_items: Number(totals.total_units) || 0,
             total_cost_value: Number(totals.total_cost) || 0,
             total_sales_value: Number(totals.total_sale) || 0,
@@ -394,7 +441,10 @@ export async function getInventoryValuationSecure(
         };
 
         setCache(cacheKey, data);
-        await auditReportAccess(session.userId, 'INVENTORY_VALUATION', { warehouseId: filterWarehouseId });
+        await auditReportAccess(actor.userId, 'INVENTORY_VALUATION', {
+            warehouseId: scopedWarehouseId || warehouseId,
+            locationId: requestedLocationId,
+        });
 
         return { success: true, data };
 
@@ -545,21 +595,25 @@ export async function getDetailedFinancialSummarySecure(
     startDate: string,
     endDate: string
 ): Promise<{ success: boolean; data?: FinancialSummary; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado. Requiere permisos de manager.' };
+    const actorResult = await requireReportActor(ACCOUNTING_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
+        const actor = actorResult.actor;
+        const locationScopeResult = resolveEffectiveLocation(actor);
+        if (!locationScopeResult.success) {
+            return { success: false, error: locationScopeResult.error };
+        }
+
+        const effectiveLocationId = locationScopeResult.locationId;
         const endDateObj = endDate ? new Date(endDate) : new Date();
         endDateObj.setHours(23, 59, 59, 999);
         const startDateObj = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-        const params = [startDateObj.toISOString(), endDateObj.toISOString()];
+        const params: string[] = [startDateObj.toISOString(), endDateObj.toISOString()];
+        const salesLocationFilter = effectiveLocationId ? ` AND location_id::text = $3::text` : '';
 
         // 1. Sales (excluyendo anuladas)
         const salesRes = await query(`
@@ -567,7 +621,8 @@ export async function getDetailedFinancialSummarySecure(
             FROM sales 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
             AND status NOT IN ('VOIDED')
-        `, params);
+            ${salesLocationFilter}
+        `, effectiveLocationId ? [...params, effectiveLocationId] : params);
         let totalSales = Number(salesRes.rows[0]?.total) || 0;
 
         // 1b. Restar devoluciones
@@ -576,7 +631,8 @@ export async function getDetailedFinancialSummarySecure(
                 SELECT COALESCE(SUM(total_amount), 0) as total FROM refunds
                 WHERE created_at >= $1::timestamp AND created_at <= $2::timestamp
                 AND status = 'COMPLETED'
-            `, params);
+                ${salesLocationFilter}
+            `, effectiveLocationId ? [...params, effectiveLocationId] : params);
             totalSales -= Number(refundsRes.rows[0]?.total) || 0;
         } catch { /* tabla puede no existir */ }
 
@@ -586,7 +642,8 @@ export async function getDetailedFinancialSummarySecure(
             FROM cash_movements 
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp 
             AND (type = 'OUT' OR type IN ('WITHDRAWAL', 'EXPENSE', 'CLOSING'))
-        `, params);
+            ${effectiveLocationId ? 'AND location_id::text = $3::text' : ''}
+        `, effectiveLocationId ? [...params, effectiveLocationId] : params);
 
         let payroll = 0;
         let socialSecurity = 0;
@@ -614,9 +671,9 @@ export async function getDetailedFinancialSummarySecure(
         };
 
         // Auditar acceso
-        await auditReportAccess(session.userId, 'FINANCIAL_SUMMARY', { startDate, endDate });
+        await auditReportAccess(actor.userId, 'FINANCIAL_SUMMARY', { startDate, endDate, locationId: effectiveLocationId });
 
-        logger.info({ userId: session.userId }, '📊 [Reports] Financial summary accessed');
+        logger.info({ userId: actor.userId, locationId: effectiveLocationId }, '📊 [Reports] Financial summary accessed');
         return { success: true, data };
 
     } catch (error: any) {
@@ -637,26 +694,37 @@ export async function getLogisticsKPIsSecure(
     endDate: string,
     warehouseId?: string
 ): Promise<{ success: boolean; data?: LogisticsKPIs; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado. Requiere permisos de manager.' };
+    const actorResult = await requireReportActor(MANAGER_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
+        const actor = actorResult.actor;
+        const requestedLocationId = warehouseId
+            ? await resolveLocationFromWarehouseOrLocation(warehouseId)
+            : undefined;
+
+        if (warehouseId && !requestedLocationId) {
+            return { success: false, error: 'Bodega o ubicación inválida' };
+        }
+
+        const locationScopeResult = resolveEffectiveLocation(actor, requestedLocationId);
+        if (!locationScopeResult.success) {
+            return { success: false, error: locationScopeResult.error };
+        }
+
+        const effectiveLocationId = locationScopeResult.locationId;
         const endDateObj = endDate ? new Date(endDate) : new Date();
         endDateObj.setHours(23, 59, 59, 999);
         const startDateObj = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
         const params: any[] = [startDateObj.toISOString(), endDateObj.toISOString()];
-        let locFilter = "";
+        let locFilter = '';
 
-        if (warehouseId) {
-            locFilter = "AND location_id::text = $3";
-            params.push(warehouseId);
+        if (effectiveLocationId) {
+            locFilter = 'AND location_id::text = $3';
+            params.push(effectiveLocationId);
         }
 
         const sql = `
@@ -679,9 +747,14 @@ export async function getLogisticsKPIsSecure(
         };
 
         // Auditar acceso
-        await auditReportAccess(session.userId, 'LOGISTICS_KPIS', { startDate, endDate, warehouseId });
+        await auditReportAccess(actor.userId, 'LOGISTICS_KPIS', {
+            startDate,
+            endDate,
+            warehouseId,
+            locationId: effectiveLocationId,
+        });
 
-        logger.info({ userId: session.userId }, '📦 [Reports] Logistics KPIs accessed');
+        logger.info({ userId: actor.userId, locationId: effectiveLocationId }, '📦 [Reports] Logistics KPIs accessed');
         return { success: true, data };
 
     } catch (error: any) {
@@ -703,16 +776,27 @@ export async function getStockMovementsDetailSecure(
     endDate: string,
     warehouseId?: string
 ): Promise<{ success: boolean; data?: StockMovementDetail[]; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado. Requiere permisos de manager.' };
+    const actorResult = await requireReportActor(MANAGER_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
+        const actor = actorResult.actor;
+        const requestedLocationId = warehouseId
+            ? await resolveLocationFromWarehouseOrLocation(warehouseId)
+            : undefined;
+
+        if (warehouseId && !requestedLocationId) {
+            return { success: false, error: 'Bodega o ubicación inválida' };
+        }
+
+        const locationScopeResult = resolveEffectiveLocation(actor, requestedLocationId);
+        if (!locationScopeResult.success) {
+            return { success: false, error: locationScopeResult.error };
+        }
+
+        const effectiveLocationId = locationScopeResult.locationId;
         const endDateObj = endDate ? new Date(endDate) : new Date();
         endDateObj.setHours(23, 59, 59, 999);
         const startDateObj = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -747,9 +831,9 @@ export async function getStockMovementsDetailSecure(
         }
 
         // Filter by Warehouse
-        if (warehouseId) {
+        if (effectiveLocationId) {
             queryStr += ` AND sm.location_id::text = $3`;
-            params.push(warehouseId);
+            params.push(effectiveLocationId);
         }
 
         queryStr += ` ORDER BY sm.timestamp DESC LIMIT 100`;
@@ -768,9 +852,15 @@ export async function getStockMovementsDetailSecure(
         }));
 
         // Auditar acceso
-        await auditReportAccess(session.userId, 'STOCK_MOVEMENTS', { type, startDate, endDate, warehouseId });
+        await auditReportAccess(actor.userId, 'STOCK_MOVEMENTS', {
+            type,
+            startDate,
+            endDate,
+            warehouseId,
+            locationId: effectiveLocationId,
+        });
 
-        logger.info({ userId: session.userId, count: data.length }, '🕵️ [Reports] Stock movements accessed');
+        logger.info({ userId: actor.userId, locationId: effectiveLocationId, count: data.length }, '🕵️ [Reports] Stock movements accessed');
         return { success: true, data };
 
     } catch (error: any) {

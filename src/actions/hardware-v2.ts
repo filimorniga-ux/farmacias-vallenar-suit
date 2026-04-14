@@ -17,9 +17,8 @@ import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
+import { resolveActorResult } from './actor-result';
 import {
-    getActorOrFail,
-    PinRbacError,
     ROLE_GROUPS,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
@@ -39,28 +38,6 @@ const HardwareConfigSchema = z.object({
 });
 
 // ============================================================================
-// CONSTANTS
-// ============================================================================
-
-type HardwareActor = Awaited<ReturnType<typeof getActorOrFail>>;
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-async function requireHardwareActor(): Promise<HardwareActor | null> {
-    try {
-        return await getActorOrFail();
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return null;
-        }
-
-        throw error;
-    }
-}
-
-// ============================================================================
 // GET HARDWARE CONFIG
 // ============================================================================
 
@@ -74,12 +51,13 @@ export async function getTerminalHardwareConfigSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const actor = await requireHardwareActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
+        const actor = auth.actor;
         // Verificar que el usuario tiene acceso al terminal
         const termRes = await query(`
             SELECT t.config, t.location_id 
@@ -127,10 +105,11 @@ export async function updateTerminalHardwareConfigSecure(
         return { success: false, error: validatedConfig.error.issues[0]?.message };
     }
 
-    const actor = await requireHardwareActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     const client = await pool.connect();
 
@@ -201,10 +180,11 @@ export async function testPrinterConnectionSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const actor = await requireHardwareActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         // En un entorno real, aquí se haría la conexión real
@@ -236,10 +216,11 @@ export async function getAvailablePrintersSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const actor = await requireHardwareActor();
-    if (!actor) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         // En un entorno real, se detectarían impresoras del sistema

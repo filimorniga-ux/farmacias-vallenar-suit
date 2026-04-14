@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 
 import { brand } from '@/config/brand.config';
 import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
+import { readPreferredPublicContext, type PreferredPublicContext } from '@/presentation/lib/preferredPublicContext';
 
 export type LandingNavigateOptions = {
     replace?: boolean;
@@ -28,19 +29,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
     const employees = usePharmaStore((state) => state.employees);
     const user = usePharmaStore((state) => state.user);
     const [localEmployees, setLocalEmployees] = useState<EmployeeProfile[]>([]);
-
-    // Context State
-    const context = useMemo(() => {
-        if (typeof window === 'undefined') return null;
-        const locId = localStorage.getItem('preferred_location_id');
-        if (!locId) return null;
-
-        return {
-            id: locId,
-            name: localStorage.getItem('preferred_location_name') || 'Sucursal Identificada',
-            type: localStorage.getItem('preferred_location_type') || 'STORE',
-        };
-    }, []);
+    const [context, setContext] = useState<PreferredPublicContext | null | undefined>(undefined);
 
     // Login UI State
     const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -54,12 +43,6 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
     const [searchTerm, setSearchTerm] = useState('');
     const [usersLoadError, setUsersLoadError] = useState('');
     const [isRetryingUsers, setIsRetryingUsers] = useState(false);
-
-    // Security PIN State
-    const [isPinModalOpen, setIsPinModalOpen] = useState(false);
-    const [securityPin, setSecurityPin] = useState('');
-    const [pinError, setPinError] = useState(false);
-    const [pinTarget, setPinTarget] = useState<'PRICE_CHECKER' | 'QUEUE_DISPLAY' | null>(null);
 
     // Queue Modal State
     const [isQueueOptionsOpen, setIsQueueOptionsOpen] = useState(false);
@@ -113,6 +96,10 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
     }, [retryCooldownMs]);
 
     useEffect(() => {
+        setContext(readPreferredPublicContext(window.localStorage));
+    }, []);
+
+    useEffect(() => {
         // Check for session revocation flag to prevent infinite loops
         const params = new URLSearchParams(window.location.search);
         const reason = params.get('reason');
@@ -138,7 +125,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
 
     // Initial Check - Location Context
     useEffect(() => {
-        if (!context) {
+        if (context === null) {
             navigateTo('/select-context');
         }
     }, [context, navigateTo]);
@@ -262,28 +249,17 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
         }
     };
 
-    const handlePinSuccess = () => {
-        setIsPinModalOpen(false);
-        setSecurityPin('');
-
-        if (pinTarget === 'PRICE_CHECKER') {
-            setIsPriceCheckOpen(true);
-        } else if (pinTarget === 'QUEUE_DISPLAY') {
-            // Auto-configure display for this location
-            if (context) {
-                localStorage.setItem('queue_display_location_id', context.id);
-                localStorage.setItem('queue_display_location_name', context.name);
-                // ⚠️ CRITICAL: Must use window.location to escape React Router SPA and hit Next.js App Router
-                window.location.href = '/display/queue';
-            }
-        }
-        setPinTarget(null);
-    };
+    const openQueueDisplay = useCallback(() => {
+        if (!context) return;
+        localStorage.setItem('queue_display_location_id', context.id);
+        localStorage.setItem('queue_display_location_name', context.name);
+        window.location.href = '/display/queue';
+    }, [context]);
 
     // Initial Loading Check
     if (!context) {
         return (
-            <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+            <div data-testid="public-context-loader" className="min-h-screen bg-slate-900 flex items-center justify-center">
                 <Loader2 className="animate-spin text-cyan-400" size={40} />
             </div>
         );
@@ -341,8 +317,6 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
         }
     });
 
-    if (!context) return null; // Or Loader
-
     return (
         <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
             {/* Background Ambience - Light Clinical Blue/Teal */}
@@ -384,6 +358,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                 roles: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'],
                             });
                         }}
+                        data-testid="landing-module-administracion"
                         className="cursor-pointer bg-white border border-sky-100 rounded-3xl p-8 relative overflow-hidden shadow-xl shadow-sky-900/5 group hover:border-sky-300 transition-all hover:shadow-2xl hover:shadow-sky-900/10"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-10 bg-sky-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-20 transition-opacity" />
@@ -408,6 +383,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                 targetPath: '/pos',
                             });
                         }}
+                        data-testid="landing-module-pos"
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-purple-300 transition-all hover:shadow-xl"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-5 bg-purple-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-10 transition-opacity" />
@@ -467,6 +443,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                 targetPath: '/logistica',
                             });
                         }}
+                        data-testid="landing-module-logistica"
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-amber-300 transition-all hover:shadow-xl"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-5 bg-amber-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-10 transition-opacity" />
@@ -484,10 +461,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                     <motion.div
                         whileHover={{ scale: 1.02, y: -5 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => {
-                            setPinTarget('PRICE_CHECKER');
-                            setIsPinModalOpen(true);
-                        }}
+                        onClick={() => setIsPriceCheckOpen(true)}
                         className="cursor-pointer bg-white border border-slate-100 rounded-3xl p-8 relative overflow-hidden shadow-lg shadow-slate-900/5 group hover:border-emerald-300 transition-all hover:shadow-xl"
                     >
                         <div className="absolute top-0 right-0 p-4 opacity-5 bg-emerald-500 blur-3xl w-32 h-32 rounded-full -mr-10 -mt-10 group-hover:opacity-10 transition-opacity" />
@@ -495,7 +469,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                             <Search size={40} className="text-emerald-500" />
                         </div>
                         <h3 className="text-2xl font-bold text-slate-800 mb-2">Consultor</h3>
-                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Verificación pública de precios y stock.</p>
+                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Consulta pública de disponibilidad y alternativas.</p>
                         <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 px-4 py-2 rounded-lg w-fit border border-slate-100 group-hover:text-emerald-600 group-hover:border-emerald-200 transition-all">
                             Consultar <ArrowRight size={14} className="ml-2" />
                         </div>
@@ -828,8 +802,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                     <button
                                         onClick={() => {
                                             setIsQueueOptionsOpen(false);
-                                            setPinTarget('QUEUE_DISPLAY');
-                                            setIsPinModalOpen(true);
+                                            openQueueDisplay();
                                         }}
                                         className="w-full flex items-center p-4 rounded-2xl bg-slate-50 border border-slate-200 hover:border-teal-500 hover:bg-teal-50 transition-all group"
                                     >
@@ -843,63 +816,6 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                         <ArrowRight size={20} className="ml-auto text-slate-300 group-hover:text-teal-500" />
                                     </button>
                                 </div>
-                            </motion.div>
-                        </div>
-                    )}
-                </AnimatePresence>
-
-                {/* PIN Modal (Generalized) */}
-                <AnimatePresence>
-                    {isPinModalOpen && (
-                        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                            <motion.div
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.9 }}
-                                className="bg-white border border-slate-100 rounded-3xl p-8 w-full max-w-sm text-center relative shadow-2xl"
-                            >
-                                <button
-                                    onClick={() => {
-                                        setIsPinModalOpen(false);
-                                        setSecurityPin('');
-                                        setPinError(false);
-                                        setPinTarget(null);
-                                    }}
-                                    className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
-                                >✕</button>
-
-                                <div className="mb-6">
-                                    <div className="w-16 h-16 bg-sky-50 rounded-2xl flex items-center justify-center mx-auto mb-4 text-sky-500 border border-sky-100">
-                                        <div className="flex">
-                                            <span className="text-2xl font-bold">*</span>
-                                            <span className="text-2xl font-bold">*</span>
-                                            <span className="text-2xl font-bold">*</span>
-                                        </div>
-                                    </div>
-                                    <h3 className="text-xl font-bold text-slate-800">Seguridad Admin</h3>
-                                    <p className="text-slate-500 text-sm">Ingrese PIN administrativo para continuar</p>
-                                </div>
-
-                                <input
-                                    type="password"
-                                    autoFocus
-                                    className={`w-full bg-slate-50 border-2 ${pinError ? 'border-red-500 text-red-500' : 'border-slate-100 text-slate-800 focus:border-sky-500'} rounded-xl py-4 text-center text-3xl font-bold tracking-[1em] outline-none transition-all mb-4`}
-                                    maxLength={4}
-                                    placeholder="••••"
-                                    value={securityPin}
-                                    onChange={(e) => {
-                                        const val = e.target.value.replace(/\D/g, '').slice(0, 4);
-                                        setSecurityPin(val);
-                                        setPinError(false);
-                                        if (val === '1213') { // Admin/Master PIN
-                                            handlePinSuccess();
-                                        } else if (val.length === 4) {
-                                            setPinError(true);
-                                            setTimeout(() => setSecurityPin(''), 500);
-                                        }
-                                    }}
-                                />
-                                {pinError && <p className="text-red-500 text-sm font-bold animate-pulse">PIN Incorrecto</p>}
                             </motion.div>
                         </div>
                     )}

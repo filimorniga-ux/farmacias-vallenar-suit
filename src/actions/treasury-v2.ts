@@ -166,6 +166,8 @@ const AUTHORIZATION_THRESHOLDS = {
     WITHDRAWAL: 100000,    // Retiros > $100,000
 } as const;
 
+const TREASURY_ACCESS_ROLES = [...ROLE_GROUPS.OVERRIDE, 'TESORERO'] as const;
+
 // =====================================================
 // HELPERS
 // =====================================================
@@ -175,6 +177,19 @@ type TreasuryActor = Awaited<ReturnType<typeof getActorOrFail>>;
 function canAccessAllLocations(role: string | null | undefined) {
     const normalizedRole = normalizeRole(role);
     return ROLE_GROUPS.OVERRIDE.some((allowedRole) => allowedRole === normalizedRole);
+}
+
+function canActorAccessTreasuryLocation(actor: TreasuryActor, locationId: string | null | undefined) {
+    if (!locationId) return true;
+    if (canAccessAllLocations(actor.role)) return true;
+    return Boolean(actor.locationId) && actor.locationId === locationId;
+}
+
+function resolveTreasuryLocationScope(actor: TreasuryActor, requestedLocationId?: string | null) {
+    if (canAccessAllLocations(actor.role)) {
+        return requestedLocationId || actor.locationId || null;
+    }
+    return actor.locationId || requestedLocationId || null;
 }
 
 async function resolveTreasuryActor(options?: {
@@ -328,11 +343,16 @@ export async function transferFundsSecure(params: {
     authorizationPin?: string;
 }): Promise<{ success: boolean; transferId?: string; error?: string }> {
 
-    const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autenticado' });
+    const actorResult = await resolveTreasuryActor({
+        allowedRoles: TREASURY_ACCESS_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: ERROR_MESSAGES.UNAUTHORIZED,
+    });
     if (!actorResult.ok) {
         return { success: false, error: actorResult.error };
     }
-    const userId = actorResult.actor.userId;
+    const actor = actorResult.actor;
+    const userId = actor.userId;
 
     // 1. Validación de entrada
 
@@ -394,6 +414,13 @@ export async function transferFundsSecure(params: {
 
         if (!sourceAccount || !destAccount) {
             throw new Error(ERROR_MESSAGES.ACCOUNT_NOT_FOUND);
+        }
+
+        if (
+            !canActorAccessTreasuryLocation(actor, sourceAccount.location_id) ||
+            !canActorAccessTreasuryLocation(actor, destAccount.location_id)
+        ) {
+            throw new Error(ERROR_MESSAGES.UNAUTHORIZED);
         }
 
         // 5. Verificar fondos suficientes
@@ -1148,16 +1175,19 @@ export async function getFinancialAccountsSecure(
     locationId: string
 ): Promise<{ success: boolean; data?: FinancialAccount[]; error?: string }> {
     try {
-        const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+        const actorResult = await resolveTreasuryActor({
+            allowedRoles: TREASURY_ACCESS_ROLES,
+            unauthorizedMessage: 'No autorizado',
+            forbiddenMessage: 'Acceso denegado',
+        });
         if (!actorResult.ok) {
             return { success: false, error: actorResult.error };
         }
 
-        // RBAC: Solo gerentes pueden ver todas las ubicaciones
-        // Cajeros/vendedores solo ven su ubicación
-        const effectiveLocationId = canAccessAllLocations(actorResult.actor.role)
-            ? locationId
-            : actorResult.actor.locationId || locationId;
+        const effectiveLocationId = resolveTreasuryLocationScope(actorResult.actor, locationId);
+        if (!effectiveLocationId) {
+            return { success: false, error: 'Ubicación no disponible para tesorería' };
+        }
 
         const res = await query(
             `SELECT id, location_id, name, type, balance, is_active 
@@ -1184,7 +1214,11 @@ export async function getTreasuryTransactionsSecure(
     limit: number = 50
 ): Promise<{ success: boolean; data?: TreasuryTransaction[]; error?: string }> {
     try {
-        const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+        const actorResult = await resolveTreasuryActor({
+            allowedRoles: TREASURY_ACCESS_ROLES,
+            unauthorizedMessage: 'No autorizado',
+            forbiddenMessage: 'Acceso denegado',
+        });
         if (!actorResult.ok) {
             return { success: false, error: actorResult.error };
         }
@@ -1193,6 +1227,23 @@ export async function getTreasuryTransactionsSecure(
         const uuidParse = UUIDSchema.safeParse(accountId);
         if (!uuidParse.success) {
             return { success: false, error: 'ID de cuenta inválido' };
+        }
+
+        const accountRes = await query(
+            `SELECT id, location_id
+             FROM financial_accounts
+             WHERE id = $1
+             LIMIT 1`,
+            [accountId]
+        );
+
+        if (accountRes.rows.length === 0) {
+            return { success: false, error: ERROR_MESSAGES.ACCOUNT_NOT_FOUND };
+        }
+
+        const account = accountRes.rows[0];
+        if (!canActorAccessTreasuryLocation(actorResult.actor, account.location_id as string | null | undefined)) {
+            return { success: false, error: 'Acceso denegado' };
         }
 
         // Limitar a máximo 200
@@ -1223,15 +1274,19 @@ export async function getPendingRemittancesSecure(
     locationId: string
 ): Promise<{ success: boolean; data?: Remittance[]; error?: string }> {
     try {
-        const actorResult = await resolveTreasuryActor({ unauthorizedMessage: 'No autorizado' });
+        const actorResult = await resolveTreasuryActor({
+            allowedRoles: TREASURY_ACCESS_ROLES,
+            unauthorizedMessage: 'No autorizado',
+            forbiddenMessage: 'Acceso denegado',
+        });
         if (!actorResult.ok) {
             return { success: false, error: actorResult.error };
         }
 
-        // RBAC: Solo gerentes pueden ver todas las ubicaciones
-        const effectiveLocationId = canAccessAllLocations(actorResult.actor.role)
-            ? locationId
-            : actorResult.actor.locationId || locationId;
+        const effectiveLocationId = resolveTreasuryLocationScope(actorResult.actor, locationId);
+        if (!effectiveLocationId) {
+            return { success: false, error: 'Ubicación no disponible para tesorería' };
+        }
 
         const res = await query(
             `SELECT id, location_id, source_terminal_id, amount, status, created_at, created_by

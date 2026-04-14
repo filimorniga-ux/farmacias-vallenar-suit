@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductSalesReportPage } from '@/presentation/pages/reports/ProductSalesReportPage';
 
 const mocks = vi.hoisted(() => {
-    const navigateMock = vi.fn();
+    const pushMock = vi.fn();
     const fetchLocationsMock = vi.fn().mockResolvedValue(undefined);
     const getReportMock = vi.fn().mockResolvedValue({
         success: true,
@@ -27,15 +27,17 @@ const mocks = vi.hoisted(() => {
     };
 
     return {
-        navigateMock,
+        pushMock,
         fetchLocationsMock,
         getReportMock,
         locationState,
     };
 });
 
-vi.mock('react-router-dom', () => ({
-    useNavigate: () => mocks.navigateMock,
+vi.mock('next/navigation', () => ({
+    useRouter: () => ({
+        push: mocks.pushMock,
+    }),
 }));
 
 vi.mock('@/presentation/store/useStore', () => ({
@@ -85,5 +87,18 @@ describe('ProductSalesReportPage - filtro de sucursales', () => {
         await waitFor(() => {
             expect(mocks.fetchLocationsMock).toHaveBeenCalledWith(true);
         });
+    });
+
+    it('vuelve a /reports usando navegación de Next', async () => {
+        render(<ProductSalesReportPage />);
+
+        await waitFor(() => {
+            expect(mocks.fetchLocationsMock).toHaveBeenCalledWith(true);
+        });
+
+        const backButton = screen.getByRole('button', { name: /Volver a reportes/i });
+        backButton.click();
+
+        expect(mocks.pushMock).toHaveBeenCalledWith('/reports');
     });
 });

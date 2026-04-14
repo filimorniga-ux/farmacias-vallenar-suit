@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
     mockClient,
+    mockPoolQuery,
     PinRbacError,
     headersMock,
 } = vi.hoisted(() => {
@@ -20,6 +21,7 @@ const {
             query: vi.fn(),
             release: vi.fn(),
         },
+        mockPoolQuery: vi.fn(),
         PinRbacError: MockPinRbacError,
         headersMock: vi.fn(async () => new Map([['x-forwarded-for', '127.0.0.1']])),
     };
@@ -28,6 +30,7 @@ const {
 vi.mock('@/lib/db', () => ({
     pool: {
         connect: vi.fn(async () => mockClient),
+        query: (...args: unknown[]) => mockPoolQuery(...args),
     },
 }));
 
@@ -60,6 +63,7 @@ import { getActorOrFail, validatePinForRoles } from '@/lib/pin-rbac';
 import {
     approveReconciliationSecure,
     calculateDiscrepancySecure,
+    getReconciliationHistorySecure,
     performReconciliationSecure,
 } from '@/actions/reconciliation-v2';
 
@@ -68,6 +72,7 @@ const VALID_SESSION_ID = '550e8400-e29b-41d4-a716-446655440081';
 describe('Reconciliation V2 - shared pin/rbac migration', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockPoolQuery.mockReset();
         vi.mocked(getActorOrFail).mockResolvedValue({
             userId: 'session-manager',
             role: 'MANAGER',
@@ -159,8 +164,9 @@ describe('Reconciliation V2 - shared pin/rbac migration', () => {
                     opening_amount: 100000,
                     closing_amount: 95000,
                     difference: -5000,
-                    status: 'OPEN',
+                    status: 'CLOSED',
                     terminal_id: 'terminal-1',
+                    location_id: 'loc-1',
                 }],
                 rowCount: 1,
             })
@@ -226,6 +232,7 @@ describe('Reconciliation V2 - shared pin/rbac migration', () => {
                     difference: 60000,
                     status: 'RECONCILED',
                     reconciled_by: 'session-manager',
+                    location_id: 'loc-1',
                 }],
                 rowCount: 1,
             })
@@ -251,6 +258,111 @@ describe('Reconciliation V2 - shared pin/rbac migration', () => {
         expect(mockClient.query).not.toHaveBeenCalledWith(
             expect.stringContaining('UPDATE cash_register_sessions'),
             expect.arrayContaining(['pin-admin'])
+        );
+    });
+
+    it('deniega conciliación cross-location para manager local', async () => {
+        mockClient.query
+            .mockResolvedValueOnce(undefined) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_SESSION_ID,
+                    opening_amount: 100000,
+                    closing_amount: 95000,
+                    difference: -5000,
+                    status: 'CLOSED',
+                    terminal_id: 'terminal-2',
+                    location_id: 'loc-2',
+                }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce(undefined); // ROLLBACK
+
+        const result = await performReconciliationSecure({
+            sessionId: VALID_SESSION_ID,
+            realClosingAmount: 100000,
+            managerNotes: 'Intento fuera de sucursal',
+            managerPin: '1234',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('sucursal');
+    });
+
+    it('rechaza reejecución cuando la sesión ya fue conciliada', async () => {
+        mockClient.query
+            .mockResolvedValueOnce(undefined) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_SESSION_ID,
+                    opening_amount: 100000,
+                    closing_amount: 95000,
+                    difference: -5000,
+                    status: 'RECONCILED',
+                    terminal_id: 'terminal-1',
+                    location_id: 'loc-1',
+                }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce(undefined); // ROLLBACK
+
+        const result = await performReconciliationSecure({
+            sessionId: VALID_SESSION_ID,
+            realClosingAmount: 100000,
+            managerNotes: 'Intento doble',
+            managerPin: '1234',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ya fue conciliada');
+    });
+
+    it('rechaza aprobación en estado inválido', async () => {
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'admin-session',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin Real',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        mockClient.query
+            .mockResolvedValueOnce(undefined) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_SESSION_ID,
+                    difference: 60000,
+                    status: 'APPROVED',
+                    reconciled_by: 'session-manager',
+                    location_id: 'loc-1',
+                }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce(undefined); // ROLLBACK
+
+        const result = await approveReconciliationSecure({
+            sessionId: VALID_SESSION_ID,
+            adminPin: '9999',
+            approvalNotes: 'Intento duplicado',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('no está reconciliada');
+    });
+
+    it('fuerza historial a la ubicación efectiva del manager aunque no mande filtro', async () => {
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getReconciliationHistorySecure({ page: 1, pageSize: 50 });
+
+        expect(result.success).toBe(true);
+        expect(mockPoolQuery).toHaveBeenNthCalledWith(
+            1,
+            expect.stringContaining('terminal_id IN (SELECT id FROM terminals WHERE location_id = $1)'),
+            ['loc-1', 50, 0],
         );
     });
 });

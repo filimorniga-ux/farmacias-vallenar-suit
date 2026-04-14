@@ -18,6 +18,9 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
+import { type PinRbacActor } from '@/lib/pin-rbac';
+import { resolveActorResult } from './actor-result';
+import { resolveScopedLocation } from './scoped-location';
 
 // ============================================================================
 // SCHEMAS
@@ -44,9 +47,131 @@ const CreateTicketSchema = z.object({
 // ============================================================================
 
 const MAX_TICKETS_PER_RUT_PER_DAY = 5;
+const QUEUE_OPERATOR_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
+const QUEUE_ADMIN_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
 
 // Rate limiting en memoria
 const ticketRateLimit = new Map<string, { count: number; date: string }>();
+
+type QueueActor = PinRbacActor;
+
+async function requireQueueActor(
+    allowedRoles: readonly string[]
+): Promise<{ success: true; actor: QueueActor } | { success: false; error: string }> {
+    const actorResult = await resolveActorResult();
+    if (!actorResult.success) {
+        return actorResult;
+    }
+
+    if (!allowedRoles.includes(actorResult.actor.role as (typeof allowedRoles)[number])) {
+        return { success: false, error: 'No autorizado para operar la fila' };
+    }
+
+    return { success: true, actor: actorResult.actor };
+}
+
+function hasGlobalQueueScope(role: string) {
+    return ['ADMIN', 'GERENTE_GENERAL'].includes(String(role || '').toUpperCase());
+}
+
+function resolveQueueBranch(
+    actor: QueueActor,
+    branchId: string
+): { success: true; branchId: string } | { success: false; error: string } {
+    const scoped = resolveScopedLocation(actor, branchId, hasGlobalQueueScope);
+    if (!scoped.success) {
+        if (scoped.error === 'No tienes una ubicación asignada') {
+            return { success: false, error: 'La sesión no tiene sucursal asignada' };
+        }
+
+        return { success: false, error: 'No autorizado para operar otra sucursal' };
+    }
+
+    return { success: true, branchId: scoped.locationId || branchId };
+}
+
+async function ensureTerminalInBranch(client: typeof pool | { query: typeof query }, terminalId: string, branchId: string) {
+    const result = await client.query(
+        `
+            SELECT id
+            FROM terminals
+            WHERE id = $1
+              AND location_id = $2
+            LIMIT 1
+        `,
+        [terminalId, branchId]
+    );
+
+    return (result.rowCount || 0) > 0;
+}
+
+async function getQueueTicketById(ticketId: string) {
+    const result = await query(
+        `
+            SELECT id, branch_id, called_by, status
+            FROM queue_tickets
+            WHERE id = $1
+            LIMIT 1
+        `,
+        [ticketId]
+    );
+
+    return result.rows[0] || null;
+}
+
+function buildQueueStatusPayload(rows: any[], historyRows: any[], publicDisplay: boolean) {
+    const waiting = rows.filter((ticket) => ticket.status === 'WAITING');
+    const called = rows.filter((ticket) => ticket.status === 'CALLED');
+
+    const sanitizeTicket = (ticket: any) => {
+        const baseTicket = {
+            id: ticket.id,
+            code: ticket.code,
+            type: ticket.type,
+            status: ticket.status,
+            created_at: ticket.created_at,
+            called_at: ticket.called_at,
+            completed_at: ticket.completed_at,
+            cancelled_at: ticket.cancelled_at,
+            terminal_id: ticket.terminal_id,
+            terminal_name: ticket.terminal_name,
+            module_number: ticket.module_number,
+        };
+
+        if (publicDisplay) {
+            return baseTicket;
+        }
+
+        return {
+            ...baseTicket,
+            branch_id: ticket.branch_id,
+        };
+    };
+
+    const calledTickets = called.map(sanitizeTicket);
+    const waitingTickets = waiting.map(sanitizeTicket);
+    const lastCompletedTickets = historyRows.map(sanitizeTicket);
+
+    const payload: Record<string, unknown> = {
+        waitingCount: waiting.length,
+        currentTicket: calledTickets[0] || null,
+        calledTickets,
+        lastCompletedTickets,
+        waitingTickets,
+        estimatedWaitMinutes: waiting.length * 5,
+    };
+
+    if (!publicDisplay) {
+        payload.debug_allRows = rows.map((ticket) => ({
+            id: ticket.id,
+            status: ticket.status,
+            code: ticket.code,
+            time: ticket.created_at,
+        }));
+    }
+
+    return payload;
+}
 
 // ============================================================================
 // HELPERS
@@ -111,15 +236,10 @@ function checkRutRateLimit(rut: string): boolean {
 export async function createTicketSecure(
     data: z.infer<typeof CreateTicketSchema>
 ): Promise<{ success: boolean; ticket?: any; error?: string }> {
-    console.log('[Queue-Backend] Received data:', JSON.stringify(data, null, 2));
-
     const validated = CreateTicketSchema.safeParse(data);
     if (!validated.success) {
-        console.error('[Queue-Backend] Validation failed:', JSON.stringify(validated.error.issues, null, 2));
         return { success: false, error: validated.error.issues[0]?.message };
     }
-
-    console.log('[Queue-Backend] Validation passed, branchId:', validated.data.branchId);
 
     const { branchId, rut, type, name, phone } = validated.data;
 
@@ -205,11 +325,24 @@ export async function createTicketSecure(
  */
 export async function getNextTicketSecure(
     branchId: string,
-    userId: string,
     terminalId?: string
 ): Promise<{ success: boolean; ticket?: any; error?: string }> {
-    if (!UUIDSchema.safeParse(branchId).success || !UUIDSchema.safeParse(userId).success) {
+    if (!UUIDSchema.safeParse(branchId).success) {
         return { success: false, error: 'IDs inválidos' };
+    }
+
+    if (terminalId && !UUIDSchema.safeParse(terminalId).success) {
+        return { success: false, error: 'IDs inválidos' };
+    }
+
+    const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    const scope = resolveQueueBranch(auth.actor, branchId);
+    if (!scope.success) {
+        return { success: false, error: scope.error };
     }
 
     const client = await pool.connect();
@@ -218,6 +351,14 @@ export async function getNextTicketSecure(
         // SERIALIZABLE para evitar duplicados
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        if (terminalId) {
+            const terminalInScope = await ensureTerminalInBranch(client, terminalId, scope.branchId);
+            if (!terminalInScope) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Terminal fuera de la sucursal autorizada' };
+            }
+        }
+
         // 1. RECOVER SESSION: Check if user already has an active ticket (CALLED)
         // This prevents stacking tickets and allows recovering state if UI crashed
         const activeTicketRes = await client.query(`
@@ -225,7 +366,7 @@ export async function getNextTicketSecure(
             WHERE branch_id = $1 AND status = 'CALLED' AND called_by = $2
             ORDER BY created_at DESC
             LIMIT 1
-        `, [branchId, userId]);
+        `, [scope.branchId, auth.actor.userId]);
 
         if ((activeTicketRes.rowCount || 0) > 0) {
             await client.query('COMMIT');
@@ -234,7 +375,6 @@ export async function getNextTicketSecure(
         }
 
         // 2. Select Next Waiting Ticket
-        console.log(`[QueueDebug] Searching waiting tickets for Branch: ${branchId}`);
         const result = await client.query(`
             SELECT * FROM queue_tickets
             WHERE branch_id = $1 AND status = 'WAITING'
@@ -243,51 +383,46 @@ export async function getNextTicketSecure(
                 created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
-        `, [branchId]);
+        `, [scope.branchId]);
 
         if (result.rowCount === 0) {
-            console.log(`[QueueDebug] No waiting tickets found for Branch: ${branchId}`);
             await client.query('COMMIT');
             return { success: true, ticket: null };
         }
 
         const ticket = result.rows[0];
-        console.log(`[QueueDebug] Found ticket ${ticket.code} (${ticket.id}). User: ${userId}, Terminal: ${terminalId}`);
 
         // Marcar como CALLED
         await client.query(`
             UPDATE queue_tickets
             SET status = 'CALLED', called_at = NOW(), called_by = $2, terminal_id = $3
             WHERE id = $1
-        `, [ticket.id, userId, terminalId || null]);
-
-        console.log(`[QueueDebug] Ticket updated to CALLED`);
+        `, [ticket.id, auth.actor.userId, terminalId || null]);
 
         // Auditar (con campos mínimos requeridos)
         try {
             await client.query(`
                 INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at, server_timestamp)
                 VALUES ($1, 'TICKET_CALLED', 'QUEUE', $2::text, $3::jsonb, NOW(), NOW())
-            `, [userId, ticket.id, JSON.stringify({
+            `, [auth.actor.userId, ticket.id, JSON.stringify({
                 code: ticket.code,
                 type: ticket.type,
                 terminal_id: terminalId,
                 wait_time_seconds: Math.floor((Date.now() - new Date(ticket.created_at).getTime()) / 1000),
             })]);
         } catch (auditErr: any) {
-            console.warn('[Queue] Audit insert failed (non-critical):', auditErr?.message);
+            logger.warn({ error: auditErr?.message }, '[Queue] Audit insert failed (non-critical)');
         }
 
         await client.query('COMMIT');
 
-        logger.info({ ticketId: ticket.id, code: ticket.code }, '📢 [Queue] Ticket called');
+        logger.info({ ticketId: ticket.id, code: ticket.code, branchId: scope.branchId }, '📢 [Queue] Ticket called');
         revalidatePath('/');
 
         return { success: true, ticket: { ...ticket, terminal_id: terminalId } };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        console.error('[QueueDebug] ERROR in getNextTicketSecure:', error);
         logger.error({ error: error?.message }, '[Queue] Get next ticket error');
         return { success: false, error: `Error: ${error?.message || 'Error obteniendo ticket'}` };
     } finally {
@@ -302,11 +437,24 @@ export async function getNextTicketSecure(
 export async function completeAndGetNextSecure(
     currentTicketId: string,
     branchId: string,
-    userId: string,
     terminalId?: string
 ): Promise<{ success: boolean; nextTicket?: any; completedTicket?: any; error?: string }> {
     if (!UUIDSchema.safeParse(currentTicketId).success || !UUIDSchema.safeParse(branchId).success) {
         return { success: false, error: 'IDs inválidos' };
+    }
+
+    if (terminalId && !UUIDSchema.safeParse(terminalId).success) {
+        return { success: false, error: 'IDs inválidos' };
+    }
+
+    const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    const scope = resolveQueueBranch(auth.actor, branchId);
+    if (!scope.success) {
+        return { success: false, error: scope.error };
     }
 
     const client = await pool.connect();
@@ -314,13 +462,33 @@ export async function completeAndGetNextSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        const currentTicket = await getQueueTicketById(currentTicketId);
+        if (!currentTicket) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Ticket actual no encontrado' };
+        }
+
+        const currentTicketScope = resolveQueueBranch(auth.actor, currentTicket.branch_id);
+        if (!currentTicketScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: currentTicketScope.error };
+        }
+
+        if (terminalId) {
+            const terminalInScope = await ensureTerminalInBranch(client, terminalId, scope.branchId);
+            if (!terminalInScope) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Terminal fuera de la sucursal autorizada' };
+            }
+        }
+
         // 1. COMPLETAR ACTUAL
         const completeRes = await client.query(`
              UPDATE queue_tickets
              SET status = 'COMPLETED', completed_at = NOW(), completed_by = $2
              WHERE id = $1 AND status = 'CALLED' AND called_by = $2
              RETURNING *
-         `, [currentTicketId, userId]);
+         `, [currentTicketId, auth.actor.userId]);
 
         let completedTicket = null;
 
@@ -335,11 +503,11 @@ export async function completeAndGetNextSecure(
 
             if ((checkRes.rowCount || 0) > 0 && checkRes.rows[0].status === 'COMPLETED') {
                 // Ya estaba completado, ignoramos el error y seguimos
-                console.log('[Queue] Ticket already completed, proceeding to next');
+                logger.info({ ticketId: currentTicketId }, '[Queue] Ticket already completed, proceeding to next');
             } else {
                 // Si no existe o está en otro estado extraño, logueamos pero INTENTAMOS seguir 
                 // para no bloquear al cajero.
-                console.warn('[Queue] Warning: Current ticket could not be completed (stale state?)');
+                logger.warn({ ticketId: currentTicketId }, '[Queue] Current ticket could not be completed (stale state?)');
             }
         }
 
@@ -352,7 +520,7 @@ export async function completeAndGetNextSecure(
                  created_at ASC
              LIMIT 1
              FOR UPDATE SKIP LOCKED
-         `, [branchId]);
+         `, [scope.branchId]);
 
         let nextTicket = null;
 
@@ -363,7 +531,7 @@ export async function completeAndGetNextSecure(
                  UPDATE queue_tickets
                  SET status = 'CALLED', called_at = NOW(), called_by = $2, terminal_id = $3
                  WHERE id = $1
-             `, [nextTicket.id, userId, terminalId || null]);
+             `, [nextTicket.id, auth.actor.userId, terminalId || null]);
 
             nextTicket = { ...nextTicket, status: 'CALLED', terminal_id: terminalId };
         }
@@ -388,27 +556,38 @@ export async function completeAndGetNextSecure(
 // RECALL TICKET
 // ============================================================================
 export async function recallTicketSecure(
-    ticketId: string,
-    userId: string
+    ticketId: string
 ): Promise<{ success: boolean; error?: string }> {
     try {
-        console.log(`[QueueDebug] Attempting RECALL for Ticket: ${ticketId} by User: ${userId}`);
+        const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+        if (!auth.success) {
+            return { success: false, error: auth.error };
+        }
+
+        const ticket = await getQueueTicketById(ticketId);
+        if (!ticket) {
+            return { success: false, error: 'Ticket no encontrado' };
+        }
+
+        const scope = resolveQueueBranch(auth.actor, ticket.branch_id);
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+
         const result = await query(`
             UPDATE queue_tickets
             SET called_at = NOW() 
             WHERE id = $1 AND status = 'CALLED' AND called_by = $2
-        `, [ticketId, userId]);
+        `, [ticketId, auth.actor.userId]);
 
         if (result.rowCount === 0) {
-            console.warn(`[QueueDebug] RECALL FAILED. Ticket not found/owned.`);
             return { success: false, error: 'Ticket no disponible o pertenece a otro usuario' };
         }
 
-        console.log(`[QueueDebug] RECALL SUCCESS`);
         revalidatePath('/');
         return { success: true };
     } catch (e: any) {
-        console.error('[QueueDebug] RECALL ERROR:', e);
+        logger.error({ error: e?.message, ticketId }, '[Queue] Recall ticket error');
         return { success: false, error: e.message };
     }
 }
@@ -419,21 +598,34 @@ export async function recallTicketSecure(
 // COMPLETE TICKET
 // ============================================================================
 export async function completeTicketSecure(
-    ticketId: string,
-    userId: string
+    ticketId: string
 ): Promise<{ success: boolean; serviceTime?: number; error?: string }> {
-    if (!UUIDSchema.safeParse(ticketId).success || !UUIDSchema.safeParse(userId).success) {
+    if (!UUIDSchema.safeParse(ticketId).success) {
         return { success: false, error: 'IDs inválidos' };
     }
 
     try {
-        console.log(`[QueueDebug] Attempting to COMPLETE ticket ${ticketId} by user ${userId}`);
+        const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+        if (!auth.success) {
+            return { success: false, error: auth.error };
+        }
+
+        const ticketScope = await getQueueTicketById(ticketId);
+        if (!ticketScope) {
+            return { success: false, error: 'Ticket no existe' };
+        }
+
+        const scope = resolveQueueBranch(auth.actor, ticketScope.branch_id);
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+
         const result = await query(`
             UPDATE queue_tickets
             SET status = 'COMPLETED', completed_at = NOW(), completed_by = $2
             WHERE id = $1 AND called_by = $2 AND status = 'CALLED'
             RETURNING code, called_at, completed_at
-        `, [ticketId, userId]);
+        `, [ticketId, auth.actor.userId]);
 
         if (result.rowCount === 0) {
             // DEBUG: Find OUT WHY it failed
@@ -441,7 +633,7 @@ export async function completeTicketSecure(
             const ticket = check.rows[0];
             if (!ticket) return { success: false, error: 'Ticket no existe' };
             if (ticket.status !== 'CALLED') return { success: false, error: `Estado incorrecto: ${ticket.status}` };
-            if (ticket.called_by !== userId) return { success: false, error: `Ticket pertenece a otro usuario` };
+            if (ticket.called_by !== auth.actor.userId) return { success: false, error: `Ticket pertenece a otro usuario` };
 
             return { success: false, error: 'No se pudo finalizar (Error desconocido)' };
         }
@@ -455,18 +647,17 @@ export async function completeTicketSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'TICKET_COMPLETED', 'QUEUE', $2, $3::jsonb, NOW())
-        `, [userId, ticketId, JSON.stringify({
+        `, [auth.actor.userId, ticketId, JSON.stringify({
             code: ticket.code,
             service_time_seconds: serviceTime,
         })]);
 
-        // logger.info({ ticketId, serviceTime }, '✅ [Queue] Ticket completed');
-        console.log(`[QueueDebug] Ticket COMPLETED. Service Time: ${serviceTime}s`);
+        logger.info({ ticketId, serviceTime }, '✅ [Queue] Ticket completed');
         revalidatePath('/');
         return { success: true, serviceTime };
 
     } catch (error: any) {
-        console.error('[QueueDebug] Complete ticket error:', error);
+        logger.error({ error: error?.message, ticketId }, '[Queue] Complete ticket error');
         return { success: false, error: 'Error finalizando ticket' };
     }
 }
@@ -491,6 +682,28 @@ export async function cancelTicketSecure(
     }
 
     try {
+        const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+        if (!auth.success) {
+            return { success: false, error: auth.error };
+        }
+
+        const ticket = await getQueueTicketById(ticketId);
+        if (!ticket) {
+            return { success: false, error: 'Ticket no encontrado o ya procesado' };
+        }
+
+        const scope = resolveQueueBranch(auth.actor, ticket.branch_id);
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+
+        const calledByActor = ticket.called_by === auth.actor.userId;
+        const canForceCancel = QUEUE_ADMIN_ROLES.includes(auth.actor.role as (typeof QUEUE_ADMIN_ROLES)[number]);
+
+        if (ticket.status === 'CALLED' && !calledByActor && !canForceCancel) {
+            return { success: false, error: 'Solo el operador actual o un manager puede cancelar este ticket' };
+        }
+
         // Si está siendo atendido, validar que sea el mismo usuario
         const result = await query(`
             UPDATE queue_tickets
@@ -527,7 +740,8 @@ import { unstable_noStore as noStore } from 'next/cache';
  * 📊 Estado Actual de la Fila
  */
 export async function getQueueStatusSecure(
-    branchId: string
+    branchId: string,
+    options?: { publicDisplay?: boolean }
 ): Promise<{ success: boolean; data?: any; error?: string }> {
     noStore(); // Disable Cache for this action
 
@@ -536,7 +750,18 @@ export async function getQueueStatusSecure(
     }
 
     try {
-        // console.log(`[QueuePoll] Fetching status for ${ branchId } at ${ Date.now() } `); // Too verbose for prod, useful for debug
+        const isPublicDisplay = options?.publicDisplay === true;
+        if (!isPublicDisplay) {
+            const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+            if (!auth.success) {
+                return { success: false, error: auth.error };
+            }
+
+            const scope = resolveQueueBranch(auth.actor, branchId);
+            if (!scope.success) {
+                return { success: false, error: scope.error };
+            }
+        }
 
         const result = await query(`
             SELECT qt.*, t.name as terminal_name, t.module_number 
@@ -557,79 +782,14 @@ export async function getQueueStatusSecure(
             LIMIT 5
     `, [branchId]);
 
-        const waiting = result.rows.filter(t => t.status === 'WAITING');
-        const called = result.rows.filter(t => t.status === 'CALLED');
-        const completed = historyRes.rows;
-
         return {
             success: true,
-            data: {
-                waitingCount: waiting.length,
-                currentTicket: called[0] || null, // Legacy: first called ticket
-                calledTickets: called, // New: all called tickets
-                lastCompletedTickets: completed, // New: history
-                waitingTickets: waiting,
-                estimatedWaitMinutes: waiting.length * 5,
-                // DEBUG: Return all rows to see what is actually fetched
-                debug_allRows: result.rows.map(r => ({ id: r.id, status: r.status, code: r.code, time: r.created_at }))
-            },
+            data: buildQueueStatusPayload(result.rows, historyRes.rows, isPublicDisplay),
         };
 
     } catch (error: any) {
         logger.error({ error }, '[Queue] Get status error');
         return { success: false, error: 'Error obteniendo estado' };
-    }
-}
-
-// ============================================================================
-// QUEUE METRICS
-// ============================================================================
-
-/**
- * 📈 Métricas del Día
- */
-export async function getQueueMetrics(
-    branchId: string,
-    date?: Date
-): Promise<{ success: boolean; data?: any; error?: string }> {
-    if (!UUIDSchema.safeParse(branchId).success) {
-        return { success: false, error: 'ID inválido' };
-    }
-
-    const targetDate = date || new Date();
-
-    try {
-        const result = await query(`
-SELECT
-COUNT(*) as total_tickets,
-    COUNT(*) FILTER(WHERE status = 'COMPLETED') as completed,
-        COUNT(*) FILTER(WHERE status = 'CANCELLED') as cancelled,
-            COUNT(*) FILTER(WHERE status = 'WAITING') as waiting,
-                COUNT(*) FILTER(WHERE type = 'PREFERENTIAL') as preferential,
-                    AVG(EXTRACT(EPOCH FROM(completed_at - called_at))) FILTER(WHERE status = 'COMPLETED') as avg_service_seconds,
-                        AVG(EXTRACT(EPOCH FROM(called_at - created_at))) FILTER(WHERE called_at IS NOT NULL) as avg_wait_seconds
-            FROM queue_tickets
-            WHERE branch_id = $1 AND DATE(created_at) = DATE($2)
-    `, [branchId, targetDate]);
-
-        const metrics = result.rows[0];
-
-        return {
-            success: true,
-            data: {
-                totalTickets: parseInt(metrics.total_tickets) || 0,
-                completed: parseInt(metrics.completed) || 0,
-                cancelled: parseInt(metrics.cancelled) || 0,
-                waiting: parseInt(metrics.waiting) || 0,
-                preferential: parseInt(metrics.preferential) || 0,
-                avgServiceSeconds: Math.round(parseFloat(metrics.avg_service_seconds) || 0),
-                avgWaitSeconds: Math.round(parseFloat(metrics.avg_wait_seconds) || 0),
-            },
-        };
-
-    } catch (error: any) {
-        logger.error({ error }, '[Queue] Get metrics error');
-        return { success: false, error: 'Error obteniendo métricas' };
     }
 }
 
@@ -641,14 +801,23 @@ COUNT(*) as total_tickets,
  * 🔄 Resetear Cola - Marca todos los tickets pendientes como cancelados
  */
 export async function resetQueueSecure(
-    branchId: string,
-    userId: string
+    branchId: string
 ): Promise<{ success: boolean; count?: number; error?: string }> {
-    if (!UUIDSchema.safeParse(branchId).success || !UUIDSchema.safeParse(userId).success) {
+    if (!UUIDSchema.safeParse(branchId).success) {
         return { success: false, error: 'IDs inválidos' };
     }
 
     try {
+        const auth = await requireQueueActor(QUEUE_ADMIN_ROLES);
+        if (!auth.success) {
+            return { success: false, error: auth.error };
+        }
+
+        const scope = resolveQueueBranch(auth.actor, branchId);
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+
         // Cancelar todos los tickets WAITING y CALLED de hoy (usar NO_SHOW ya que CANCELLED no existe en el enum)
         const result = await query(`
             UPDATE queue_tickets
@@ -656,11 +825,11 @@ export async function resetQueueSecure(
             WHERE branch_id = $1 
             AND status IN('WAITING', 'CALLED')
             RETURNING id
-    `, [branchId]);
+    `, [scope.branchId]);
 
         const count = result.rows?.length || 0;
 
-        logger.info({ branchId, userId, count }, '🔄 [Queue] Queue reset');
+        logger.info({ branchId: scope.branchId, userId: auth.actor.userId, count }, '🔄 [Queue] Queue reset');
         revalidatePath('/');
 
         return { success: true, count };

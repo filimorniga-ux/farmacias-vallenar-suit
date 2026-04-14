@@ -21,6 +21,11 @@ const mockRelease = vi.fn();
 const mockConnect = vi.fn();
 const mockBcryptCompare = vi.fn();
 const mockGetValidatedSession = vi.fn();
+const mockRequireInventoryActor = vi.fn();
+const mockResolveEffectiveInventoryLocation = vi.fn();
+const mockResolveWarehouseForInventoryActor = vi.fn();
+const mockEnsureBatchInInventoryScope = vi.fn();
+const mockEnsureProductInInventoryScope = vi.fn();
 
 // Mock DB
 vi.mock('@/lib/db', () => ({
@@ -82,6 +87,7 @@ vi.mock('@/lib/pin-rbac', () => {
             OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
             TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
         },
+        normalizeRole: (role: string | null | undefined) => String(role || '').trim().toUpperCase(),
         getActorOrFail: async () => {
             const session = await mockGetValidatedSession();
             if (!session) {
@@ -127,6 +133,17 @@ vi.mock('@/lib/pin-rbac', () => {
     };
 });
 
+vi.mock('@/actions/inventory-scope', () => ({
+    INVENTORY_READ_ROLES: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'],
+    INVENTORY_WRITE_ROLES: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'],
+    INVENTORY_DELETE_ROLES: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    requireInventoryActor: (...args: unknown[]) => mockRequireInventoryActor(...args),
+    resolveEffectiveInventoryLocation: (...args: unknown[]) => mockResolveEffectiveInventoryLocation(...args),
+    resolveWarehouseForInventoryActor: (...args: unknown[]) => mockResolveWarehouseForInventoryActor(...args),
+    ensureBatchInInventoryScope: (...args: unknown[]) => mockEnsureBatchInInventoryScope(...args),
+    ensureProductInInventoryScope: (...args: unknown[]) => mockEnsureProductInInventoryScope(...args),
+}));
+
 // Import after mocks
 import {
     createBatchSecure,
@@ -165,6 +182,45 @@ beforeEach(() => {
         tokenVersion: 1,
         sessionToken: 'inventory-session-token',
     });
+    mockRequireInventoryActor.mockImplementation(async () => {
+        const session = await mockGetValidatedSession();
+        if (!session) {
+            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+        }
+
+        return {
+            success: true,
+            actor: {
+                ...session,
+                role: String(session.role || '').trim().toUpperCase(),
+            },
+        };
+    });
+    mockResolveEffectiveInventoryLocation.mockImplementation((actor: { locationId?: string; role?: string }, requestedLocationId?: string) => ({
+        success: true,
+        locationId: requestedLocationId || actor.locationId,
+    }));
+    mockResolveWarehouseForInventoryActor.mockImplementation(async (actor: { locationId?: string }, requestedWarehouseId?: string, requestedLocationId?: string) => ({
+        success: true,
+        warehouseId: requestedWarehouseId || VALID_WAREHOUSE_ID,
+        locationId: requestedLocationId || actor.locationId || VALID_LOCATION_ID,
+    }));
+    mockEnsureBatchInInventoryScope.mockImplementation(async (_batchId: string) => ({
+        success: true,
+        batch: {
+            id: VALID_BATCH_ID,
+            product_id: '123e4567-e89b-12d3-a456-426614174099',
+            location_id: VALID_LOCATION_ID,
+            warehouse_id: VALID_WAREHOUSE_ID,
+        },
+        locationId: VALID_LOCATION_ID,
+        warehouseId: VALID_WAREHOUSE_ID,
+    }));
+    mockEnsureProductInInventoryScope.mockImplementation(async (productId: string) => ({
+        success: true,
+        product: { id: productId, location_id: VALID_LOCATION_ID },
+        locationId: VALID_LOCATION_ID,
+    }));
 });
 
 // =====================================================

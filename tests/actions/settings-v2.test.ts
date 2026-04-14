@@ -4,7 +4,7 @@
 
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 
-const { mockClient, mockQuery, PinRbacError } = vi.hoisted(() => {
+const { mockClient, mockQuery, mockGetSiiConfigurationSummary, PinRbacError } = vi.hoisted(() => {
     class MockPinRbacError extends Error {
         code: string;
 
@@ -21,6 +21,7 @@ const { mockClient, mockQuery, PinRbacError } = vi.hoisted(() => {
             release: vi.fn(),
         },
         mockQuery: vi.fn(),
+        mockGetSiiConfigurationSummary: vi.fn(),
         PinRbacError: MockPinRbacError,
     };
 });
@@ -55,6 +56,9 @@ vi.mock('@/lib/pin-rbac', () => ({
     PinRbacError,
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@/lib/sii-config', () => ({
+    getSiiConfigurationSummary: mockGetSiiConfigurationSummary,
+}));
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -65,6 +69,10 @@ beforeEach(() => {
         userName: 'Manager',
         tokenVersion: 1,
         sessionToken: 'token',
+    });
+    mockGetSiiConfigurationSummary.mockResolvedValue({
+        ambiente: 'CERTIFICACION',
+        hasCertificate: false,
     });
     vi.mocked(validatePinForRoles).mockResolvedValue({
         valid: true,
@@ -114,9 +122,41 @@ describe('Settings V2 - RBAC', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('administradores');
     });
+
+    it('usa backend como fuente de verdad para configuración operativa', async () => {
+        mockGetSiiConfigurationSummary.mockResolvedValueOnce({
+            ambiente: 'PRODUCCION',
+            hasCertificate: true,
+        });
+        mockQuery
+            .mockResolvedValueOnce({ rows: [{ value: '7' }], rowCount: 1 } as any)
+            .mockResolvedValueOnce({ rows: [{ value: '4' }], rowCount: 1 } as any)
+            .mockResolvedValueOnce({ rows: [{ value: '22' }], rowCount: 1 } as any);
+
+        const result = await settingsV2.getOperationalSettingsSecure();
+
+        expect(result.success).toBe(true);
+        expect(result.data).toEqual({
+            sii_enabled: true,
+            fiscal_mode: 'FISCAL',
+            sii_environment: 'PRODUCCION',
+            security: {
+                idle_timeout_minutes: 7,
+                max_login_attempts: 4,
+                lockout_duration_minutes: 22,
+            },
+        });
+    });
 });
 
 describe('Settings V2 - Critical Settings', () => {
+    it('bloquea settings gestionados por entorno de despliegue', async () => {
+        const result = await settingsV2.updateSettingSecure('MAINTENANCE_MODE', 'true');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('entorno de despliegue');
+    });
+
     it('should require PIN for critical settings update', async () => {
         vi.mocked(getActorOrFail).mockResolvedValueOnce({
             userId: 'admin-1',

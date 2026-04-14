@@ -111,4 +111,64 @@ describe('Sync V2 - server-side session', () => {
         expect(result.success).toBe(true);
         expect(getValidatedSession).not.toHaveBeenCalled();
     });
+
+    it('restringe empleados al scope de la ubicación para actores no globales', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'cashier-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 2,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'cashier-1',
+                        rut: '12345678-9',
+                        name: 'Caja',
+                        role: 'CASHIER',
+                        assigned_location_id: 'loc-1',
+                        status: 'ACTIVE',
+                        job_title: 'CAJERO',
+                        is_active: true,
+                        token_version: 2,
+                    },
+                ],
+                rowCount: 1,
+            } as never)
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 } as never);
+
+        const result = await syncV2.fetchEmployeesSecure();
+
+        expect(result.success).toBe(true);
+        expect(query).toHaveBeenCalledWith(
+            expect.stringContaining('assigned_location_id::text = $2::text'),
+            [false, 'loc-1']
+        );
+        expect(result.data?.[0]?.token_version).toBe(2);
+    });
+
+    it('rechaza inventario de otra bodega para actores no globales', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'cashier-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(query).mockResolvedValueOnce({
+            rows: [{ location_id: 'loc-2' }],
+            rowCount: 1,
+        } as never);
+
+        const result = await syncV2.fetchInventorySecure('550e8400-e29b-41d4-a716-446655440010');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('otra bodega');
+    });
 });

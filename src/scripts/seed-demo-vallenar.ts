@@ -4,7 +4,10 @@ import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
+import { DEV_TEST_ACCOUNT } from './dev-account-support';
+import { ensureMinimalRuntimeSchema } from './runtime-schema-contract';
 
 // Load environment variables from .env.local
 const __filename = fileURLToPath(import.meta.url);
@@ -33,6 +36,7 @@ const WAREHOUSES = [
 ];
 
 const BATCH_SIZE = 50;
+let seededPinSequence = 3000;
 
 // Data Generators
 const CHILEAN_NAMES = [
@@ -49,11 +53,13 @@ const generateRut = () => {
     return `${num}-${Math.floor(Math.random() * 10)}`;
 };
 
-const hashPin = (pin: string) => {
+const hashLegacyPin = (pin: string) => {
     return crypto.createHash('sha256').update(pin).digest('hex');
 };
+const hashAccessPin = (pin: string) => bcrypt.hashSync(pin, 10);
 
 const getRandomElement = (arr: any[]) => arr[Math.floor(Math.random() * arr.length)];
+const nextSeededPin = () => String(seededPinSequence++).padStart(4, '0');
 
 // --- MAIN FUNCTION ---
 async function main() {
@@ -74,7 +80,29 @@ async function main() {
             `CREATE TABLE IF NOT EXISTS locations(id UUID PRIMARY KEY, type VARCHAR(50), name VARCHAR(255), address TEXT, phone VARCHAR(50), parent_id UUID, default_warehouse_id UUID, rut VARCHAR(20), is_active BOOLEAN DEFAULT true, created_at TIMESTAMP DEFAULT NOW())`,
             `CREATE TABLE IF NOT EXISTS warehouses(id UUID PRIMARY KEY, location_id UUID REFERENCES locations(id), name VARCHAR(255), is_active BOOLEAN DEFAULT true)`,
             `CREATE TABLE IF NOT EXISTS terminals(id UUID PRIMARY KEY, location_id UUID REFERENCES locations(id), name VARCHAR(255), status VARCHAR(50))`,
-            `CREATE TABLE IF NOT EXISTS users(id UUID PRIMARY KEY, rut VARCHAR(20), name VARCHAR(255), role VARCHAR(50), access_pin VARCHAR(10), pin_hash VARCHAR(255), status VARCHAR(50), assigned_location_id UUID, job_title VARCHAR(100), base_salary INTEGER, afp VARCHAR(50), health_system VARCHAR(100), created_at TIMESTAMP DEFAULT NOW())`,
+            `CREATE TABLE IF NOT EXISTS users(
+                id UUID PRIMARY KEY,
+                rut VARCHAR(20),
+                name VARCHAR(255),
+                email VARCHAR(255),
+                role VARCHAR(50),
+                access_pin VARCHAR(10),
+                access_pin_hash VARCHAR(255),
+                pin_hash VARCHAR(255),
+                status VARCHAR(50),
+                is_active BOOLEAN DEFAULT true,
+                assigned_location_id UUID,
+                job_title VARCHAR(100),
+                base_salary INTEGER,
+                afp VARCHAR(50),
+                health_system VARCHAR(100),
+                session_token TEXT,
+                token_version INT DEFAULT 1,
+                last_active_at TIMESTAMP DEFAULT NOW(),
+                current_context_data JSONB DEFAULT '{}'::jsonb,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )`,
             `CREATE TABLE IF NOT EXISTS products(id UUID PRIMARY KEY, sku VARCHAR(50) UNIQUE, name VARCHAR(255), description TEXT, sale_price NUMERIC(15, 2), price NUMERIC(15, 2), cost_price NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, stock_actual INTEGER DEFAULT 0)`,
             `CREATE TABLE IF NOT EXISTS inventory_batches(id UUID PRIMARY KEY, product_id UUID, sku VARCHAR(50), name VARCHAR(255), location_id UUID, warehouse_id UUID, quantity_real INTEGER DEFAULT 0, expiry_date TIMESTAMP, lot_number VARCHAR(100), cost_net NUMERIC(15, 2), price_sell_box NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, unit_cost NUMERIC(15, 2), sale_price NUMERIC(15, 2), updated_at TIMESTAMP DEFAULT NOW(), source_system VARCHAR(50))`,
             `CREATE TABLE IF NOT EXISTS sales(id UUID PRIMARY KEY, location_id UUID, terminal_id UUID, user_id UUID, customer_rut VARCHAR(20), total_amount NUMERIC(15, 2), total NUMERIC(15, 2), payment_method VARCHAR(50), dte_folio INTEGER, dte_status VARCHAR(50), timestamp TIMESTAMP DEFAULT NOW())`,
@@ -99,6 +127,14 @@ async function main() {
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS health_system VARCHAR(100)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS base_salary INTEGER",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS access_pin_hash VARCHAR(255)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT DEFAULT 1",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS current_context_data JSONB DEFAULT '{}'::jsonb",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_price NUMERIC(15, 2)",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(15, 2)"
         ];
@@ -106,10 +142,32 @@ async function main() {
             try { await client.query(stmt); } catch (e) { }
         }
 
+        await ensureMinimalRuntimeSchema(client);
+
         // 2. CLEANUP (Start Transaction Here)
         console.log('🧹 Cleaning Operational Data...');
         await client.query('BEGIN');
-        const tablesToTruncate = ['sale_items', 'sales', 'stock_movements', 'inventory_batches', 'shift_logs', 'cash_movements', 'queue_tickets', 'attendance_logs', 'customers'];
+        const tablesToTruncate = [
+            'sale_items',
+            'sales',
+            'stock_movements',
+            'inventory_batches',
+            'shift_logs',
+            'cash_movements',
+            'queue_tickets',
+            'attendance_logs',
+            'customers',
+            'notification_reads',
+            'notifications',
+            'purchase_orders',
+            'app_settings',
+            'system_configs',
+            'cash_register_sessions',
+            'financial_accounts',
+            'treasury_transactions',
+            'treasury_remittances',
+            'refunds',
+        ];
         for (const t of tablesToTruncate) {
             try {
                 await client.query(`SAVEPOINT clean_${t}`);
@@ -138,7 +196,7 @@ async function main() {
         // Global Warehouses
         for (const w of WAREHOUSES) {
             const locId = uuidv4();
-            await client.query(`INSERT INTO locations(id, type, name, address, rut) VALUES($1, 'HQ', $2, $3, '76.000.000-0')`, [locId, w.name, w.address]);
+            await client.query(`INSERT INTO locations(id, type, name, address, email, rut) VALUES($1, 'HQ', $2, $3, $4, '76.000.000-0')`, [locId, w.name, w.address, null]);
             const whId = uuidv4();
             await client.query(`INSERT INTO warehouses(id, location_id, name, is_active) VALUES($1, $2, $3, true)`, [whId, locId, w.name]);
             await client.query('UPDATE locations SET default_warehouse_id = $1 WHERE id = $2', [whId, locId]);
@@ -151,7 +209,7 @@ async function main() {
         // Branches
         for (const b of BRANCHES) {
             const storeId = uuidv4();
-            await client.query(`INSERT INTO locations(id, type, name, address, phone, rut) VALUES($1, 'STORE', $2, $3, $4, '76.444.555-6')`, [storeId, b.name, b.address, b.phone]);
+            await client.query(`INSERT INTO locations(id, type, name, address, phone, email, rut) VALUES($1, 'STORE', $2, $3, $4, $5, '76.444.555-6')`, [storeId, b.name, b.address, b.phone, b.email]);
 
             const whId = uuidv4();
             await client.query(`INSERT INTO warehouses(id, location_id, name, is_active) VALUES($1, $2, $3, true)`, [whId, storeId, `Sala de Ventas - ${b.name}`]);
@@ -166,22 +224,51 @@ async function main() {
             // STAFF
             // 1. Admin/QF
             const adminId = uuidv4();
+            const adminPin = nextSeededPin();
             await client.query(`
-                INSERT INTO users(id, rut, name, role, access_pin, pin_hash, status, assigned_location_id, job_title, base_salary, afp, health_system)
-                VALUES($1, $2, $3, 'MANAGER', '1213', $4, 'ACTIVE', $5, 'QUIMICO FARMACEUTICO', 1800000, $6, $7)
-             `, [adminId, generateRut(), `${getRandomElement(CHILEAN_NAMES)} (QF)`, hashPin('1213'), storeId, getRandomElement(AFPS), getRandomElement(HEALTH_SYSTEMS)]);
+                INSERT INTO users(
+                    id, rut, name, role, access_pin, access_pin_hash, pin_hash, status, is_active,
+                    assigned_location_id, job_title, base_salary, afp, health_system
+                )
+                VALUES($1, $2, $3, 'MANAGER', $4, $5, $6, 'ACTIVE', true, $7, 'QUIMICO FARMACEUTICO', 1800000, $8, $9)
+             `, [adminId, generateRut(), `${getRandomElement(CHILEAN_NAMES)} (QF)`, adminPin, hashAccessPin(adminPin), hashLegacyPin(adminPin), storeId, getRandomElement(AFPS), getRandomElement(HEALTH_SYSTEMS)]);
             employees.push({ id: adminId, storeId });
 
             // 2. Cashiers
             for (let i = 0; i < 3; i++) {
                 const cashId = uuidv4();
+                const cashierPin = nextSeededPin();
                 await client.query(`
-                    INSERT INTO users(id, rut, name, role, access_pin, pin_hash, status, assigned_location_id, job_title, base_salary, afp, health_system)
-                    VALUES($1, $2, $3, 'CASHIER', '1213', $4, 'ACTIVE', $5, 'CAJERO VENDEDOR', 600000, $6, $7)
-                 `, [cashId, generateRut(), `${getRandomElement(CHILEAN_NAMES)}`, hashPin('1213'), storeId, getRandomElement(AFPS), getRandomElement(HEALTH_SYSTEMS)]);
+                    INSERT INTO users(
+                        id, rut, name, role, access_pin, access_pin_hash, pin_hash, status, is_active,
+                        assigned_location_id, job_title, base_salary, afp, health_system
+                    )
+                    VALUES($1, $2, $3, 'CASHIER', $4, $5, $6, 'ACTIVE', true, $7, 'CAJERO VENDEDOR', 600000, $8, $9)
+                 `, [cashId, generateRut(), `${getRandomElement(CHILEAN_NAMES)}`, cashierPin, hashAccessPin(cashierPin), hashLegacyPin(cashierPin), storeId, getRandomElement(AFPS), getRandomElement(HEALTH_SYSTEMS)]);
                 employees.push({ id: cashId, storeId });
             }
         }
+
+        await client.query(`
+            INSERT INTO users(
+                id, rut, name, email, role, access_pin, access_pin_hash, pin_hash, status, is_active,
+                assigned_location_id, job_title, base_salary, afp, health_system
+            ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE', true, $9, $10, 2500000, $11, $12)
+        `, [
+            uuidv4(),
+            '22.222.222-2',
+            DEV_TEST_ACCOUNT.name,
+            DEV_TEST_ACCOUNT.email,
+            DEV_TEST_ACCOUNT.role,
+            DEV_TEST_ACCOUNT.pin,
+            hashAccessPin(DEV_TEST_ACCOUNT.pin),
+            hashLegacyPin(DEV_TEST_ACCOUNT.pin),
+            branchIds[0] ?? null,
+            DEV_TEST_ACCOUNT.jobTitle,
+            getRandomElement(AFPS),
+            getRandomElement(HEALTH_SYSTEMS),
+        ]);
+        console.log(`🔐 Cuenta DEV controlada sembrada: ${DEV_TEST_ACCOUNT.name}`);
 
         // 4. CUSTOMERS (New)
         console.log('🤝 Creating Customers...');
@@ -214,7 +301,7 @@ async function main() {
             ];
             for (const p of dummyProducts) {
                 const id = uuidv4();
-                await client.query(`INSERT INTO products(id, sku, name, cost_price, sale_price, stock_min, stock_max) VALUES($1, $2, $3, $4, $5, 10, 1000)`, [id, p.sku, p.name, p.cost, p.sale]);
+                await client.query(`INSERT INTO products(id, sku, name, category, cost_price, sale_price, stock_min, stock_max) VALUES($1, $2, $3, 'MEDICAMENTO', $4, $5, 10, 1000)`, [id, p.sku, p.name, p.cost, p.sale]);
             }
             products = (await client.query("SELECT id, sku, name, cost_price, sale_price FROM products")).rows;
         }

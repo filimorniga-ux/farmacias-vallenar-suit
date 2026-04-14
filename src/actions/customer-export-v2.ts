@@ -16,13 +16,11 @@ import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
-import { getSessionSecure } from './auth-v2';
+import { CUSTOMER_EXPORT_ROLES, requireCustomerActor } from './customer-scope';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 type CustomerRow = {
     id?: string;
@@ -93,9 +91,9 @@ async function auditExport(userId: string, exportType: string, params: Record<st
 export async function generateCustomerReportSecure(
     params: { startDate: string; endDate: string; customerIds?: string[] }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+    const auth = await requireCustomerActor(CUSTOMER_EXPORT_ROLES, 'generateCustomerReportSecure');
+    if (!auth.success) return { success: false, error: auth.error };
+    const session = auth.actor;
 
     try {
         const { startDate, endDate, customerIds } = params;
@@ -123,8 +121,6 @@ export async function generateCustomerReportSecure(
             return {
                 rut: maskRut(cust.rut),
                 name: cust.name || '-',
-                phone: cust.phone || '-',
-                email: cust.email || '-',
                 points: Number(cust.loyalty_points || 0),
                 p_count: Number(stats.count),
                 p_total: Number(stats.total),
@@ -141,8 +137,6 @@ export async function generateCustomerReportSecure(
             columns: [
                 { header: 'RUT (Protegido)', key: 'rut', width: 15 },
                 { header: 'Nombre Completo', key: 'name', width: 35 },
-                { header: 'Teléfono', key: 'phone', width: 15 },
-                { header: 'Email de Contacto', key: 'email', width: 25 },
                 { header: 'Puntos Acum.', key: 'points', width: 15 },
                 { header: 'Transacciones', key: 'p_count', width: 15 },
                 { header: 'Monto Total ($)', key: 'p_total', width: 18 },
@@ -173,9 +167,9 @@ export async function exportLoyaltyReportSecure(): Promise<{
     filename?: string;
     error?: string;
 }> {
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+    const auth = await requireCustomerActor(CUSTOMER_EXPORT_ROLES, 'exportLoyaltyReportSecure');
+    if (!auth.success) return { success: false, error: auth.error };
+    const session = auth.actor;
 
     try {
         const res = await query(`
@@ -190,7 +184,6 @@ export async function exportLoyaltyReportSecure(): Promise<{
         const data = (res.rows as LoyaltyRow[]).map((row) => ({
             rut: maskRut(row.rut),
             name: row.name,
-            email: row.email || '-',
             points: Number(row.loyalty_points),
             redeemed: Number(row.redeemed),
             available: Number(row.loyalty_points) - Number(row.redeemed),
@@ -205,7 +198,6 @@ export async function exportLoyaltyReportSecure(): Promise<{
             columns: [
                 { header: 'RUT', key: 'rut', width: 15 },
                 { header: 'Nombre Cliente', key: 'name', width: 35 },
-                { header: 'Email', key: 'email', width: 25 },
                 { header: 'Puntos Históricos', key: 'points', width: 18 },
                 { header: 'Puntos Canjeados', key: 'redeemed', width: 18 },
                 { header: 'Saldo Disponible', key: 'available', width: 18 },
@@ -232,9 +224,9 @@ export async function exportLoyaltyReportSecure(): Promise<{
 export async function generateCustomerHistoryReportSecure(
     params: { customerIds: string[]; startDate?: string; endDate?: string }
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+    const auth = await requireCustomerActor(CUSTOMER_EXPORT_ROLES, 'generateCustomerHistoryReportSecure');
+    if (!auth.success) return { success: false, error: auth.error };
+    const session = auth.actor;
 
     try {
         const { customerIds, startDate, endDate } = params;

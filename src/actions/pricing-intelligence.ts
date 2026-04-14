@@ -3,7 +3,7 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
-import { getSessionSecure } from './auth-v2';
+import { PRICING_GLOBAL_ROLES, PRICING_WRITE_ROLES, requireScopedActor } from '@/actions/admin-scope';
 
 // ============================================================================
 // PRICING INTELLIGENCE — Comparación entre Proveedores + Motor de Recomendaciones
@@ -111,6 +111,11 @@ export async function getSupplierPriceComparison(productId: string): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validated = GetSupplierComparisonSchema.safeParse({ productId });
         if (!validated.success) return { success: false, error: 'ID de producto inválido' };
 
@@ -412,9 +417,9 @@ export async function resolveRecommendation(
         const validated = ResolveRecommendationSchema.safeParse({ recommendationId, action });
         if (!validated.success) return { success: false, error: 'Parámetros inválidos' };
 
-        const session = await getSessionSecure();
-        if (!session || !session.userId) return { success: false, error: 'No autorizado' };
-        const userId = session.userId;
+        const actorResult = await requireScopedActor(PRICING_WRITE_ROLES);
+        if (!actorResult.success) return { success: false, error: actorResult.error };
+        const userId = actorResult.actor.userId;
 
         const client = await pool.connect();
         try {
@@ -493,6 +498,11 @@ export async function getPendingRecommendations(limit = 50): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validatedLimit = LimitSchema.safeParse(limit);
         const safeLimit = validatedLimit.success ? validatedLimit.data : 50;
 
@@ -534,6 +544,11 @@ export async function getRecommendationHistory(limit = 50): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validatedLimit = LimitSchema.safeParse(limit);
         const safeLimit = validatedLimit.success ? validatedLimit.data : 50;
 
@@ -577,6 +592,11 @@ export async function getSupplierPriceOverview(limit = 30): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validatedLimit = LimitSchema.safeParse(limit);
         const safeLimit = validatedLimit.success ? validatedLimit.data : 30;
 

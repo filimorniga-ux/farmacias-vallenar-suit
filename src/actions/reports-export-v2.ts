@@ -1,11 +1,14 @@
 'use server';
 
-import { query } from '@/lib/db';
 import { z } from 'zod';
 import { ExcelService } from '@/lib/excel-generator';
-import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
+import { formatDateCL } from '@/lib/timezone';
 import { startOfDay, endOfDay, startOfWeek, startOfMonth } from 'date-fns';
-import { getSessionSecure } from './auth-v2';
+import {
+    PRODUCT_REPORT_ROLES,
+    requireReportActor,
+} from './report-scope';
+import { getProductSalesReportSecure } from './reports-v2';
 
 // Reuse the schema from reports-v2 but we only need it for validation here
 const ReportFilterSchema = z.object({
@@ -19,15 +22,6 @@ const ReportFilterSchema = z.object({
 });
 
 type ReportParams = z.infer<typeof ReportFilterSchema>;
-
-const UuidSchema = z.string().uuid();
-
-function normalizeUuidFilter(value?: string): string | undefined {
-    if (!value || value === 'ALL') return undefined;
-    const trimmed = value.trim();
-    if (!trimmed) return undefined;
-    return UuidSchema.safeParse(trimmed).success ? trimmed : undefined;
-}
 
 // --- HELPER: DATE RANGE ---
 function getDateRange(period: string, startStr?: string, endStr?: string) {
@@ -69,66 +63,22 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
     filename?: string;
     error?: string;
 }> {
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
+    const actorResult = await requireReportActor(PRODUCT_REPORT_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actor = actorResult.actor;
 
     try {
         const filters = ReportFilterSchema.parse(params);
         const { start, end } = getDateRange(filters.period, filters.startDate, filters.endDate);
-        const locationFilter = normalizeUuidFilter(filters.locationId);
-        const terminalFilter = normalizeUuidFilter(filters.terminalId);
-
-        const queryParams: any[] = [start, end];
-        let paramIndex = 3;
-
-        let sql = `
-            SELECT 
-                p.id as product_id,
-                MAX(p.sku) as sku,
-                MAX(p.name) as product_name,
-                MAX(p.category) as category,
-                SUM(si.quantity - COALESCE(si.refunded_quantity, 0)) as units_sold,
-                SUM(COALESCE(si.refunded_quantity, 0)) as refunded_units,
-                SUM(si.total_price) as total_amount,
-                ROUND(AVG(si.unit_price), 0) as avg_price,
-                COUNT(DISTINCT s.id) as transaction_count
-            FROM sale_items si
-            JOIN inventory_batches ib ON si.batch_id = ib.id
-            JOIN products p ON ib.product_id::text = p.id::text
-            JOIN sales s ON si.sale_id = s.id
-            WHERE s.timestamp >= $1 AND s.timestamp <= $2
-            AND s.status NOT IN ('VOIDED')
-        `;
-
-        if (locationFilter) {
-            sql += ` AND s.location_id::text = $${paramIndex}::text`;
-            queryParams.push(locationFilter);
-            paramIndex++;
+        const reportResult = await getProductSalesReportSecure(filters);
+        if (!reportResult.success || !reportResult.data) {
+            return { success: false, error: reportResult.error || 'Error obteniendo datos del reporte' };
         }
 
-        if (terminalFilter) {
-            sql += ` AND s.terminal_id::text = $${paramIndex}::text`;
-            queryParams.push(terminalFilter);
-            paramIndex++;
-        }
-
-        if (filters.employeeId && filters.employeeId !== 'ALL') {
-            sql += ` AND s.user_id::text = $${paramIndex}::text`;
-            queryParams.push(filters.employeeId);
-            paramIndex++;
-        }
-
-        if (filters.searchQuery?.trim()) {
-            sql += ` AND (p.name ILIKE $${paramIndex} OR p.sku ILIKE $${paramIndex})`;
-            queryParams.push(`%${filters.searchQuery.trim()}%`);
-            paramIndex++;
-        }
-
-        sql += ` GROUP BY p.id ORDER BY units_sold DESC LIMIT 10000`;
-
-        const result = await query(sql, queryParams);
-
-        const excelData = result.rows.map(row => ({
+        const excelData = reportResult.data.rows.map(row => ({
             product: row.product_name,
             sku: row.sku,
             category: row.category || 'General',
@@ -144,7 +94,7 @@ export async function exportProductSalesSecure(params: ReportParams): Promise<{
             title: 'Reporte de Ventas por Producto - Farmacias Vallenar',
             subtitle: `Período: ${formatDateCL(new Date(start))} al ${formatDateCL(new Date(end))}`,
             sheetName: 'Ranking de Productos',
-            creator: session.userName || 'Sistema',
+            creator: actor.userName || 'Sistema',
             columns: [
                 { header: 'Producto', key: 'product', width: 40 },
                 { header: 'SKU', key: 'sku', width: 15 },

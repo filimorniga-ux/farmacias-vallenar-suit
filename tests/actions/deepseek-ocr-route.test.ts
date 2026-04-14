@@ -93,8 +93,21 @@ describe('POST /api/ai/deepseek-ocr', () => {
         expect(payload.code).toBe('DEEPSEEK_OCR_UNAUTHORIZED');
     });
 
-    it('retorna error cuando falta API key en servidor', async () => {
+    it('falla cerrado cuando el token interno no está configurado', async () => {
         const response = await POST(buildRequest(VALID_BODY));
+        const payload = await response.json();
+
+        expect(response.status).toBe(503);
+        expect(payload.success).toBe(false);
+        expect(payload.code).toBe('DEEPSEEK_OCR_NOT_CONFIGURED');
+    });
+
+    it('retorna error cuando falta API key en servidor y el token sí está configurado', async () => {
+        process.env.AI_INTERNAL_ENDPOINT_TOKEN = 'internal-secret';
+
+        const response = await POST(buildRequest(VALID_BODY, {
+            'x-internal-ocr-token': 'internal-secret',
+        }));
         const payload = await response.json();
 
         expect(response.status).toBe(500);
@@ -104,6 +117,7 @@ describe('POST /api/ai/deepseek-ocr', () => {
 
     it('normaliza respuesta OpenAI-compatible a data JSON para el parser', async () => {
         process.env.AI_DEEPSEEK_API_KEY = 'deepseek-test-key';
+        process.env.AI_INTERNAL_ENDPOINT_TOKEN = 'internal-secret';
 
         const fetchMock = vi.mocked(global.fetch);
         fetchMock.mockResolvedValueOnce(
@@ -129,7 +143,9 @@ describe('POST /api/ai/deepseek-ocr', () => {
             )
         );
 
-        const response = await POST(buildRequest(VALID_BODY));
+        const response = await POST(buildRequest(VALID_BODY, {
+            'x-internal-ocr-token': 'internal-secret',
+        }));
         const payload = await response.json();
 
         expect(response.status).toBe(200);

@@ -28,11 +28,13 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
+import { resolveActorResult } from './actor-result';
+import { resolveScopedLocation } from './scoped-location';
 import {
-    getActorOrFail,
     PinRbacError,
     ROLE_GROUPS,
     requireRole,
+    type PinRbacActor,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
 
@@ -81,6 +83,19 @@ interface ReconciliationResult {
     requiresApproval: boolean;
 }
 
+type ReconciliationActor = PinRbacActor;
+
+type ScopedSession = {
+    id: string;
+    opening_amount: number;
+    closing_amount: number;
+    difference: number;
+    status: string;
+    terminal_id: string;
+    location_id: string | null;
+    reconciled_by?: string | null;
+};
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
@@ -108,26 +123,81 @@ async function requireReconciliationActor(
     allowedRoles?: readonly string[],
     forbiddenMessage = 'Permisos insuficientes'
 ): Promise<
-    | { success: true; actor: Awaited<ReturnType<typeof getActorOrFail>> }
+    | { success: true; actor: ReconciliationActor }
     | { success: false; error: string }
 > {
-    try {
-        const actor = await getActorOrFail();
-        if (allowedRoles) {
-            requireRole(actor, allowedRoles);
-        }
+    const actorResult = await resolveActorResult();
+    if (!actorResult.success) {
+        return actorResult;
+    }
 
+    try {
+        const actor = allowedRoles
+            ? requireRole(actorResult.actor, allowedRoles)
+            : actorResult.actor;
         return { success: true, actor };
     } catch (error) {
-        if (error instanceof PinRbacError) {
-            return {
-                success: false,
-                error: error.code === 'AUTH_FORBIDDEN' ? forbiddenMessage : 'No autenticado',
-            };
+        if (!(error instanceof PinRbacError)) {
+            throw error;
         }
 
-        throw error;
+        return {
+            success: false,
+            error: forbiddenMessage,
+        };
     }
+}
+
+function hasGlobalReconciliationScope(actor: ReconciliationActor): boolean {
+    return ROLE_GROUPS.ADMIN.includes(actor.role as typeof ROLE_GROUPS.ADMIN[number]);
+}
+
+function canActorAccessReconciliationLocation(actor: ReconciliationActor, locationId: string | null | undefined): boolean {
+    return resolveScopedLocation(
+        actor,
+        locationId || undefined,
+        () => hasGlobalReconciliationScope(actor),
+    ).success;
+}
+
+async function getScopedSessionForReconciliation(
+    client: { query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[]; rowCount?: number }> },
+    sessionId: string,
+    actor: ReconciliationActor,
+    forUpdate: boolean = false,
+): Promise<
+    | { success: true; session: ScopedSession }
+    | { success: false; error: string }
+> {
+    const result = await client.query(
+        `
+        SELECT
+            s.id,
+            s.opening_amount,
+            s.closing_amount,
+            s.difference,
+            s.status,
+            s.terminal_id,
+            t.location_id,
+            s.reconciled_by
+        FROM cash_register_sessions s
+        LEFT JOIN terminals t ON t.id = s.terminal_id
+        WHERE s.id = $1
+        ${forUpdate ? 'FOR UPDATE NOWAIT' : ''}
+    `,
+        [sessionId],
+    );
+
+    if (result.rows.length === 0) {
+        return { success: false, error: 'Sesión no encontrada' };
+    }
+
+    const session = result.rows[0] as unknown as ScopedSession;
+    if (!canActorAccessReconciliationLocation(actor, session.location_id)) {
+        return { success: false, error: 'Acceso denegado para la sucursal de la sesión' };
+    }
+
+    return { success: true, session };
 }
 
 async function validateReconciliationPin(
@@ -224,49 +294,29 @@ export async function calculateDiscrepancySecure(sessionId: string): Promise<{
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Calculate expected amount
-        const metricsResult = await client.query(`
-            SELECT 
-                s.id,
-                s.opening_amount,
-                s.closing_amount,
-                s.difference as current_difference,
-                COALESCE((
-                    SELECT SUM(total) 
-                    FROM sales 
-                    WHERE shift_id = s.id AND payment_method = 'CASH'
-                ), 0) as cash_sales,
-                COALESCE((
-                    SELECT SUM(amount) 
-                    FROM cash_movements 
-                    WHERE session_id = s.id AND type = 'EXPENSE'
-                ), 0) as expenses,
-                COALESCE((
-                    SELECT SUM(amount) 
-                    FROM cash_movements 
-                    WHERE session_id = s.id AND type = 'WITHDRAWAL'
-                ), 0) as withdrawals,
-                COALESCE((
-                    SELECT SUM(amount) 
-                    FROM cash_movements 
-                    WHERE session_id = s.id AND type = 'DEPOSIT'
-                ), 0) as deposits
-            FROM cash_register_sessions s
-            WHERE s.id = $1
-        `, [validated.data]);
-
-        if (metricsResult.rows.length === 0) {
+        const scopedSession = await getScopedSessionForReconciliation(client, validated.data, auth.actor);
+        if (!scopedSession.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Sesión no encontrada' };
+            return { success: false, error: scopedSession.error };
         }
 
+        const session = scopedSession.session;
+        const metricsResult = await client.query(`
+            SELECT 
+                COALESCE((SELECT SUM(total) FROM sales WHERE shift_id = $1 AND payment_method = 'CASH'), 0) as cash_sales,
+                COALESCE((SELECT SUM(amount) FROM cash_movements WHERE session_id = $1 AND type = 'EXPENSE'), 0) as expenses,
+                COALESCE((SELECT SUM(amount) FROM cash_movements WHERE session_id = $1 AND type = 'WITHDRAWAL'), 0) as withdrawals,
+                COALESCE((SELECT SUM(amount) FROM cash_movements WHERE session_id = $1 AND type = 'DEPOSIT'), 0) as deposits
+        `, [validated.data]);
+
         const m = metricsResult.rows[0];
-        const expectedAmount = Number(m.opening_amount)
+        const expectedAmount = Number(session.opening_amount)
             + Number(m.cash_sales)
             + Number(m.deposits)
             - Number(m.expenses)
             - Number(m.withdrawals);
 
-        const realAmount = Number(m.closing_amount) || 0;
+        const realAmount = Number(session.closing_amount) || 0;
         const difference = realAmount - expectedAmount;
         const requiresApproval = Math.abs(difference) >= LARGE_DISCREPANCY_THRESHOLD;
 
@@ -332,27 +382,35 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
         }
 
         // 3. Lock and get session FOR UPDATE
-        const sessionRes = await client.query(`
-            SELECT 
-                s.id,
-                s.opening_amount,
-                s.closing_amount,
-                s.difference,
-                s.status,
-                s.terminal_id
-            FROM cash_register_sessions s
-            WHERE s.id = $1
-            FOR UPDATE NOWAIT
-        `, [validated.data.sessionId]);
-
-        if (sessionRes.rows.length === 0) {
+        const scopedSession = await getScopedSessionForReconciliation(
+            client,
+            validated.data.sessionId,
+            auth.actor,
+            true,
+        );
+        if (!scopedSession.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Sesión no encontrada' };
+            return { success: false, error: scopedSession.error };
         }
 
-        const session = sessionRes.rows[0];
+        const session = scopedSession.session;
         const oldClosingAmount = session.closing_amount;
         const oldDifference = session.difference;
+
+        if (session.status === 'RECONCILED') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Sesión ya fue conciliada' };
+        }
+
+        if (session.status === 'APPROVED') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Sesión ya fue aprobada' };
+        }
+
+        if (session.status !== 'CLOSED') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'La sesión debe estar cerrada antes de conciliar' };
+        }
 
         // 4. Calculate expected amount
         const metricsResult = await client.query(`
@@ -485,19 +543,18 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
         }
 
         // 3. Lock session
-        const sessionRes = await client.query(`
-            SELECT id, difference, status, reconciled_by
-            FROM cash_register_sessions
-            WHERE id = $1
-            FOR UPDATE NOWAIT
-        `, [validated.data.sessionId]);
-
-        if (sessionRes.rows.length === 0) {
+        const scopedSession = await getScopedSessionForReconciliation(
+            client,
+            validated.data.sessionId,
+            auth.actor,
+            true,
+        );
+        if (!scopedSession.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Sesión no encontrada' };
+            return { success: false, error: scopedSession.error };
         }
 
-        const session = sessionRes.rows[0];
+        const session = scopedSession.session;
 
         if (session.status !== 'RECONCILED') {
             await client.query('ROLLBACK');
@@ -591,9 +648,17 @@ export async function getReconciliationHistorySecure(filters?: z.infer<typeof Ge
         const params: any[] = [];
         let paramIndex = 1;
 
-        if (validated.data.locationId) {
+        const effectiveLocationId = hasGlobalReconciliationScope(auth.actor)
+            ? validated.data.locationId
+            : auth.actor.locationId;
+
+        if (!hasGlobalReconciliationScope(auth.actor) && !effectiveLocationId) {
+            return { success: false, error: 'Manager sin ubicación asignada' };
+        }
+
+        if (effectiveLocationId) {
             conditions.push(`terminal_id IN (SELECT id FROM terminals WHERE location_id = $${paramIndex++})`);
-            params.push(validated.data.locationId);
+            params.push(effectiveLocationId);
         }
 
         if (validated.data.startDate) {

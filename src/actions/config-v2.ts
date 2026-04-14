@@ -23,6 +23,7 @@ import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import crypto from 'crypto';
 import { resolveDeepSeekOcrEndpoint } from '@/lib/ai/deepseek-endpoint';
+import { getConfigEncryptionKey } from '@/lib/config-encryption';
 import { getValidatedSession } from '@/lib/server-session';
 
 // ============================================================================
@@ -104,30 +105,12 @@ const SaveConfigSchema = z.object({
 /**
  * Obtiene la clave de encriptación del entorno
  */
-function getEncryptionKey(): Buffer {
-    const key = process.env.CONFIG_ENCRYPTION_KEY;
-
-    if (!key) {
-        // En desarrollo, usar una clave derivada del DATABASE_URL
-        const fallback = process.env.DATABASE_URL || 'farmacias-vallenar-default-key-32b';
-        return crypto.createHash('sha256').update(fallback).digest();
-    }
-
-    // Si la clave tiene 64 caracteres, es hex
-    if (key.length === 64) {
-        return Buffer.from(key, 'hex');
-    }
-
-    // Si no, derivar con SHA-256
-    return crypto.createHash('sha256').update(key).digest();
-}
-
 /**
  * Encripta un valor usando AES-256-GCM
  */
 function encryptValue(plaintext: string): string {
     try {
-        const key = getEncryptionKey();
+        const key = getConfigEncryptionKey();
         const iv = crypto.randomBytes(IV_LENGTH);
 
         const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
@@ -157,7 +140,7 @@ function decryptValue(encryptedValue: string): string {
         }
 
         const [ivHex, authTagHex, encrypted] = parts;
-        const key = getEncryptionKey();
+        const key = getConfigEncryptionKey();
         const iv = Buffer.from(ivHex, 'hex');
         const authTag = Buffer.from(authTagHex, 'hex');
 

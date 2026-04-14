@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 
 export async function POST(request: NextRequest) {
     try {
+        const session = await getValidatedSession();
+        if (!session) {
+            return NextResponse.json(
+                { success: false, error: 'No autorizado', code: 'AUTH_UNAUTHORIZED' },
+                { status: 401 }
+            );
+        }
+
         const body = await request.json();
         const { sessionId, terminalId } = body;
 
@@ -30,25 +39,25 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: true,
                 valid: false,
-                error: 'Sesión no encontrada'
+                error: 'Sesión inválida'
             });
         }
 
-        const session = result.rows[0];
+        const terminalSession = result.rows[0];
 
         // Validar que esté activa
-        if (session.status !== 'OPEN' || session.terminal_status !== 'OPEN') {
+        if (terminalSession.status !== 'OPEN' || terminalSession.terminal_status !== 'OPEN') {
             return NextResponse.json({
                 success: true,
                 valid: false,
-                error: 'Sesión cerrada'
+                error: 'Sesión inválida'
             });
         }
 
         // Validar que no sea muy antigua (>24h)
         // Ensure opened_at is treated as Date. 
         // Postgres returns Date object in node-postgres usually.
-        const openedAt = new Date(session.opened_at);
+        const openedAt = new Date(terminalSession.opened_at);
         const now = new Date();
         const hoursSinceOpen = (now.getTime() - openedAt.getTime()) / (1000 * 60 * 60);
 
@@ -56,7 +65,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: true,
                 valid: false,
-                error: 'Sesión expirada (>24h)'
+                error: 'Sesión inválida'
             });
         }
 

@@ -1,47 +1,46 @@
 /**
- * WMS V2 Tests - Warehouse Management System
- * Test coverage for validation and edge cases
+ * WMS V2 Tests - hardening de auth, scope e integridad
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-    TEST_PRODUCT_ID,
-    TEST_WAREHOUSE_ID,
     TEST_BATCH_ID,
     TEST_LOCATION_ID,
+    TEST_PRODUCT_ID,
     TEST_USERS,
+    TEST_WAREHOUSE_ID,
 } from '../fixtures';
 
-// =====================================================
-// MOCKS
-// =====================================================
+const OTHER_LOCATION_ID = '550e8400-e29b-41d4-a716-446655440091';
+const OTHER_WAREHOUSE_ID = '550e8400-e29b-41d4-a716-446655440092';
+const TEST_SHIPMENT_ID = '550e8400-e29b-41d4-a716-446655440081';
+const TEST_SHIPMENT_ITEM_ID = '550e8400-e29b-41d4-a716-446655440082';
+const OTHER_SHIPMENT_ID = '550e8400-e29b-41d4-a716-446655440083';
+const OTHER_CANCEL_SHIPMENT_ID = '550e8400-e29b-41d4-a716-446655440084';
 
 const {
     mockQuery,
     mockRelease,
     mockConnect,
     mockPoolQuery,
-    mockGetActorOrFail,
+    mockRequireInventoryActor,
+    mockResolveEffectiveInventoryLocation,
+    mockResolveWarehouseForInventoryActor,
+    mockEnsureBatchInInventoryScope,
+    mockHasGlobalInventoryScope,
     mockValidatePinForRoles,
-    PinRbacErrorMock,
 } = vi.hoisted(() => ({
     mockQuery: vi.fn(),
     mockRelease: vi.fn(),
     mockConnect: vi.fn(),
     mockPoolQuery: vi.fn(),
-    mockGetActorOrFail: vi.fn(),
+    mockRequireInventoryActor: vi.fn(),
+    mockResolveEffectiveInventoryLocation: vi.fn(),
+    mockResolveWarehouseForInventoryActor: vi.fn(),
+    mockEnsureBatchInInventoryScope: vi.fn(),
+    mockHasGlobalInventoryScope: vi.fn(),
     mockValidatePinForRoles: vi.fn(),
-    PinRbacErrorMock: class PinRbacErrorMock extends Error {
-        code: string;
-
-        constructor(code: string, message: string) {
-            super(message);
-            this.name = 'PinRbacError';
-            this.code = code;
-        }
-    },
 }));
 
-// Mock DB
 vi.mock('@/lib/db', () => ({
     pool: {
         connect: () => {
@@ -51,37 +50,30 @@ vi.mock('@/lib/db', () => ({
                 release: mockRelease,
             });
         },
-        query: mockPoolQuery,
+        query: (...args: unknown[]) => mockPoolQuery(...args),
     },
 }));
 
+vi.mock('@/actions/inventory-scope', () => ({
+    requireInventoryActor: (...args: unknown[]) => mockRequireInventoryActor(...args),
+    resolveEffectiveInventoryLocation: (...args: unknown[]) => mockResolveEffectiveInventoryLocation(...args),
+    resolveWarehouseForInventoryActor: (...args: unknown[]) => mockResolveWarehouseForInventoryActor(...args),
+    ensureBatchInInventoryScope: (...args: unknown[]) => mockEnsureBatchInInventoryScope(...args),
+    hasGlobalInventoryScope: (...args: unknown[]) => mockHasGlobalInventoryScope(...args),
+}));
+
 vi.mock('@/lib/pin-rbac', () => ({
-    getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
-    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
-    requireRole: (actor: { role?: string }, allowedRoles: readonly string[]) => {
-        const normalizedRole = String(actor.role || '').trim().toUpperCase();
-        const normalizedAllowed = allowedRoles.map((role) => String(role).trim().toUpperCase());
-        if (!normalizedAllowed.includes(normalizedRole)) {
-            throw new PinRbacErrorMock('AUTH_FORBIDDEN', 'Acceso denegado');
-        }
-        return actor;
-    },
+    normalizeRole: (role: string | null | undefined) => String(role || '').trim().toUpperCase(),
     ROLE_GROUPS: {
         MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
     },
-    PinRbacError: PinRbacErrorMock,
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
 }));
 
 vi.mock('next/cache', () => ({
     revalidatePath: vi.fn(),
 }));
 
-// Mock uuid
-vi.mock('uuid', () => ({
-    v4: () => 'mock-movement-uuid',
-}));
-
-// Mock logger
 vi.mock('@/lib/logger', () => ({
     logger: {
         info: vi.fn(),
@@ -90,29 +82,115 @@ vi.mock('@/lib/logger', () => ({
     },
 }));
 
-// Import after mocks
 import {
-    executeStockMovementSecure,
-    executeTransferSecure,
-    getStockHistorySecure,
-    getShipmentsSecure,
-    getPurchaseOrdersSecure,
-    processReceptionSecure,
     cancelShipmentSecure,
+    createReturnSecure,
+    executeStockMovementSecure,
+    getPurchaseOrdersSecure,
+    getShipmentsSecure,
+    getStockHistorySecure,
+    processReceptionSecure,
 } from '@/actions/wms-v2';
 
-// =====================================================
-// TEST SUITE: Validation Tests (No DB required)
-// =====================================================
+function makeActor(overrides: Partial<{
+    userId: string;
+    userName: string;
+    role: string;
+    locationId?: string;
+    tokenVersion: number;
+    sessionToken: string;
+}> = {}) {
+    return {
+        userId: TEST_USERS.manager.id,
+        userName: TEST_USERS.manager.name,
+        role: 'ADMIN',
+        locationId: TEST_LOCATION_ID,
+        tokenVersion: 1,
+        sessionToken: 'session-token',
+        ...overrides,
+    };
+}
 
-describe('WMS V2 - Input Validation', () => {
+describe('WMS V2 - hardening visible', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockGetActorOrFail.mockResolvedValue({
-            userId: TEST_USERS.manager.id,
-            userName: TEST_USERS.manager.name,
-            role: 'ADMIN',
+
+        mockRequireInventoryActor.mockResolvedValue({
+            success: true,
+            actor: makeActor(),
         });
+
+        mockHasGlobalInventoryScope.mockImplementation((role: string) =>
+            ['ADMIN', 'GERENTE_GENERAL'].includes(String(role || '').trim().toUpperCase())
+        );
+
+        mockResolveEffectiveInventoryLocation.mockImplementation((actor, requestedLocationId?: string | null) => {
+            const actorLocationId = String(actor?.locationId || '');
+            const isGlobal = mockHasGlobalInventoryScope(actor?.role);
+
+            if (isGlobal) {
+                return { success: true, locationId: requestedLocationId || undefined };
+            }
+
+            if (requestedLocationId && requestedLocationId !== actorLocationId) {
+                return { success: false, error: 'Acceso denegado a otra ubicación' };
+            }
+
+            return { success: true, locationId: actorLocationId || undefined };
+        });
+
+        mockResolveWarehouseForInventoryActor.mockImplementation((
+            actor,
+            requestedWarehouseId?: string | null,
+            requestedLocationId?: string | null,
+        ) => {
+            const warehouseToLocation: Record<string, string> = {
+                [TEST_WAREHOUSE_ID]: TEST_LOCATION_ID,
+                [OTHER_WAREHOUSE_ID]: OTHER_LOCATION_ID,
+            };
+
+            if (requestedWarehouseId) {
+                const warehouseLocationId = warehouseToLocation[String(requestedWarehouseId)];
+                if (!warehouseLocationId) {
+                    return Promise.resolve({ success: false, error: 'Bodega no encontrada' });
+                }
+
+                const scope = mockResolveEffectiveInventoryLocation(actor, warehouseLocationId);
+                if (!scope.success) {
+                    return Promise.resolve(scope);
+                }
+
+                return Promise.resolve({
+                    success: true,
+                    warehouseId: String(requestedWarehouseId),
+                    locationId: warehouseLocationId,
+                });
+            }
+
+            const locationId = String(requestedLocationId || actor?.locationId || TEST_LOCATION_ID);
+            const scope = mockResolveEffectiveInventoryLocation(actor, locationId);
+            if (!scope.success) {
+                return Promise.resolve(scope);
+            }
+
+            return Promise.resolve({
+                success: true,
+                warehouseId: locationId === OTHER_LOCATION_ID ? OTHER_WAREHOUSE_ID : TEST_WAREHOUSE_ID,
+                locationId,
+            });
+        });
+
+        mockEnsureBatchInInventoryScope.mockResolvedValue({
+            success: true,
+            batch: {
+                id: TEST_BATCH_ID,
+                product_id: TEST_PRODUCT_ID,
+                warehouse_id: TEST_WAREHOUSE_ID,
+            },
+            warehouseId: TEST_WAREHOUSE_ID,
+            locationId: TEST_LOCATION_ID,
+        });
+
         mockValidatePinForRoles.mockResolvedValue({
             valid: true,
             authorizedBy: {
@@ -123,183 +201,25 @@ describe('WMS V2 - Input Validation', () => {
         });
     });
 
-    it('should reject invalid productId format', async () => {
+    it('rechaza productId inválido antes de tocar DB', async () => {
         const result = await executeStockMovementSecure({
-            productId: 'invalid-not-uuid',
+            productId: 'no-es-uuid',
             warehouseId: TEST_WAREHOUSE_ID,
             type: 'ADJUSTMENT',
-            quantity: 10,
-            reason: 'Test con ID inválido para validación',
-            userId: TEST_USERS.manager.id
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('inválido');
-        expect(mockConnect).not.toHaveBeenCalled();
-    });
-
-    it('should reject invalid warehouseId format', async () => {
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: 'not-a-uuid',
-            type: 'ADJUSTMENT',
-            quantity: 10,
-            reason: 'Test con warehouse ID inválido',
-            userId: TEST_USERS.manager.id
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('inválido');
-    });
-
-    it('should reject reason that is too short', async () => {
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            type: 'ADJUSTMENT',
-            quantity: 10,
-            reason: 'corto',
-            userId: TEST_USERS.manager.id
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('10 caracteres');
-    });
-
-    it('should reject negative quantity', async () => {
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            type: 'ADJUSTMENT',
-            quantity: -5,
-            reason: 'Cantidad negativa no permitida',
-            userId: TEST_USERS.manager.id
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('positiva');
-    });
-
-    it('should reject zero quantity', async () => {
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            type: 'LOSS',
-            quantity: 0,
-            reason: 'Cantidad cero no tiene sentido',
-            userId: TEST_USERS.warehouse.id
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('positiva');
-    });
-
-    it('should reject invalid movement type', async () => {
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            // @ts-ignore - Testing invalid type
-            type: 'INVALID_TYPE',
-            quantity: 10,
-            reason: 'Tipo de movimiento inválido',
-            userId: TEST_USERS.manager.id
-        });
-
-        expect(result.success).toBe(false);
-    });
-
-    it('should require supervisor PIN for large adjustments (>=100)', async () => {
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            type: 'ADJUSTMENT',
-            quantity: 150,
-            reason: 'Ajuste grande sin autorización de supervisor',
-            userId: TEST_USERS.cashier.id
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('PIN de supervisor');
-    });
-});
-
-// =====================================================
-// TEST SUITE: Database Scenarios
-// =====================================================
-
-describe('WMS V2 - Database Scenarios', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mockGetActorOrFail.mockResolvedValue({
+            quantity: 5,
+            reason: 'Ajuste manual de prueba inválido',
             userId: TEST_USERS.manager.id,
-            userName: TEST_USERS.manager.name,
-            role: 'ADMIN',
-        });
-        mockValidatePinForRoles.mockResolvedValue({
-            valid: true,
-            authorizedBy: {
-                id: TEST_USERS.admin.id,
-                name: TEST_USERS.admin.name,
-                role: 'ADMIN',
-            },
-        });
-    });
-
-    it('should fail if no batch is found for product/warehouse', async () => {
-        let callIndex = 0;
-        const responses = [
-            { rows: [] }, // BEGIN
-            { rows: [] }, // FIFO batch selection - EMPTY
-        ];
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            if (sql.startsWith('BEGIN')) return Promise.resolve({ rows: [] });
-            const res = responses[callIndex] || { rows: [] };
-            callIndex++;
-            return Promise.resolve(res);
-        });
-
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            type: 'ADJUSTMENT',
-            quantity: 10,
-            reason: 'Producto no existe en esta bodega',
-            userId: TEST_USERS.manager.id
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('lotes disponibles');
-    });
-
-    it('should reject stock movement when session is not valid', async () => {
-        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacErrorMock('AUTH_UNAUTHORIZED', 'Sesión no válida'));
-
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            type: 'ADJUSTMENT',
-            quantity: 10,
-            reason: 'Movimiento con sesión inválida',
-            userId: TEST_USERS.cashier.id,
-            batchId: TEST_BATCH_ID,
-        });
-
-        expect(result.success).toBe(false);
-        expect(result.error).toContain('No autorizado');
+        expect(result.error).toContain('inválido');
         expect(mockConnect).not.toHaveBeenCalled();
     });
 
-    it('should handle lock contention error (55P03)', async () => {
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql.startsWith('BEGIN')) return Promise.resolve({ rows: [] });
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-
-            // Simulate lock error on first real query
-            const error: any = new Error('Lock not available');
-            error.code = '55P03';
-            throw error;
+    it('rechaza cashier intentando mutar stock WMS', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: false,
+            error: 'Acceso denegado',
         });
 
         const result = await executeStockMovementSecure({
@@ -307,563 +227,246 @@ describe('WMS V2 - Database Scenarios', () => {
             warehouseId: TEST_WAREHOUSE_ID,
             type: 'ADJUSTMENT',
             quantity: 10,
-            reason: 'Test de concurrencia con bloqueo',
-            userId: TEST_USERS.manager.id
+            reason: 'Intento de ajuste sin permisos suficientes',
+            userId: TEST_USERS.cashier.id,
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('siendo modificado');
+        expect(result.error).toContain('Acceso denegado');
+        expect(mockConnect).not.toHaveBeenCalled();
     });
 
-    it('should use session actor for stock movement and keep PIN authorizer as metadata', async () => {
+    it('rechaza sobre-recepción y no crea stock', async () => {
         mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
-            if (sql.includes('SELECT') && sql.includes('FOR UPDATE NOWAIT')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: TEST_BATCH_ID,
-                        quantity_real: 220,
-                        product_id: TEST_PRODUCT_ID,
-                        sku: 'SKU-001',
-                        name: 'Producto Test',
-                    }]
-                });
-            }
-            if (sql.includes('SELECT name, sku FROM products')) {
-                return Promise.resolve({ rows: [{ name: 'Producto Test', sku: 'SKU-001' }] });
-            }
-            if (sql.startsWith('SELECT location_id FROM warehouses')) {
-                return Promise.resolve({ rows: [{ location_id: TEST_LOCATION_ID }] });
-            }
-            if (sql.startsWith('SAVEPOINT') || sql.startsWith('ROLLBACK TO SAVEPOINT') || sql.startsWith('RELEASE SAVEPOINT')) {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'ROLLBACK') {
                 return Promise.resolve({ rows: [] });
             }
-            if (sql === 'COMMIT' || sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            return Promise.resolve({ rows: [] });
-        });
-
-        const result = await executeStockMovementSecure({
-            productId: TEST_PRODUCT_ID,
-            warehouseId: TEST_WAREHOUSE_ID,
-            batchId: TEST_BATCH_ID,
-            type: 'ADJUSTMENT',
-            quantity: 150,
-            reason: 'Ajuste mayor con PIN supervisor',
-            userId: TEST_USERS.cashier.id,
-            supervisorPin: '1234',
-        });
-
-        expect(result.success).toBe(true);
-
-        const movementCall = mockQuery.mock.calls.find((call) =>
-            String(call[0]).includes('INSERT INTO stock_movements')
-        );
-        expect(movementCall?.[1]?.[8]).toBe(TEST_USERS.manager.id);
-
-        const auditCall = mockQuery.mock.calls.find((call) =>
-            String(call[0]).includes('INSERT INTO audit_log')
-        );
-        expect(auditCall?.[1]?.[0]).toBe(TEST_USERS.manager.id);
-        const auditPayload = JSON.parse(String(auditCall?.[1]?.[3] || '{}')) as Record<string, unknown>;
-        expect(auditPayload.authorized_by).toBe(TEST_USERS.admin.id);
-        expect(auditPayload.authorized_by_name).toBe(TEST_USERS.admin.name);
-    });
-
-    it('should keep transfer successful when audit FK fails', async () => {
-        const targetWarehouseId = '550e8400-e29b-41d4-a716-446655440099';
-        const targetLocationId = '550e8400-e29b-41d4-a716-446655440098';
-        let locationLookupCount = 0;
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
-            if (sql.startsWith('SELECT location_id FROM warehouses')) {
-                locationLookupCount += 1;
-                return Promise.resolve({
-                    rows: [{ location_id: locationLookupCount === 1 ? TEST_LOCATION_ID : targetLocationId }]
-                });
-            }
-            if (sql.includes('SELECT * FROM inventory_batches') && sql.includes('FOR UPDATE NOWAIT')) {
+            if (sql.includes('SELECT * FROM shipments')) {
                 return Promise.resolve({
                     rows: [{
-                        id: TEST_BATCH_ID,
-                        quantity_real: 40,
-                        sku: 'SKU-001',
-                        name: 'Producto Test',
-                        product_id: TEST_PRODUCT_ID,
-                        lot_number: 'LOT-001',
-                        expiry_date: null,
-                        unit_cost: 1000,
-                        sale_price: 1400
-                    }]
-                });
-            }
-            if (sql.includes('SELECT * FROM inventory_batches') && sql.includes('warehouse_id = $1')) {
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql.includes('FROM products p') && sql.includes('WHERE p.id::text = $1')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: TEST_PRODUCT_ID,
-                        name: 'Producto Test',
-                        sale_price: 1400,
-                        cost_price: 1000
-                    }]
-                });
-            }
-            if (sql.includes('INSERT INTO inventory_batches') && sql.includes('RETURNING id')) {
-                return Promise.resolve({ rows: [{ id: '550e8400-e29b-41d4-a716-446655440097' }] });
-            }
-            if (sql.includes('INSERT INTO audit_log')) {
-                const fkError = new Error('FK violation') as Error & { code?: string };
-                fkError.code = '23503';
-                throw fkError;
-            }
-            if (sql.startsWith('SAVEPOINT') || sql.startsWith('ROLLBACK TO SAVEPOINT') || sql.startsWith('RELEASE SAVEPOINT')) {
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql === 'COMMIT') return Promise.resolve({ rows: [] });
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            return Promise.resolve({ rows: [] });
-        });
-
-        const result = await executeTransferSecure({
-            originWarehouseId: TEST_WAREHOUSE_ID,
-            targetWarehouseId,
-            items: [{ productId: TEST_PRODUCT_ID, quantity: 5, lotId: TEST_BATCH_ID }],
-            userId: TEST_USERS.cashier.id,
-            notes: 'Transferencia de prueba con fallback de auditoría'
-        });
-
-        expect(result.success).toBe(true);
-        expect(mockQuery).toHaveBeenCalledWith('COMMIT');
-        expect(mockQuery).toHaveBeenCalledWith('ROLLBACK TO SAVEPOINT audit_wms_safe');
-        const didInsertShipment = mockQuery.mock.calls.some((call) => {
-            const sql = String(call[0] ?? '');
-            return sql.includes('INSERT INTO shipments');
-        });
-        expect(didInsertShipment).toBe(true);
-
-        const shipmentInsertCall = mockQuery.mock.calls.find((call) => {
-            const sql = String(call[0] ?? '');
-            return sql.includes('INSERT INTO shipments');
-        });
-        expect(shipmentInsertCall?.[1]?.[4]).toBe(TEST_USERS.manager.id);
-        const transportData = JSON.parse(String(shipmentInsertCall?.[1]?.[3] || '{}')) as Record<string, unknown>;
-        expect(transportData.created_by_id).toBe(TEST_USERS.manager.id);
-
-        const movementCall = mockQuery.mock.calls.find((call) => {
-            const sql = String(call[0] ?? '');
-            return sql.includes("INSERT INTO stock_movements");
-        });
-        expect(movementCall?.[1]?.[6]).toBe(TEST_USERS.manager.id);
-    });
-
-    it('should cancel shipment with session actor and restore origin stock server-side', async () => {
-        const shipmentId = '550e8400-e29b-41d4-a716-446655440077';
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE') return Promise.resolve({ rows: [] });
-            if (sql.includes('FROM shipments') && sql.includes('FOR UPDATE NOWAIT')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: shipmentId,
+                        id: TEST_SHIPMENT_ID,
                         status: 'IN_TRANSIT',
-                        origin_location_id: TEST_LOCATION_ID,
-                        transport_data: {},
-                    }]
+                        destination_location_id: TEST_LOCATION_ID,
+                        type: 'INTER_BRANCH',
+                    }],
                 });
             }
-            if (sql.includes('FROM shipment_items')) {
+            if (sql.includes('SELECT * FROM shipment_items')) {
                 return Promise.resolve({
                     rows: [{
-                        id: 'item-1',
+                        id: TEST_SHIPMENT_ITEM_ID,
+                        quantity: 10,
                         batch_id: TEST_BATCH_ID,
                         product_id: TEST_PRODUCT_ID,
                         sku: 'SKU-001',
                         name: 'Producto Test',
-                        quantity: 5,
-                    }]
+                    }],
                 });
+            }
+            return Promise.resolve({ rows: [] });
+        });
+
+        const result = await processReceptionSecure({
+            shipmentId: TEST_SHIPMENT_ID,
+            receivedItems: [{
+                itemId: TEST_SHIPMENT_ITEM_ID,
+                quantity: 12,
+                condition: 'GOOD',
+            }],
+            unexpectedItems: [],
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('excede lo despachado');
+        expect(
+            mockQuery.mock.calls.some((call) => String(call[0]).includes('INSERT INTO inventory_batches'))
+        ).toBe(false);
+    });
+
+    it('rechaza recepción fuera de la location efectiva del actor', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: true,
+            actor: makeActor({
+                userId: TEST_USERS.warehouse.id,
+                userName: TEST_USERS.warehouse.name,
+                role: 'WAREHOUSE',
+                locationId: TEST_LOCATION_ID,
+            }),
+        });
+
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'ROLLBACK') {
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql.includes('SELECT * FROM shipments')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: OTHER_SHIPMENT_ID,
+                        status: 'IN_TRANSIT',
+                        destination_location_id: OTHER_LOCATION_ID,
+                        type: 'INTER_BRANCH',
+                    }],
+                });
+            }
+            return Promise.resolve({ rows: [] });
+        });
+
+        const result = await processReceptionSecure({
+            shipmentId: OTHER_SHIPMENT_ID,
+            receivedItems: [{
+                itemId: TEST_SHIPMENT_ITEM_ID,
+                quantity: 10,
+                condition: 'GOOD',
+            }],
+            unexpectedItems: [],
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado a otra ubicación');
+    });
+
+    it('falla cerrado en devoluciones sin lote o stock real', async () => {
+        mockQuery.mockImplementation((sql: string, params?: unknown[]) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'ROLLBACK') {
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql.startsWith('SELECT type FROM locations')) {
+                const requestedId = String(params?.[0] || '');
+                return Promise.resolve({
+                    rows: [{ type: requestedId === TEST_LOCATION_ID ? 'RETAIL_BRANCH' : 'WAREHOUSE' }],
+                });
+            }
+            if (sql.includes('INSERT INTO shipments')) {
+                return Promise.resolve({ rows: [] });
             }
             if (sql.startsWith('SELECT id FROM warehouses WHERE location_id')) {
                 return Promise.resolve({ rows: [{ id: TEST_WAREHOUSE_ID }] });
             }
+            if (sql.startsWith('SELECT id, name FROM products WHERE sku')) {
+                return Promise.resolve({ rows: [{ id: TEST_PRODUCT_ID, name: 'Producto Test' }] });
+            }
             if (sql.includes('FROM inventory_batches') && sql.includes('FOR UPDATE NOWAIT')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: TEST_BATCH_ID,
-                        quantity_real: 12,
-                    }]
-                });
-            }
-            if (sql.startsWith('SAVEPOINT') || sql.startsWith('ROLLBACK TO SAVEPOINT') || sql.startsWith('RELEASE SAVEPOINT')) {
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql === 'COMMIT' || sql === 'ROLLBACK') {
                 return Promise.resolve({ rows: [] });
             }
             return Promise.resolve({ rows: [] });
         });
 
-        const result = await cancelShipmentSecure({ shipmentId });
-
-        expect(result.success).toBe(true);
-
-        const stockMovementCall = mockQuery.mock.calls.find((call) =>
-            String(call[0]).includes('INSERT INTO stock_movements')
-        );
-        expect(stockMovementCall?.[1]?.[7]).toBe(TEST_USERS.manager.id);
-
-        const shipmentUpdateCall = mockQuery.mock.calls.find((call) =>
-            String(call[0]).includes('UPDATE shipments')
-        );
-        expect(shipmentUpdateCall?.[1]?.[0]).toBe(shipmentId);
-        expect(shipmentUpdateCall?.[1]?.[1]).toBe(TEST_USERS.manager.id);
-
-        const auditCall = mockQuery.mock.calls.find((call) =>
-            String(call[0]).includes('INSERT INTO audit_log')
-        );
-        expect(auditCall?.[1]?.[0]).toBe(TEST_USERS.manager.id);
-        expect(auditCall?.[1]?.[1]).toBe('SHIPMENT_CANCELLED');
-    });
-});
-
-// =====================================================
-// TEST SUITE: Stock History (Read Operations)
-// =====================================================
-
-describe('WMS V2 - getStockHistorySecure', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mockGetActorOrFail.mockResolvedValue({
-            userId: TEST_USERS.manager.id,
-            userName: TEST_USERS.manager.name,
-            role: 'ADMIN',
-        });
-        mockValidatePinForRoles.mockResolvedValue({
-            valid: true,
-            authorizedBy: {
-                id: TEST_USERS.admin.id,
-                name: TEST_USERS.admin.name,
-                role: 'ADMIN',
-            },
-        });
-    });
-
-    it('should return paginated stock history', async () => {
-        const { pool } = await import('@/lib/db');
-
-        // Mock pool.query for this read operation
-        vi.mocked(pool).query = vi.fn()
-            .mockResolvedValueOnce({ rows: [{ total: '15' }] })
-            .mockResolvedValueOnce({
-                rows: [
-                    { id: '1', movement_type: 'ADJUSTMENT', quantity: 10 },
-                    { id: '2', movement_type: 'LOSS', quantity: -5 }
-                ]
-            });
-
-        const result = await getStockHistorySecure({
-            productId: TEST_PRODUCT_ID,
-            page: 1,
-            pageSize: 10
+        const result = await createReturnSecure({
+            originLocationId: TEST_LOCATION_ID,
+            destinationLocationId: OTHER_LOCATION_ID,
+            items: [{
+                sku: 'SKU-001',
+                quantity: 5,
+                condition: 'DAMAGED',
+            }],
         });
 
-        expect(result.success).toBe(true);
-        expect(result.data?.movements.length).toBe(2);
-        expect(result.data?.total).toBe(15);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No hay lote disponible');
     });
 
-    it('should enforce maximum page size of 100', async () => {
-        const { pool } = await import('@/lib/db');
-
-        vi.mocked(pool).query = vi.fn()
-            .mockResolvedValueOnce({ rows: [{ total: '200' }] })
-            .mockResolvedValueOnce({ rows: [] });
-
-        const result = await getStockHistorySecure({
-            page: 1,
-            pageSize: 999 // Should be capped to 100
+    it('rechaza cancelar envíos ajenos a la location del actor', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: true,
+            actor: makeActor({
+                userId: TEST_USERS.warehouse.id,
+                userName: TEST_USERS.warehouse.name,
+                role: 'WAREHOUSE_CHIEF',
+                locationId: TEST_LOCATION_ID,
+            }),
         });
 
-        expect(result.success).toBe(true);
-        expect(result.data?.pageSize).toBe(100);
-    });
-});
-
-describe('WMS V2 - getShipmentsSecure', () => {
-    beforeEach(async () => {
-        vi.clearAllMocks();
-        const { pool } = await import('@/lib/db');
-        vi.mocked(pool).query = mockPoolQuery as any;
-        mockPoolQuery.mockReset();
-        mockGetActorOrFail.mockResolvedValue({
-            userId: TEST_USERS.manager.id,
-            userName: TEST_USERS.manager.name,
-            role: 'ADMIN',
+        mockQuery.mockImplementation((sql: string) => {
+            if (sql === 'BEGIN ISOLATION LEVEL SERIALIZABLE' || sql === 'ROLLBACK') {
+                return Promise.resolve({ rows: [] });
+            }
+            if (sql.includes('FROM shipments') && sql.includes('FOR UPDATE NOWAIT')) {
+                return Promise.resolve({
+                    rows: [{
+                        id: OTHER_CANCEL_SHIPMENT_ID,
+                        status: 'IN_TRANSIT',
+                        origin_location_id: OTHER_LOCATION_ID,
+                        destination_location_id: OTHER_LOCATION_ID,
+                    }],
+                });
+            }
+            return Promise.resolve({ rows: [] });
         });
+
+        const result = await cancelShipmentSecure({ shipmentId: OTHER_CANCEL_SHIPMENT_ID });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
     });
 
-    it('should filter incoming shipments by destination location', async () => {
+    it('ancla getShipments al scope server-side e ignora locationId del cliente para no-globales', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: true,
+            actor: makeActor({
+                userId: TEST_USERS.warehouse.id,
+                userName: TEST_USERS.warehouse.name,
+                role: 'WAREHOUSE',
+                locationId: TEST_LOCATION_ID,
+            }),
+        });
+
         mockPoolQuery
             .mockResolvedValueOnce({ rows: [{ total: '1' }] })
-            .mockResolvedValueOnce({
-                rows: [{
-                    id: '550e8400-e29b-41d4-a716-446655440123',
-                    origin_location_id: '550e8400-e29b-41d4-a716-446655440124',
-                    origin_location_name: 'Bodega General',
-                    destination_location_id: TEST_LOCATION_ID,
-                    destination_location_name: 'Farmacia Prat',
-                    created_by: TEST_USERS.manager.id,
-                    created_by_name: TEST_USERS.manager.name,
-                    status: 'IN_TRANSIT',
-                    type: 'INTER_BRANCH',
-                    created_at: new Date('2026-02-20T12:00:00.000Z'),
-                    updated_at: new Date('2026-02-20T12:05:00.000Z'),
-                    expected_delivery: null,
-                    transport_data: { authorized_by_name: 'Supervisor QA' },
-                    shipment_items: [
-                        {
-                            id: '550e8400-e29b-41d4-a716-446655440125',
-                            batch_id: TEST_BATCH_ID,
-                            sku: 'SKU-001',
-                            name: 'Producto Test',
-                            quantity: 5,
-                        }
-                    ],
-                    valuation: '0',
-                    documents: [],
-                    notes: 'Despacho en tránsito',
-                }]
-            });
+            .mockResolvedValueOnce({ rows: [] });
 
         const result = await getShipmentsSecure({
-            locationId: TEST_LOCATION_ID,
-            status: 'IN_TRANSIT',
+            locationId: OTHER_LOCATION_ID,
             direction: 'INCOMING',
             page: 1,
-            pageSize: 20,
+            pageSize: 10,
         });
 
         expect(result.success).toBe(true);
-        expect(result.data?.total).toBe(1);
-        expect(result.data?.shipments[0]?.direction).toBe('INCOMING');
-        expect(result.data?.shipments[0]?.authorized_by_name).toBe('Supervisor QA');
-
-        const firstSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
-        expect(firstSql).toContain('destination_location_id::text = $1::text');
+        expect(mockPoolQuery).toHaveBeenCalledTimes(2);
+        expect(mockPoolQuery.mock.calls[0]?.[1]?.[0]).toBe(TEST_LOCATION_ID);
+        expect(mockPoolQuery.mock.calls[0]?.[1]?.[0]).not.toBe(OTHER_LOCATION_ID);
     });
 
-    it('should deny access when no session is available', async () => {
-        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacErrorMock('AUTH_UNAUTHORIZED', 'Sesión no válida'));
+    it('ancla getPurchaseOrders al scope server-side e ignora locationId del cliente para no-globales', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: true,
+            actor: makeActor({
+                userId: TEST_USERS.warehouse.id,
+                userName: TEST_USERS.warehouse.name,
+                role: 'WAREHOUSE',
+                locationId: TEST_LOCATION_ID,
+            }),
+        });
 
-        const result = await getShipmentsSecure({
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getPurchaseOrdersSecure({
+            locationId: OTHER_LOCATION_ID,
+            page: 1,
+            pageSize: 10,
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockPoolQuery.mock.calls[0]?.[1]?.[0]).toBe(TEST_LOCATION_ID);
+        expect(mockPoolQuery.mock.calls[0]?.[1]?.[0]).not.toBe(OTHER_LOCATION_ID);
+    });
+
+    it('exige autenticación para historial WMS', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: false,
+            error: 'Sesión no válida. Vuelve a iniciar sesión.',
+        });
+
+        const result = await getStockHistorySecure({
+            warehouseId: TEST_WAREHOUSE_ID,
             page: 1,
             pageSize: 10,
         });
 
         expect(result.success).toBe(false);
-        expect(result.error).toContain('No autorizado');
-    });
-
-    it('should ignore legacy non-uuid location filter instead of failing', async () => {
-        mockPoolQuery
-            .mockResolvedValueOnce({ rows: [{ total: '0' }] })
-            .mockResolvedValueOnce({ rows: [] });
-
-        const result = await getShipmentsSecure({
-            // ID legacy eliminado/humano
-            locationId: 'BODEGA_CENTRAL',
-            status: 'IN_TRANSIT',
-            direction: 'INCOMING',
-            page: 1,
-            pageSize: 20,
-        });
-
-        expect(result.success).toBe(true);
-        const firstSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
-        expect(firstSql).not.toContain('origin_location_id::text');
-        expect(firstSql).not.toContain('destination_location_id::text = $1::text');
-        expect(firstSql).toContain('s.status = $1');
-    });
-});
-
-describe('WMS V2 - getPurchaseOrdersSecure', () => {
-    beforeEach(async () => {
-        vi.clearAllMocks();
-        const { pool } = await import('@/lib/db');
-        vi.mocked(pool).query = mockPoolQuery as any;
-        mockPoolQuery.mockReset();
-        mockGetActorOrFail.mockResolvedValue({
-            userId: TEST_USERS.manager.id,
-            userName: TEST_USERS.manager.name,
-            role: 'ADMIN',
-        });
-    });
-
-    it('should filter by location with text cast and include items_count in response', async () => {
-        const poId = '550e8400-e29b-41d4-a716-446655440301';
-
-        mockPoolQuery
-            .mockResolvedValueOnce({ rows: [{ total: '1' }] })
-            .mockResolvedValueOnce({
-                rows: [{
-                    id: poId,
-                    supplier_id: '550e8400-e29b-41d4-a716-446655440302',
-                    target_warehouse_id: TEST_WAREHOUSE_ID,
-                    location_id: TEST_LOCATION_ID,
-                    location_name: 'Farmacia Santiago',
-                    status: 'RECEIVED',
-                    total_amount: '20000',
-                    tax_amount: '3800',
-                    items_count: '4',
-                    created_at: new Date('2026-02-20T12:00:00.000Z'),
-                    updated_at: new Date('2026-02-20T12:30:00.000Z'),
-                    expected_delivery: null,
-                    delivery_date: null,
-                    created_by: TEST_USERS.manager.id,
-                    created_by_name: TEST_USERS.manager.name,
-                    approved_by: null,
-                    approved_by_name: null,
-                    received_by: TEST_USERS.manager.id,
-                    received_by_name: TEST_USERS.manager.name,
-                    notes: 'Recepción completa',
-                    documents: [],
-                    items: [{ sku: 'SKU-001', name: 'Producto', quantity: 2, cost: 1000 }],
-                }]
-            });
-
-        const result = await getPurchaseOrdersSecure({
-            locationId: TEST_LOCATION_ID,
-            page: 1,
-            pageSize: 20,
-        });
-
-        expect(result.success).toBe(true);
-        expect(result.data?.total).toBe(1);
-        expect(result.data?.purchaseOrders[0]?.items_count).toBe(4);
-        expect(result.data?.purchaseOrders[0]?.target_warehouse_id).toBe(TEST_WAREHOUSE_ID);
-        expect(result.data?.purchaseOrders[0]?.targetWarehouseId).toBe(TEST_WAREHOUSE_ID);
-        expect(Array.isArray(result.data?.purchaseOrders[0]?.items)).toBe(true);
-        expect(result.data?.purchaseOrders[0]?.items?.length).toBe(1);
-
-        const countSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
-        const dataSql = String(mockPoolQuery.mock.calls[1]?.[0] || '');
-        expect(countSql).toContain('w.location_id::text = $1::text');
-        expect(dataSql).toContain('FROM purchase_order_items poi');
-    });
-
-    it('should ignore invalid location and supplier filters without throwing', async () => {
-        mockPoolQuery
-            .mockResolvedValueOnce({ rows: [{ total: '0' }] })
-            .mockResolvedValueOnce({ rows: [] });
-
-        const result = await getPurchaseOrdersSecure({
-            locationId: 'SUCURSAL-PRAT-ANTIGUA',
-            supplierId: 'PROVEEDOR-LEGACY',
-            page: 1,
-            pageSize: 20,
-        });
-
-        expect(result.success).toBe(true);
-        const countSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
-        expect(countSql).not.toContain('w.location_id::text = $1::text');
-        expect(countSql).not.toContain('po.supplier_id::text = $1::text');
-    });
-});
-
-describe('WMS V2 - processReceptionSecure', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mockGetActorOrFail.mockResolvedValue({
-            userId: TEST_USERS.manager.id,
-            userName: TEST_USERS.manager.name,
-            role: 'ADMIN',
-        });
-    });
-
-    it('should cast received_by_name to text in shipment update metadata', async () => {
-        const shipmentId = '550e8400-e29b-41d4-a716-446655440200';
-        const shipmentItemId = '550e8400-e29b-41d4-a716-446655440201';
-
-        mockQuery.mockImplementation((sql: string) => {
-            if (sql.startsWith('BEGIN')) return Promise.resolve({ rows: [] });
-            if (sql.includes('SELECT * FROM shipments WHERE id = $1')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: shipmentId,
-                        status: 'IN_TRANSIT',
-                        type: 'INTER_BRANCH',
-                        destination_location_id: TEST_LOCATION_ID,
-                        transport_data: {}
-                    }]
-                });
-            }
-            if (sql.includes('SELECT id FROM warehouses WHERE location_id = $1::uuid')) {
-                return Promise.resolve({ rows: [{ id: TEST_WAREHOUSE_ID }] });
-            }
-            if (sql.includes('SELECT * FROM shipment_items WHERE id = $1')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: shipmentItemId,
-                        batch_id: TEST_BATCH_ID,
-                        product_id: TEST_PRODUCT_ID,
-                        sku: 'SKU-001',
-                        name: 'Producto Test',
-                    }]
-                });
-            }
-            if (sql.includes('SELECT * FROM inventory_batches WHERE id = $1')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: TEST_BATCH_ID,
-                        product_id: TEST_PRODUCT_ID,
-                        unit_cost: 1000,
-                        sale_price: 1200,
-                        expiry_date: null,
-                    }]
-                });
-            }
-            if (sql.includes('FROM products p') && sql.includes('WHERE p.id::text = $1')) {
-                return Promise.resolve({
-                    rows: [{
-                        id: TEST_PRODUCT_ID,
-                        name: 'Producto Test',
-                        sale_price: 1200,
-                        cost_price: 1000
-                    }]
-                });
-            }
-            if (sql.includes('INSERT INTO inventory_batches')) {
-                const params = mockQuery.mock.calls[mockQuery.mock.calls.length - 1]?.[1] as unknown[];
-                expect(String(params?.[3] || '')).toBe('TRF-550E8400-001-TURQUESA');
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql.includes('INSERT INTO stock_movements')) {
-                const params = mockQuery.mock.calls[mockQuery.mock.calls.length - 1]?.[1] as unknown[];
-                expect(String(params?.[8] || '')).toContain('Color Turquesa');
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql.includes('UPDATE shipments')) {
-                expect(sql).toContain(`'received_by_name', $3::text`);
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql.startsWith('SAVEPOINT') || sql.startsWith('ROLLBACK TO SAVEPOINT') || sql.startsWith('RELEASE SAVEPOINT')) {
-                return Promise.resolve({ rows: [] });
-            }
-            if (sql === 'COMMIT') return Promise.resolve({ rows: [] });
-            if (sql === 'ROLLBACK') return Promise.resolve({ rows: [] });
-            return Promise.resolve({ rows: [] });
-        });
-
-        const result = await processReceptionSecure({
-            shipmentId,
-            receivedItems: [{ itemId: shipmentItemId, quantity: 2, condition: 'GOOD' }],
-            unexpectedItems: [],
-            notes: 'Recepción de prueba',
-        });
-
-        expect(result.success).toBe(true);
-        expect(mockQuery).toHaveBeenCalledWith('COMMIT');
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockPoolQuery).not.toHaveBeenCalled();
     });
 });

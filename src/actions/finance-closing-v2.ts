@@ -11,10 +11,10 @@ import { pool, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import { resolveActorResult } from './actor-result';
 import {
-    getActorOrFail,
-    PinRbacError,
     ROLE_GROUPS,
+    type PinRbacActor,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
 
@@ -23,6 +23,9 @@ const MonthSchema = z.number().int().min(1).max(12);
 const YearSchema = z.number().int().min(2020).max(2100);
 const GERENTE_ROLES = ROLE_GROUPS.ADMIN;
 const ADMIN_ROLES = ['ADMIN'] as const;
+const FINANCE_CLOSING_READ_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
+const FINANCE_CLOSING_EDIT_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
+const FINANCE_CLOSING_REOPEN_ACTOR_ROLES = ['ADMIN'] as const;
 
 const ENTRY_CATEGORIES = {
     CASH: { direction: 'IN', label: 'Efectivo recaudado' },
@@ -82,6 +85,7 @@ type Totals = {
         transferOut: number;
         payroll: number;
         fixed: number;
+        socialSecurity: number;
         tax: number;
         owner: number;
         total: number;
@@ -89,22 +93,25 @@ type Totals = {
     netResult: number;
 };
 
-type FinanceClosingActor = Awaited<ReturnType<typeof getActorOrFail>>;
+type FinanceClosingActor = PinRbacActor;
 
-async function requireFinanceClosingActor(): Promise<
+async function requireFinanceClosingActorWithRoles(
+    allowedRoles?: readonly string[],
+    forbiddenMessage = 'Permisos insuficientes para operar cierre mensual',
+): Promise<
     | { success: true; actor: FinanceClosingActor }
     | { success: false; error: string }
 > {
-    try {
-        const actor = await getActorOrFail();
-        return { success: true, actor };
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
-        }
-
-        throw error;
+    const actorResult = await resolveActorResult();
+    if (!actorResult.success) {
+        return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
     }
+
+    if (allowedRoles && !allowedRoles.includes(actorResult.actor.role)) {
+        return { success: false, error: forbiddenMessage };
+    }
+
+    return { success: true, actor: actorResult.actor };
 }
 
 async function validateClosingPin(
@@ -143,7 +150,10 @@ function normalizeDate(value: string) {
     return parsed;
 }
 
-function computeTotals(rows: RawEntryRow[]): { breakdown: Record<string, number>; summary: Totals } {
+function computeTotals(
+    rows: RawEntryRow[],
+    socialSecurityCost: number = 0,
+): { breakdown: Record<string, number>; summary: Totals } {
     const breakdown = {
         cash: 0,
         transfer: 0,
@@ -193,7 +203,13 @@ function computeTotals(rows: RawEntryRow[]): { breakdown: Record<string, number>
 
     const totalIncome = breakdown.cash + breakdown.transfer + breakdown.card;
     const totalExpenses =
-        breakdown.daily + breakdown.transferOut + breakdown.payroll + breakdown.fixed + breakdown.tax + breakdown.owner;
+        breakdown.daily +
+        breakdown.transferOut +
+        breakdown.payroll +
+        breakdown.fixed +
+        socialSecurityCost +
+        breakdown.tax +
+        breakdown.owner;
 
     return {
         breakdown,
@@ -209,6 +225,7 @@ function computeTotals(rows: RawEntryRow[]): { breakdown: Record<string, number>
                 transferOut: breakdown.transferOut,
                 payroll: breakdown.payroll,
                 fixed: breakdown.fixed,
+                socialSecurity: socialSecurityCost,
                 tax: breakdown.tax,
                 owner: breakdown.owner,
                 total: totalExpenses,
@@ -232,12 +249,6 @@ async function recalcAndPersist(
         reopenedAt?: Date | null;
     },
 ) {
-    const entries = await client.query(`SELECT category, amount FROM monthly_closing_entries WHERE month = $1 AND year = $2`, [
-        month,
-        year,
-    ]);
-    const { breakdown, summary } = computeTotals(entries.rows);
-
     const existing = await client.query(
         `SELECT id, status, notes, social_security_cost, closed_by, closed_at, reopen_reason, reopened_by, reopened_at 
          FROM monthly_closings WHERE month = $1 AND year = $2`,
@@ -256,6 +267,11 @@ async function recalcAndPersist(
 
     // Preserve social_security_cost if it exists and wasn't explicitly changed (it's often handled by a different flow)
     const socialSecurityCost = existingRow?.social_security_cost || 0;
+    const entries = await client.query(`SELECT category, amount FROM monthly_closing_entries WHERE month = $1 AND year = $2`, [
+        month,
+        year,
+    ]);
+    const { breakdown, summary } = computeTotals(entries.rows, Number(socialSecurityCost || 0));
 
     await client.query(
         `
@@ -315,7 +331,10 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
     const validated = EntrySchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_EDIT_ROLES,
+        'Solo gerencia puede editar el cierre mensual',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -405,7 +424,10 @@ export async function addClosingEntry(data: z.infer<typeof EntrySchema>) {
 export async function deleteClosingEntry(entryId: string, month: number, year: number, _userId: string) {
     if (!entryId) return { success: false, error: 'Parámetros inválidos' };
 
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_EDIT_ROLES,
+        'Solo gerencia puede editar el cierre mensual',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -455,7 +477,10 @@ export async function initiateClosingSecure(data: z.infer<typeof DraftSchema>) {
     const validated = DraftSchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_EDIT_ROLES,
+        'Solo gerencia puede guardar borradores de cierre',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -505,7 +530,10 @@ export async function executeClosingSecure(data: z.infer<typeof ExecuteClosingSc
     const validated = ExecuteClosingSchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_EDIT_ROLES,
+        'Solo gerencia puede cerrar el período',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -582,7 +610,10 @@ export async function reopenPeriodSecure(data: z.infer<typeof ReopenPeriodSchema
     const validated = ReopenPeriodSchema.safeParse(data);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_REOPEN_ACTOR_ROLES,
+        'Solo ADMIN puede reabrir períodos',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -656,7 +687,10 @@ interface ClosingEntry {
 }
 
 export async function getClosingDataSecure(month: number, year: number) {
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_READ_ROLES,
+        'Solo gerencia puede consultar cierres mensuales',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -694,6 +728,7 @@ export async function getClosingDataSecure(month: number, year: number) {
 
         const { summary } = computeTotals(
             entries.rows.map((r) => ({ category: r.category as EntryCategory, amount: Number(r.amount || 0) })),
+            Number(closing.rows[0]?.social_security_cost || 0),
         );
 
         const base = closing.rows[0] || { status: 'DRAFT', notes: '' };
@@ -718,20 +753,27 @@ export async function getClosingDataSecure(month: number, year: number) {
 }
 
 export async function getClosingReport(month: number, year: number) {
-    const auth = await requireFinanceClosingActor();
+    const auth = await requireFinanceClosingActorWithRoles(
+        FINANCE_CLOSING_READ_ROLES,
+        'Solo gerencia puede consultar el reporte de cierre',
+    );
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
 
     try {
-        const entries = await pool.query(
-            `SELECT category, amount FROM monthly_closing_entries WHERE month = $1 AND year = $2`,
-            [month, year],
-        );
+        const [closing, entries] = await Promise.all([
+            pool.query('SELECT social_security_cost FROM monthly_closings WHERE month = $1 AND year = $2', [month, year]),
+            pool.query(
+                `SELECT category, amount FROM monthly_closing_entries WHERE month = $1 AND year = $2`,
+                [month, year],
+            ),
+        ]);
         if (entries.rowCount === 0) return { success: false, error: 'Período no encontrado' };
 
         const { summary } = computeTotals(
             entries.rows.map((r) => ({ category: r.category as EntryCategory, amount: Number(r.amount || 0) })),
+            Number(closing.rows[0]?.social_security_cost || 0),
         );
 
         return {

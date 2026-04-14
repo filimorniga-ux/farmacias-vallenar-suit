@@ -18,6 +18,8 @@ import React from 'react';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useCheckout, PaymentMethod } from '@/presentation/hooks/useCheckout';
+import * as siiDte from '@/domain/logic/sii_dte';
+import * as settingsActions from '@/actions/settings-v2';
 import { mockCartItems, mockShift, mockUser } from '../__mocks__/stores';
 
 // =====================================================
@@ -72,12 +74,17 @@ vi.mock('@/domain/logic/sii_dte', () => ({
     })),
 }));
 
+vi.mock('@/actions/settings-v2', () => ({
+    getOperationalSettingsSecure: vi.fn(),
+}));
+
 // Mock stores
 vi.mock('@/presentation/store/useStore', () => ({
     usePharmaStore: () => ({
         cart: mockCartItems,
         currentShift: mockShift,
         currentCustomer: null,
+        currentLocationId: 'loc-1',
         user: mockUser,
         processSale: mockProcessSale,
         redeemPoints: mockRedeemPoints,
@@ -96,7 +103,7 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
 }));
 vi.mock('@/presentation/store/useSettingsStore', () => ({
     useSettingsStore: () => ({
-        enable_sii_integration: false,
+        enable_sii_integration: true,
         hardware: { printer_type: 'thermal' },
     }),
 }));
@@ -108,6 +115,7 @@ const queryClient = new QueryClient({
         },
     },
 });
+const invalidateQueriesSpy = vi.spyOn(queryClient, 'invalidateQueries');
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={queryClient} >
@@ -123,6 +131,19 @@ describe('useCheckout Hook', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         localStorageMock.clear();
+        vi.mocked(settingsActions.getOperationalSettingsSecure).mockResolvedValue({
+            success: true,
+            data: {
+                sii_enabled: false,
+                fiscal_mode: 'INTERNAL',
+                sii_environment: 'CERTIFICACION',
+                security: {
+                    idle_timeout_minutes: 5,
+                    max_login_attempts: 5,
+                    lockout_duration_minutes: 15,
+                },
+            },
+        });
         // Reset to default successful behavior
         mockProcessSale.mockResolvedValue(true);
         mockRedeemPoints.mockReturnValue(true);
@@ -256,6 +277,41 @@ describe('useCheckout Hook', () => {
     // CHECKOUT FLOW
     // -------------------------------------------------
     describe('Checkout Flow', () => {
+        it('usa configuración operativa backend aunque exista un flag local legacy en el cliente', async () => {
+            const { result } = renderHook(() => useCheckout(), { wrapper });
+
+            await act(async () => {
+                await result.current.checkout();
+            });
+
+            expect(settingsActions.getOperationalSettingsSecure).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(siiDte.shouldGenerateDTE)).not.toHaveBeenCalled();
+        });
+
+        it('evalúa DTE cuando el backend declara modo fiscal', async () => {
+            vi.mocked(settingsActions.getOperationalSettingsSecure).mockResolvedValueOnce({
+                success: true,
+                data: {
+                    sii_enabled: true,
+                    fiscal_mode: 'FISCAL',
+                    sii_environment: 'PRODUCCION',
+                    security: {
+                        idle_timeout_minutes: 5,
+                        max_login_attempts: 5,
+                        lockout_duration_minutes: 15,
+                    },
+                },
+            });
+
+            const { result } = renderHook(() => useCheckout(), { wrapper });
+
+            await act(async () => {
+                await result.current.checkout();
+            });
+
+            expect(vi.mocked(siiDte.shouldGenerateDTE)).toHaveBeenCalledWith('CASH');
+        });
+
         it('should process sale successfully', async () => {
             mockProcessSale.mockResolvedValue(true);
             const onSuccess = vi.fn();
@@ -269,6 +325,9 @@ describe('useCheckout Hook', () => {
             expect(checkoutResult?.success).toBe(true);
             expect(checkoutResult?.saleId).toBeDefined();
             expect(mockProcessSale).toHaveBeenCalled();
+            expect(invalidateQueriesSpy).toHaveBeenCalledWith({
+                queryKey: ['inventory', 'loc-1', 'full']
+            });
             expect(onSuccess).toHaveBeenCalled();
         });
 
@@ -284,6 +343,7 @@ describe('useCheckout Hook', () => {
 
             expect(checkoutResult?.success).toBe(false);
             expect(checkoutResult?.error).toBeDefined();
+            expect(invalidateQueriesSpy).not.toHaveBeenCalled();
             expect(onError).toHaveBeenCalled();
         });
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Users, Clock, AlertTriangle, UserCheck, Calendar } from 'lucide-react';
 import { DateRange } from '../bi/TimeFilter';
 import { getAttendanceReportSecure, getAttendanceKPIsSecure } from '../../../actions/attendance-report-v2';
@@ -7,50 +8,69 @@ import { toast } from 'sonner';
 interface HRReportTabProps {
     dateRange: DateRange;
     locationId?: string;
+    roleFilter: string;
+    onRoleFilterChange: (role: string) => void;
 }
 
-export const HRReportTab: React.FC<HRReportTabProps> = ({ dateRange, locationId }) => {
-    const [loading, setLoading] = useState(false);
-    const [data, setData] = useState<any[]>([]);
-    const [kpis, setKpis] = useState<{ present_today: number; total_staff: number; late_arrivals_month: number; total_overtime_hours: number } | null>(null);
-    const [roleFilter, setRoleFilter] = useState<string>('ALL');
+export const HRReportTab: React.FC<HRReportTabProps> = ({
+    dateRange,
+    locationId,
+    roleFilter,
+    onRoleFilterChange,
+}) => {
+    const startIso = dateRange.from.toISOString();
+    const endIso = dateRange.to.toISOString();
+
+    const reportQuery = useQuery({
+        queryKey: ['reports', 'attendance-summary', startIso, endIso, locationId ?? 'all', roleFilter],
+        staleTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const reportResult = await getAttendanceReportSecure({
+                startDate: startIso,
+                endDate: endIso,
+                locationId,
+                role: roleFilter !== 'ALL' ? roleFilter : undefined,
+            });
+
+            if (!reportResult.success || !reportResult.data) {
+                throw new Error(reportResult.error || 'Error cargando datos de asistencia');
+            }
+
+            return reportResult.data;
+        },
+    });
+
+    const kpiQuery = useQuery({
+        queryKey: ['reports', 'attendance-kpis', locationId ?? 'all'],
+        staleTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const kpiResult = await getAttendanceKPIsSecure(locationId);
+
+            if (!kpiResult.success || !kpiResult.data) {
+                throw new Error(kpiResult.error || 'Error cargando KPIs de asistencia');
+            }
+
+            return kpiResult.data;
+        },
+    });
 
     useEffect(() => {
-        const fetchHRData = async () => {
-            setLoading(true);
-            try {
-                // V2: Usamos firmas de objeto seguras
-                const [reportResult, kpiResult] = await Promise.all([
-                    getAttendanceReportSecure({
-                        startDate: dateRange.from.toISOString(),
-                        endDate: dateRange.to.toISOString(),
-                        locationId,
-                        role: roleFilter !== 'ALL' ? roleFilter : undefined
-                    }),
-                    getAttendanceKPIsSecure(locationId)
-                ]);
+        if (reportQuery.error instanceof Error) {
+            toast.error(reportQuery.error.message);
+        }
+    }, [reportQuery.error]);
 
-                if (reportResult.success && reportResult.data) {
-                    setData(reportResult.data);
-                } else {
-                    toast.error(reportResult.error || 'Error cargando datos de asistencia');
-                }
+    useEffect(() => {
+        if (kpiQuery.error instanceof Error) {
+            toast.error(kpiQuery.error.message);
+        }
+    }, [kpiQuery.error]);
 
-                if (kpiResult.success && kpiResult.data) {
-                    setKpis(kpiResult.data);
-                } else {
-                    if (reportResult.success) toast.error(kpiResult.error || 'Error cargando KPIs de asistencia');
-                }
-            } catch (error) {
-                console.error(error);
-                toast.error('Error cargando datos de asistencia');
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchHRData();
-    }, [dateRange, locationId, roleFilter]);
+    const loading = reportQuery.isLoading || kpiQuery.isLoading;
+    const data = reportQuery.data ?? [];
+    const kpis = kpiQuery.data ?? null;
 
     // KPI Cards
     const renderKPIs = () => {
@@ -104,11 +124,11 @@ export const HRReportTab: React.FC<HRReportTabProps> = ({ dateRange, locationId 
                 <div className="flex items-center gap-2">
                     <Users className="text-gray-400 w-5 h-5" />
                     <span className="font-bold text-gray-700 text-sm">Filtrar por Cargo:</span>
-                    <select
-                        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                        value={roleFilter}
-                        onChange={(e) => setRoleFilter(e.target.value)}
-                    >
+                        <select
+                            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                            value={roleFilter}
+                            onChange={(e) => onRoleFilterChange(e.target.value)}
+                        >
                         <option value="ALL">Todos los Cargos</option>
                         <option value="CASHIER">Cajero Vendedor</option>
                         <option value="WAREHOUSE">Bodeguero</option>
@@ -159,7 +179,7 @@ export const HRReportTab: React.FC<HRReportTabProps> = ({ dateRange, locationId 
                                             <div className="text-xs text-gray-400">{row.rut}</div>
                                         </td>
                                         <td className="px-4 py-3 text-gray-600 text-xs">
-                                            <span className="px-2 py-1 bg-slate-100 rounded-full">{filterRoleName(row.role)}</span>
+                                            <span className="px-2 py-1 bg-slate-100 rounded-full">{row.job_title || 'Sin cargo'}</span>
                                         </td>
                                         <td className={`px-4 py-3 font-mono font-bold ${row.status === 'LATE' ? 'text-red-600' : 'text-emerald-700'}`}>
                                             {row.check_in ? new Date(row.check_in).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : '-'}
@@ -194,15 +214,4 @@ export const HRReportTab: React.FC<HRReportTabProps> = ({ dateRange, locationId 
             </div>
         </div>
     );
-};
-
-// Helper for prettier role names
-const filterRoleName = (role: string) => {
-    const map: any = {
-        'MANAGER': 'Farmacéutico',
-        'CASHIER': 'Cajero',
-        'WAREHOUSE': 'Bodeguero',
-        'ADMIN': 'Admin'
-    };
-    return map[role] || role;
 };

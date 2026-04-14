@@ -245,7 +245,9 @@ describe('pin-rbac', () => {
         });
     });
 
-    it('la excepción 1213 solo funciona cuando se permite explícitamente', async () => {
+    it('1213 ya no tiene tratamiento especial y falla si no es el PIN real del usuario', async () => {
+        mockBcryptCompare.mockReset();
+        mockBcryptCompare.mockResolvedValue(false);
         const client = {
             query: vi.fn().mockResolvedValue({
                 rows: [{
@@ -257,31 +259,12 @@ describe('pin-rbac', () => {
                 }],
             }),
         };
-        const deniedClient = {
-            query: vi.fn().mockResolvedValue({
-                rows: [{
-                    id: 'manager-1',
-                    name: 'Gerente',
-                    role: 'MANAGER',
-                    access_pin_hash: null,
-                    access_pin: null,
-                }],
-            }),
-        };
 
-        const allowed = await validatePinForRoles(client, '1213', ROLE_GROUPS.MANAGER, {
-            allowDevelopmentMasterPin: true,
-        });
-        const denied = await validatePinForRoles(deniedClient, '1213', ROLE_GROUPS.MANAGER, {
-            allowDevelopmentMasterPin: false,
+        const result = await validatePinForRoles(client, '1213', ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
         });
 
-        expect(allowed).toEqual({
-            valid: true,
-            authorizedBy: { id: 'manager-1', name: 'Gerente', role: 'MANAGER' },
-            matchedBy: 'development_master_pin',
-        });
-        expect(denied).toEqual({
+        expect(result).toEqual({
             valid: false,
             code: 'PIN_INVALID',
             error: 'PIN inválido',

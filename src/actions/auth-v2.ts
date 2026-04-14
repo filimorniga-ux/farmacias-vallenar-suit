@@ -29,8 +29,6 @@ export type AuthActionResult =
     | { success: true; user: AuthenticatedUser; isTemporaryPin?: boolean }
     | ActionFailure;
 
-const DEVELOPMENT_PIN = '1213';
-
 function authFailure(input: {
     code: string;
     userMessage: string;
@@ -47,33 +45,12 @@ function authFailure(input: {
     };
 }
 
-interface UserPinRecord {
-    access_pin_hash?: string | null;
-    access_pin?: string | null;
-}
-
 type AuthPinQueryParam = string | number | boolean | Date | string[] | null | undefined;
 
 const pinQueryClient: PinQueryClient = {
     query: (sql, params) =>
         query(sql, params as AuthPinQueryParam[] | undefined) as Promise<Awaited<ReturnType<PinQueryClient['query']>>>,
 };
-
-async function isValidUserPin(pin: string, user: UserPinRecord) {
-    if (process.env.NODE_ENV !== 'production' && pin === DEVELOPMENT_PIN) {
-        return true;
-    }
-
-    if (user.access_pin_hash) {
-        const bcrypt = await import('bcryptjs');
-        const validHash = await bcrypt.compare(pin, user.access_pin_hash);
-        if (validHash) {
-            return true;
-        }
-    }
-
-    return Boolean(user.access_pin && user.access_pin === pin);
-}
 
 export async function getSessionSecure() {
     return getValidatedSession();
@@ -98,7 +75,6 @@ export async function verifyUserPin(userId: string, pin: string) {
 
         const result = await validatePinForUser(pinQueryClient, userId, pin, {
             allowLegacyPlaintext: true,
-            allowDevelopmentMasterPin: true,
         });
 
         if (result.valid) {
@@ -186,7 +162,11 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             });
         }
 
-        if (!(await isValidUserPin(pin, user))) {
+        const pinValidation = await validatePinForUser(pinQueryClient, user.id, pin, {
+            allowLegacyPlaintext: true,
+        });
+
+        if (!pinValidation.valid) {
             // V2: Soporte para PIN Temporal (Recuperación por Email)
             const { checkIfIsPinTemporary } = await import('./pin-recovery-v2');
             const { isTemporary } = await checkIfIsPinTemporary(user.id, pin);

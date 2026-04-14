@@ -2,8 +2,7 @@
 
 import ispData from '@/data/isp-data.json';
 import { query } from '@/lib/db';
-import { ProductResult } from './search-products';
-import { parseProductDetails } from '@/lib/product-parser';
+import { ProductResult, buildPublicProductResult } from './public-product-result';
 
 // Type definition based on the JSON structure
 interface ISPJsonRecord {
@@ -176,32 +175,18 @@ export async function findInventoryMatchesAction(dci: string, ispProductName: st
 
         console.log('Ejecutando query', { dciPattern, brandPattern, rows: result.rows.length });
 
-        return result.rows.map(row => {
-            const details = parseProductDetails(
-                row.name,
-                row.units_per_box,
-                row.dci,
-                row.laboratory,
-                row.format
-            );
-
-            return {
-                id: row.id,
-                name: row.name,
-                sku: row.sku || 'S/SKU',
-                is_bioequivalent: row.is_bioequivalent || false,
-                stock: Number(row.stock),
-                price: Number(row.price),
-                laboratory: details.lab || 'Generico', // Parsed or Original
-                category: 'Farmacia',
-                action: '',
-                dci: details.dci || '',
-                units_per_box: details.units,
-                format: details.format || '',
-                isp_register: row.isp_register || '',
-                location_name: ''
-            };
-        });
+        return result.rows.map((row) => buildPublicProductResult({
+            id: row.id,
+            name: row.name,
+            sku: row.sku,
+            is_bioequivalent: row.is_bioequivalent,
+            stock: row.stock,
+            laboratory: row.laboratory,
+            dci: row.dci,
+            format: row.format,
+            isp_register: row.isp_register,
+            units_per_box: row.units_per_box,
+        }));
 
     } catch (error) {
         console.error('❌ Error finding inventory matches:', error);

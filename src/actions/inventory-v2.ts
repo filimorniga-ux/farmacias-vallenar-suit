@@ -22,12 +22,19 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
 import {
-    getActorOrFail,
-    PinRbacError,
     ROLE_GROUPS,
     requireRole,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
+import {
+    ensureBatchInInventoryScope,
+    ensureProductInInventoryScope,
+    INVENTORY_READ_ROLES,
+    INVENTORY_WRITE_ROLES,
+    requireInventoryActor,
+    resolveEffectiveInventoryLocation,
+    resolveWarehouseForInventoryActor,
+} from '@/actions/inventory-scope';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -120,29 +127,30 @@ const AUTHORIZATION_THRESHOLDS = {
 // HELPERS
 // =====================================================
 
-async function resolveValidatedActor(requestedUserId?: string, action = 'inventory-operation') {
-    try {
-        const session = await getActorOrFail();
-
-        if (requestedUserId && requestedUserId !== session.userId) {
-            logger.warn(
-                { requestedUserId, actorUserId: session.userId, action },
-                'Ignoring payload userId in inventory operation; using validated session user'
-            );
-        }
-
-        return {
-            success: true as const,
-            actorUserId: session.userId,
-            session,
-        };
-    } catch (error) {
-        if (error instanceof PinRbacError) {
-            return { success: false as const, error: error.message };
-        }
-
-        throw error;
+async function resolveValidatedActor(
+    requestedUserId?: string,
+    action = 'inventory-operation',
+    allowedRoles: readonly string[] = INVENTORY_WRITE_ROLES,
+) {
+    const actorResult = await requireInventoryActor(allowedRoles, action);
+    if (!actorResult.success) {
+        return { success: false as const, error: actorResult.error };
     }
+
+    const session = actorResult.actor;
+
+    if (requestedUserId && requestedUserId !== session.userId) {
+        logger.warn(
+            { requestedUserId, actorUserId: session.userId, action },
+            'Ignoring payload userId in inventory operation; using validated session user'
+        );
+    }
+
+    return {
+        success: true as const,
+        actorUserId: session.userId,
+        session,
+    };
 }
 
 /**
@@ -267,7 +275,7 @@ export async function createBatchSecure(params: {
         quantity, expiryDate, lotNumber, unitCost, salePrice,
         stockMin, stockMax, userId: requestedUserId, supplierId, invoiceNumber, invoiceDate, updateMasterPrice
     } = validation.data;
-    const actor = await resolveValidatedActor(requestedUserId, 'createBatchSecure');
+    const actor = await resolveValidatedActor(requestedUserId, 'createBatchSecure', INVENTORY_WRITE_ROLES);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -283,17 +291,27 @@ export async function createBatchSecure(params: {
         // --- INICIO DE TRANSACCIÓN ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Resolver warehouse_id si no se proporciona
-        let targetWarehouseId = warehouseId || locationId;
-        if (!warehouseId) {
-            const locRes = await client.query(
-                'SELECT default_warehouse_id FROM locations WHERE id = $1',
-                [locationId]
-            );
-            if (locRes.rows.length > 0 && locRes.rows[0].default_warehouse_id) {
-                targetWarehouseId = locRes.rows[0].default_warehouse_id;
+        const warehouseScope = await resolveWarehouseForInventoryActor(
+            actor.session,
+            warehouseId,
+            locationId,
+            client,
+        );
+        if (!warehouseScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: warehouseScope.error };
+        }
+
+        if (productId) {
+            const productScope = await ensureProductInInventoryScope(productId, actor.session, client);
+            if (!productScope.success) {
+                await client.query('ROLLBACK');
+                return { success: false, error: productScope.error };
             }
         }
+
+        const effectiveLocationId = warehouseScope.locationId || locationId;
+        const targetWarehouseId = warehouseScope.warehouseId;
 
         // 3. Insertar lote
         const batchId = uuidv4();
@@ -324,7 +342,7 @@ export async function createBatchSecure(params: {
             productId || null,
             sku,
             name,
-            locationId,
+            effectiveLocationId,
             targetWarehouseId,
             quantity,
             expiryDate || null,
@@ -390,7 +408,7 @@ export async function createBatchSecure(params: {
         // 5. Auditoría
         await insertInventoryAudit(client, {
             userId,
-            locationId,
+            locationId: effectiveLocationId,
             actionCode: 'BATCH_CREATED',
             entityType: 'INVENTORY_BATCH',
             entityId: batchId,
@@ -447,7 +465,7 @@ export async function adjustStockSecure(params: {
     }
 
     const { batchId, adjustment, reason, userId: requestedUserId, supervisorPin } = validation.data;
-    const actor = await resolveValidatedActor(requestedUserId, 'adjustStockSecure');
+    const actor = await resolveValidatedActor(requestedUserId, 'adjustStockSecure', INVENTORY_WRITE_ROLES);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -470,6 +488,12 @@ export async function adjustStockSecure(params: {
         logger.info({ batchId, adjustment }, '📦 [Inventory v2] Adjusting stock');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const batchScope = await ensureBatchInInventoryScope(batchId, actor.session, client);
+        if (!batchScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: batchScope.error };
+        }
 
         // 3. Validar autorización si es necesario
         let authorizedBy: { id: string; name: string; role: string } | undefined;
@@ -628,7 +652,7 @@ export async function transferStockSecure(params: {
     }
 
     const { sourceBatchId, targetLocationId, quantity, userId: requestedUserId, reason } = validation.data;
-    const actor = await resolveValidatedActor(requestedUserId, 'transferStockSecure');
+    const actor = await resolveValidatedActor(requestedUserId, 'transferStockSecure', INVENTORY_WRITE_ROLES);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -642,6 +666,23 @@ export async function transferStockSecure(params: {
         logger.info({ sourceBatchId, targetLocationId, quantity }, '📦 [Inventory v2] Transferring stock');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const sourceScope = await ensureBatchInInventoryScope(sourceBatchId, actor.session, client);
+        if (!sourceScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: sourceScope.error };
+        }
+
+        const targetLocationScope = resolveEffectiveInventoryLocation(actor.session, targetLocationId);
+        if (!targetLocationScope.success || !targetLocationScope.locationId) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: targetLocationScope.success ? 'Ubicación destino inválida' : targetLocationScope.error,
+            };
+        }
+
+        const effectiveTargetLocationId = targetLocationScope.locationId;
 
         // 2. Bloquear lote fuente
         const sourceRes = await client.query(`
@@ -665,10 +706,10 @@ export async function transferStockSecure(params: {
         }
 
         // 3. Resolver warehouse destino
-        let targetWarehouseId = targetLocationId;
+        let targetWarehouseId = effectiveTargetLocationId;
         const targetLocRes = await client.query(
             'SELECT default_warehouse_id FROM locations WHERE id = $1',
-            [targetLocationId]
+            [effectiveTargetLocationId]
         );
         if (targetLocRes.rows.length > 0 && targetLocRes.rows[0].default_warehouse_id) {
             targetWarehouseId = targetLocRes.rows[0].default_warehouse_id;
@@ -689,7 +730,7 @@ export async function transferStockSecure(params: {
             SELECT id, quantity_real FROM inventory_batches 
             WHERE location_id = $1 AND sku = $2 AND lot_number = $3
             FOR UPDATE NOWAIT
-        `, [targetLocationId, source.sku, source.lot_number]);
+        `, [effectiveTargetLocationId, source.sku, source.lot_number]);
 
         if (existingRes.rows.length > 0) {
             // Incrementar lote existente
@@ -717,7 +758,7 @@ export async function transferStockSecure(params: {
                 source.product_id,
                 source.sku,
                 source.name,
-                targetLocationId,
+                effectiveTargetLocationId,
                 targetWarehouseId,
                 quantity,
                 source.expiry_date,
@@ -770,7 +811,7 @@ export async function transferStockSecure(params: {
             inMovementId,
             source.sku,
             source.name,
-            targetLocationId,
+            effectiveTargetLocationId,
             quantity,
             userId,
             reason,
@@ -791,7 +832,7 @@ export async function transferStockSecure(params: {
             },
             newValues: {
                 source_quantity: sourceQuantity - quantity,
-                target_location: targetLocationId,
+                target_location: effectiveTargetLocationId,
                 transferred: quantity
             },
             description: reason
@@ -799,7 +840,7 @@ export async function transferStockSecure(params: {
 
         await client.query('COMMIT');
 
-        logger.info({ sourceBatchId, targetLocationId, quantity }, '✅ [Inventory v2] Transfer completed');
+        logger.info({ sourceBatchId, targetLocationId: effectiveTargetLocationId, quantity }, '✅ [Inventory v2] Transfer completed');
         revalidatePath('/inventory');
 
         return {
@@ -841,13 +882,18 @@ export async function fractionateBatchSecure(params: {
 
     const { batchId, userId: requestedUserId } = validation.data;
 
-    const actor = await resolveValidatedActor(requestedUserId, 'fractionateBatchSecure');
+    const actor = await resolveValidatedActor(requestedUserId, 'fractionateBatchSecure', INVENTORY_WRITE_ROLES);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
     const userId = actor.actorUserId;
 
     try {
+        const batchScope = await ensureBatchInInventoryScope(batchId, actor.session);
+        if (!batchScope.success) {
+            return { success: false, error: batchScope.error };
+        }
+
         const batchRes = await query(`
             SELECT COALESCE(units_per_box, 1) as units_per_box
             FROM inventory_batches
@@ -890,7 +936,7 @@ export async function fractionateBatchSecureDetailed(params: {
     }
 
     const { batchId, userId: requestedUserId, unitsInBox } = validation.data;
-    const actor = await resolveValidatedActor(requestedUserId, 'fractionateBatchSecureDetailed');
+    const actor = await resolveValidatedActor(requestedUserId, 'fractionateBatchSecureDetailed', INVENTORY_WRITE_ROLES);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -903,6 +949,12 @@ export async function fractionateBatchSecureDetailed(params: {
         logger.info({ batchId, unitsInBox }, '✂️ [Inventory v2] Fractionating batch (Persistent)');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const batchScope = await ensureBatchInInventoryScope(batchId, actor.session, client);
+        if (!batchScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: batchScope.error };
+        }
 
         // 1. Obtener y bloquear lote original
         const batchRes = await client.query(`
@@ -1103,7 +1155,7 @@ export async function clearLocationInventorySecure(params: {
     }
 
     const { locationId, userId: requestedUserId, adminPin, confirmationCode } = validation.data;
-    const actor = await resolveValidatedActor(requestedUserId, 'clearLocationInventorySecure');
+    const actor = await resolveValidatedActor(requestedUserId, 'clearLocationInventorySecure', ROLE_GROUPS.ADMIN);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -1121,6 +1173,15 @@ export async function clearLocationInventorySecure(params: {
         logger.warn({ locationId, userId }, '☢️ [Inventory v2] NUCLEAR DELETE requested');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const locationScope = resolveEffectiveInventoryLocation(actor.session, locationId);
+        if (!locationScope.success || !locationScope.locationId) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: locationScope.success ? 'Ubicación inválida' : locationScope.error,
+            };
+        }
 
         // 3. Validar PIN de administrador
         const authResult = await validateSupervisorPin(client, adminPin, ROLE_GROUPS.ADMIN);
@@ -1142,7 +1203,7 @@ export async function clearLocationInventorySecure(params: {
         const snapshotRes = await client.query(`
             SELECT COUNT(*) as count, SUM(quantity_real) as total_units
             FROM inventory_batches WHERE location_id = $1
-        `, [locationId]);
+        `, [locationScope.locationId]);
 
         const snapshot = snapshotRes.rows[0];
 
@@ -1150,7 +1211,7 @@ export async function clearLocationInventorySecure(params: {
         const deleteRes = await client.query(`
             DELETE FROM inventory_batches 
             WHERE location_id = $1
-        `, [locationId]);
+        `, [locationScope.locationId]);
 
         const deletedCount = deleteRes.rowCount || 0;
 
@@ -1158,10 +1219,10 @@ export async function clearLocationInventorySecure(params: {
         await insertInventoryAudit(client, {
             userId,
             authorizedById: authResult.authorizedBy?.id,
-            locationId,
+            locationId: locationScope.locationId,
             actionCode: 'INVENTORY_CLEARED',
             entityType: 'LOCATION',
-            entityId: locationId,
+            entityId: locationScope.locationId,
             quantity: Number(snapshot.total_units) || 0,
             oldValues: {
                 batch_count: Number(snapshot.count),
@@ -1177,7 +1238,7 @@ export async function clearLocationInventorySecure(params: {
 
         await client.query('COMMIT');
 
-        logger.warn({ locationId, deletedCount }, '💥 [Inventory v2] NUCLEAR DELETE completed');
+        logger.warn({ locationId: locationScope.locationId, deletedCount }, '💥 [Inventory v2] NUCLEAR DELETE completed');
         revalidatePath('/inventory');
 
         return { success: true, deletedCount };
@@ -1201,11 +1262,26 @@ export async function clearLocationInventorySecure(params: {
 export async function getWMSInventorySecure(
     locationId: string
 ): Promise<{ success: boolean; data: any[]; error?: string }> {
+    const actor = await requireInventoryActor(INVENTORY_READ_ROLES, 'getWMSInventorySecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error, data: [] };
+    }
+
     if (!z.string().uuid().safeParse(locationId).success) {
         return { success: false, error: 'ID de ubicación inválido', data: [] };
     }
 
     try {
+        const locationScope = resolveEffectiveInventoryLocation(actor.actor, locationId);
+        if (!locationScope.success || !locationScope.locationId) {
+            return {
+                success: false,
+                error: locationScope.success ? 'Ubicación inválida' : locationScope.error,
+                data: [],
+            };
+        }
+
+        const effectiveLocationId = locationScope.locationId;
         const res = await query(`
             SELECT
                 ib.id::text as id,
@@ -1244,7 +1320,7 @@ export async function getWMSInventorySecure(
             )
             AND ib.quantity_real > 0
             ORDER BY COALESCE(ib.name, p.name) ASC, ib.expiry_date ASC NULLS LAST
-        `, [locationId]);
+        `, [effectiveLocationId]);
 
         const inventory = res.rows.map(row => ({
             id: row.id,
@@ -1256,7 +1332,7 @@ export async function getWMSInventorySecure(
             category: row.category || 'GENERAL',
             condition: row.condition || 'VD',
             barcode: row.barcode || undefined,
-            location_id: row.location_id || locationId,
+            location_id: row.location_id || effectiveLocationId,
             warehouse_id: row.warehouse_id || undefined,
             stock_actual: Number(row.stock_actual || 0),
             stock_min: Number(row.stock_min || 0),
@@ -1314,9 +1390,12 @@ export async function getInventorySecure(
     meta?: { total: number; page: number; totalPages: number };
     error?: string
 }> {
-    console.log('🔍 [getInventorySecure] Params:', { locationId, ...params });
+    const actor = await requireInventoryActor(INVENTORY_READ_ROLES, 'getInventorySecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error, data: [] };
+    }
+
     if (!z.string().uuid().safeParse(locationId).success) {
-        console.warn('⚠️ [getInventorySecure] Invalid UUID format received:', locationId);
         return { success: false, error: 'ID de ubicación inválido', data: [] };
     }
 
@@ -1328,10 +1407,20 @@ export async function getInventorySecure(
 
     try {
         const { query } = await import('@/lib/db');
+        const locationScope = resolveEffectiveInventoryLocation(actor.actor, locationId);
+        if (!locationScope.success || !locationScope.locationId) {
+            return {
+                success: false,
+                error: locationScope.success ? 'Ubicación inválida' : locationScope.error,
+                data: [],
+            };
+        }
+
+        const effectiveLocationId = locationScope.locationId;
 
         // Construcción dinámica de filtros WHERE
         const whereConditions: string[] = [];
-        const queryParams: any[] = [locationId];
+        const queryParams: any[] = [effectiveLocationId];
         let paramIndex = 2; // Start at 2 because $1 is locationId
 
         // Base Filter: Location logic handled in CTEs/Join, but we refine here if needed
@@ -1585,7 +1674,7 @@ export async function getInventorySecure(
                 is_retail_lot: Boolean(row.is_retail_lot_group),
                 original_batch_id: row.original_batch_id_group || undefined,
                 condition: row.condition || 'VD',
-                location_id: row.location_id_group || locationId,
+                    location_id: row.location_id_group || effectiveLocationId,
                 warehouse_id: row.warehouse_id_group || undefined,
                 is_express_entry: false,
                 source_system: row.source_system,
@@ -1624,7 +1713,7 @@ export async function getInventorySecure(
                             laboratory: row.laboratory,
                             category: row.category,
                             condition: row.condition || 'VD',
-                            location_id: row.location_id_group || locationId,
+                            location_id: row.location_id_group || effectiveLocationId,
                             warehouse_id: row.warehouse_id_group || undefined,
                             stock_actual: Number(batch.stock_actual || 0),
                             stock_min: Number(row.stock_min || 0),
@@ -1658,7 +1747,7 @@ export async function getInventorySecure(
                     laboratory: row.laboratory,
                     category: row.category,
                     condition: row.condition || 'VD',
-                    location_id: locationId,
+                    location_id: effectiveLocationId,
                     warehouse_id: undefined,
                     stock_actual: 0,
                     stock_min: Number(row.stock_min || 0),
@@ -1698,6 +1787,10 @@ export async function getRecentMovementsSecure(
     locationId?: string,
     limit: number = 100
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    const actor = await requireInventoryActor(INVENTORY_READ_ROLES, 'getRecentMovementsSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
 
     // Validar locationId si se proporciona
     if (locationId && !z.string().uuid().safeParse(locationId).success) {
@@ -1708,14 +1801,20 @@ export async function getRecentMovementsSecure(
     const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
 
     try {
+        const locationScope = resolveEffectiveInventoryLocation(actor.actor, locationId);
+        if (!locationScope.success) {
+            return { success: false, error: locationScope.error };
+        }
+
+        const effectiveLocationId = locationScope.locationId;
         let whereClause = "";
         const params: any[] = [];
 
-        if (locationId) {
+        if (effectiveLocationId) {
             whereClause = `WHERE sm.location_id = $1::uuid OR sm.location_id = (
                 SELECT default_warehouse_id FROM locations WHERE id = $1::uuid
             )`;
-            params.push(locationId);
+            params.push(effectiveLocationId);
         }
 
         params.push(safeLimit);
@@ -1777,7 +1876,7 @@ export async function quickStockAdjustSecure(params: {
     pin: string;
 }): Promise<{ success: boolean; newQuantity?: number; productName?: string; error?: string }> {
 
-    const actor = await resolveValidatedActor(undefined, 'quickStockAdjustSecure');
+    const actor = await resolveValidatedActor(undefined, 'quickStockAdjustSecure', ROLE_GROUPS.MANAGER);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -1813,6 +1912,12 @@ export async function quickStockAdjustSecure(params: {
         logger.info({ batchId, adjustment, userId: userId }, '⚡ [Inventory] Quick stock adjust');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const batchScope = await ensureBatchInInventoryScope(batchId, actor.session, client);
+        if (!batchScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: batchScope.error };
+        }
 
         // 4. Validar PIN y Rol de Gerente usando el helper compartido.
         const authResult = await validateSupervisorPin(client, pin, ROLE_GROUPS.MANAGER);
@@ -1961,7 +2066,7 @@ export async function updateBatchCostSecure(params: {
         return { success: false, error: 'Datos inválidos' };
     }
 
-    const actor = await resolveValidatedActor(requestedUserId, 'updateBatchCostSecure');
+    const actor = await resolveValidatedActor(requestedUserId, 'updateBatchCostSecure', ROLE_GROUPS.MANAGER);
     if (!actor.success) {
         return { success: false, error: actor.error };
     }
@@ -1977,6 +2082,12 @@ export async function updateBatchCostSecure(params: {
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        const batchScope = await ensureBatchInInventoryScope(batchId, actor.session, client);
+        if (!batchScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: batchScope.error };
+        }
+
         // 1. Validar PIN (Manager/Admin/Gerente)
         const authResult = await validateSupervisorPin(client, pin, ROLE_GROUPS.MANAGER);
 
@@ -1987,8 +2098,6 @@ export async function updateBatchCostSecure(params: {
 
         const authorizedUser = authResult.authorizedBy;
 
-        console.log(`[UpdateCost] Batch: ${batchId}, NewCost: ${newCost}, User: ${authorizedUser.name}`);
-
         // 2. Obtener lote y bloquear
         const batchRes = await client.query(`
             SELECT id, product_id, sku, name, unit_cost, location_id 
@@ -1998,7 +2107,6 @@ export async function updateBatchCostSecure(params: {
         `, [batchId]);
 
         if (batchRes.rows.length === 0) {
-            console.warn(`[UpdateCost] Batch ${batchId} NOT FOUND inside inventory_batches`);
             await client.query('ROLLBACK');
             return { success: false, error: 'Lote no encontrado' };
         }
@@ -2007,8 +2115,6 @@ export async function updateBatchCostSecure(params: {
         const oldCost = Number(batch.unit_cost);
         const productId = batch.product_id;
 
-        console.log(`[UpdateCost] Found Batch. ID: ${batch.id}, ProductID: ${productId}, OldCost: ${oldCost}`);
-
         // 3. Actualizar lote
         const upBatch = await client.query(`
             UPDATE inventory_batches 
@@ -2016,19 +2122,13 @@ export async function updateBatchCostSecure(params: {
             WHERE id = $2
         `, [newCost, batchId]);
 
-        console.log(`[UpdateCost] Inventory Batch Updated. Rows: ${upBatch.rowCount}`);
-
         // 4. Actualizar producto maestro si existe (Ficha técnica)
         if (productId) {
-            console.log(`[UpdateCost] Updating Master Product ${productId}...`);
-            const upProd = await client.query(`
+            await client.query(`
                 UPDATE products 
                 SET cost_price = $1, cost_net = $1, updated_at = NOW() 
                 WHERE id = $2
             `, [newCost, productId]);
-            console.log(`[UpdateCost] Master Product Updated. Rows: ${upProd.rowCount}`);
-        } else {
-            console.warn(`[UpdateCost] No Product ID linked to batch ${batchId}. Master product NOT updated.`);
         }
 
         // 5. Auditoría
@@ -2045,7 +2145,6 @@ export async function updateBatchCostSecure(params: {
         });
 
         await client.query('COMMIT');
-        console.log(`[UpdateCost] Transaction COMMITTED.`);
 
         revalidatePath('/inventory');
         return { success: true };

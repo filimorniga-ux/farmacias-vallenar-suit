@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger';
 import * as Sentry from '@sentry/nextjs';
 import { randomUUID } from 'crypto';
 import { getValidatedSession } from '@/lib/server-session';
+import { z } from 'zod';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,79 @@ async function getSession() {
     if (!session) return null;
     return { userId: session.userId, role: session.role, locationId: session.locationId };
 }
+
+const GLOBAL_NOTIFICATION_ROLES = new Set(['ADMIN', 'GERENTE_GENERAL']);
+const UUIDSchema = z.string().uuid('ID inválido');
+
+function normalizeRole(role?: string | null) {
+    return String(role || '').trim().toUpperCase();
+}
+
+function sanitizeRequestedLocationId(locationId?: string) {
+    if (!locationId) {
+        return undefined;
+    }
+
+    return UUIDSchema.safeParse(locationId).success ? locationId : undefined;
+}
+
+function resolveEffectiveNotificationLocation(
+    session: NonNullable<Awaited<ReturnType<typeof getSession>>>,
+    requestedLocationId?: string,
+) {
+    const sanitizedRequestedLocationId = sanitizeRequestedLocationId(requestedLocationId);
+    const normalizedRole = normalizeRole(session.role);
+    const isGlobal = GLOBAL_NOTIFICATION_ROLES.has(normalizedRole);
+
+    if (isGlobal) {
+        return { success: true as const, locationId: sanitizedRequestedLocationId ?? session.locationId ?? null };
+    }
+
+    if (!session.locationId) {
+        return { success: false as const, error: 'No tienes una ubicación asignada' };
+    }
+
+    return { success: true as const, locationId: session.locationId };
+}
+
+async function getNotificationContext(requestedLocationId?: string) {
+    const session = await getSession();
+    if (!session) {
+        return { success: false as const, error: 'Usuario no autenticado' };
+    }
+
+    const effectiveLocation = resolveEffectiveNotificationLocation(session, requestedLocationId);
+    if (!effectiveLocation.success) {
+        return { success: false as const, error: effectiveLocation.error };
+    }
+
+    return {
+        success: true as const,
+        session,
+        effectiveLocationId: effectiveLocation.locationId,
+    };
+}
+
+function buildLocationScope(locationId: string | null, startIndex: number) {
+    if (locationId) {
+        return {
+            clause: `(n.location_id = $${startIndex}::uuid OR n.location_id IS NULL)`,
+            params: [locationId] as unknown[],
+        };
+    }
+
+    return {
+        clause: 'n.location_id IS NULL',
+        params: [] as unknown[],
+    };
+}
+
+const READ_STATE_SQL = `
+    CASE
+        WHEN n.user_id IS NULL THEN (nr.read_at IS NOT NULL)
+        ELSE COALESCE(nr.read_at IS NOT NULL, n.is_read)
+    END
+`;
 
 // ─── Create ──────────────────────────────────────────────────────────────────
 
@@ -111,37 +185,61 @@ export async function createNotificationSecure(data: CreateNotificationDTO) {
 // ─── Fetch ───────────────────────────────────────────────────────────────────
 
 export async function getNotificationsSecure(locationId?: string, limit = 60) {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'Usuario no autenticado' };
+    const context = await getNotificationContext(locationId);
+    if (!context.success) {
+        return { success: false, error: context.error };
     }
 
     let client: PoolClient | null = null;
     try {
         client = await getClient();
-        const currentUserId = session.userId;
-
-        const params: unknown[] = [locationId ?? null];
-        let whereClause = `WHERE (location_id = $1 OR location_id IS NULL)`;
-
-        whereClause += ` AND (user_id = $2 OR user_id IS NULL)`;
-        params.push(currentUserId);
-
-        const query = `
-            SELECT id, type, severity, title, message, metadata, action_url,
-                   is_read, location_id, user_id, created_at, dedup_key
-            FROM notifications
-            ${whereClause}
-            ORDER BY created_at DESC
-            LIMIT $${params.length + 1}
+        const currentUserId = context.session.userId;
+        const locationScope = buildLocationScope(context.effectiveLocationId, 2);
+        const params: unknown[] = [currentUserId, ...locationScope.params];
+        const limitParam = params.length + 1;
+        const visibleNotificationsCte = `
+            WITH visible_notifications AS (
+                SELECT
+                    n.id,
+                    n.type,
+                    n.severity,
+                    n.title,
+                    n.message,
+                    n.metadata,
+                    n.action_url,
+                    ${READ_STATE_SQL} AS is_read,
+                    n.location_id,
+                    n.user_id,
+                    n.created_at,
+                    n.dedup_key
+                FROM notifications n
+                LEFT JOIN notification_reads nr
+                  ON nr.notification_id = n.id
+                 AND nr.user_id = $1::uuid
+                WHERE ${locationScope.clause}
+                  AND (n.user_id = $1::uuid OR n.user_id IS NULL)
+                  AND nr.deleted_at IS NULL
+            )
         `;
-        params.push(limit);
 
         const [res, countRes] = await Promise.all([
-            client.query(query, params),
             client.query(
-                `SELECT COUNT(*) FROM notifications ${whereClause} AND is_read = FALSE`,
-                params.slice(0, params.length - 1)
+                `
+                ${visibleNotificationsCte}
+                SELECT id, type, severity, title, message, metadata, action_url,
+                       is_read, location_id, user_id, created_at, dedup_key
+                FROM visible_notifications
+                ORDER BY created_at DESC
+                LIMIT $${limitParam}
+                `,
+                [...params, limit],
+            ),
+            client.query(
+                `
+                ${visibleNotificationsCte}
+                SELECT COUNT(*) FROM visible_notifications WHERE is_read = FALSE
+                `,
+                params,
             ),
         ]);
 
@@ -151,7 +249,7 @@ export async function getNotificationsSecure(locationId?: string, limit = 60) {
             unreadCount: parseInt(countRes.rows[0]?.count ?? '0', 10),
         };
     } catch (error: unknown) {
-        logger.error({ error, locationId }, '[Notifications] getNotificationsSecure failed');
+        logger.error({ error, requestedLocationId: locationId }, '[Notifications] getNotificationsSecure failed');
         Sentry.captureException(error, { tags: { module: 'notifications-v2', action: 'getNotificationsSecure' } });
         return { success: false, error: 'Failed to fetch notifications' };
     } finally {
@@ -161,19 +259,32 @@ export async function getNotificationsSecure(locationId?: string, limit = 60) {
 
 /** Conteo rápido de no leídas (sin traer todo el payload) */
 export async function getUnreadCountSecure(locationId?: string): Promise<number> {
-    const session = await getSession();
-    if (!session) {
+    const context = await getNotificationContext(locationId);
+    if (!context.success) {
         return 0;
     }
 
     let client: PoolClient | null = null;
     try {
         client = await getClient();
-        const params: unknown[] = [locationId ?? null];
-        let where = `WHERE is_read = FALSE AND (location_id = $1 OR location_id IS NULL)`;
-        where += ` AND (user_id = $2 OR user_id IS NULL)`;
-        params.push(session.userId);
-        const res = await client.query(`SELECT COUNT(*) FROM notifications ${where}`, params);
+        const locationScope = buildLocationScope(context.effectiveLocationId, 2);
+        const params: unknown[] = [context.session.userId, ...locationScope.params];
+        const res = await client.query(
+            `
+            WITH visible_notifications AS (
+                SELECT ${READ_STATE_SQL} AS is_read
+                FROM notifications n
+                LEFT JOIN notification_reads nr
+                  ON nr.notification_id = n.id
+                 AND nr.user_id = $1::uuid
+                WHERE ${locationScope.clause}
+                  AND (n.user_id = $1::uuid OR n.user_id IS NULL)
+                  AND nr.deleted_at IS NULL
+            )
+            SELECT COUNT(*) FROM visible_notifications WHERE is_read = FALSE
+            `,
+            params,
+        );
         return parseInt(res.rows[0]?.count ?? '0', 10);
     } catch {
         return 0;
@@ -185,17 +296,39 @@ export async function getUnreadCountSecure(locationId?: string): Promise<number>
 // ─── Mark as Read ─────────────────────────────────────────────────────────────
 
 export async function markAsReadSecure(notificationIds: string[]) {
-    const session = await getSession();
-    if (!session) return { success: false, error: 'Usuario no autenticado' };
+    const context = await getNotificationContext();
+    if (!context.success) return { success: false, error: context.error };
     if (notificationIds.length === 0) return { success: true };
 
     const client = await getClient();
     try {
-        await client.query(`
-            UPDATE notifications SET is_read = TRUE
-            WHERE id = ANY($1::uuid[])
-              AND (user_id = $2 OR user_id IS NULL)
-        `, [notificationIds, session.userId]);
+        const locationScope = buildLocationScope(context.effectiveLocationId, 3);
+        await client.query(
+            `
+            WITH visible_notifications AS (
+                SELECT n.id
+                FROM notifications n
+                LEFT JOIN notification_reads nr
+                  ON nr.notification_id = n.id
+                 AND nr.user_id = $2::uuid
+                WHERE n.id = ANY($1::uuid[])
+                  AND ${locationScope.clause}
+                  AND (n.user_id = $2::uuid OR n.user_id IS NULL)
+                  AND nr.deleted_at IS NULL
+            )
+            INSERT INTO notification_reads (
+                id, notification_id, user_id, read_at, deleted_at, created_at, updated_at
+            )
+            SELECT gen_random_uuid(), vn.id, $2::uuid, NOW(), NULL, NOW(), NOW()
+            FROM visible_notifications vn
+            ON CONFLICT (notification_id, user_id)
+            DO UPDATE SET
+                read_at = COALESCE(notification_reads.read_at, EXCLUDED.read_at),
+                deleted_at = NULL,
+                updated_at = NOW()
+            `,
+            [notificationIds, context.session.userId, ...locationScope.params],
+        );
         return { success: true };
     } catch (error) {
         logger.error({ error }, '[Notifications] markAsReadSecure failed');
@@ -206,18 +339,38 @@ export async function markAsReadSecure(notificationIds: string[]) {
 }
 
 export async function markAllAsReadSecure(locationId?: string) {
-    const session = await getSession();
-    if (!session) return { success: false, error: 'Usuario no autenticado' };
+    const context = await getNotificationContext(locationId);
+    if (!context.success) return { success: false, error: context.error };
 
     const client = await getClient();
     try {
-        // FIX B5: Filtrar también por user_id para no marcar notificaciones de otros usuarios
-        await client.query(`
-            UPDATE notifications SET is_read = TRUE
-            WHERE is_read = FALSE
-              AND (location_id = $1 OR location_id IS NULL)
-              AND (user_id = $2 OR user_id IS NULL)
-        `, [locationId ?? null, session.userId]);
+        const locationScope = buildLocationScope(context.effectiveLocationId, 2);
+        await client.query(
+            `
+            WITH visible_notifications AS (
+                SELECT n.id
+                FROM notifications n
+                LEFT JOIN notification_reads nr
+                  ON nr.notification_id = n.id
+                 AND nr.user_id = $1::uuid
+                WHERE ${locationScope.clause}
+                  AND (n.user_id = $1::uuid OR n.user_id IS NULL)
+                  AND nr.deleted_at IS NULL
+                  AND NOT (${READ_STATE_SQL})
+            )
+            INSERT INTO notification_reads (
+                id, notification_id, user_id, read_at, deleted_at, created_at, updated_at
+            )
+            SELECT gen_random_uuid(), vn.id, $1::uuid, NOW(), NULL, NOW(), NOW()
+            FROM visible_notifications vn
+            ON CONFLICT (notification_id, user_id)
+            DO UPDATE SET
+                read_at = COALESCE(notification_reads.read_at, EXCLUDED.read_at),
+                deleted_at = NULL,
+                updated_at = NOW()
+            `,
+            [context.session.userId, ...locationScope.params],
+        );
         return { success: true };
     } catch (error) {
         logger.error({ error }, '[Notifications] markAllAsReadSecure failed');
@@ -230,21 +383,43 @@ export async function markAllAsReadSecure(locationId?: string) {
 // ─── Delete ───────────────────────────────────────────────────────────────────
 
 export async function deleteNotificationSecure(notificationIds: string[]) {
-    const session = await getSession();
-    if (!session) return { success: false, error: 'Usuario no autenticado' };
+    const context = await getNotificationContext();
+    if (!context.success) return { success: false, error: context.error };
     if (notificationIds.length === 0) return { success: true };
 
     const client = await getClient();
     try {
-        const isAdmin = ['ADMIN', 'GERENTE_GENERAL'].includes(session.role);
-        // Admins pueden eliminar cualquier notificación; usuarios normales solo las suyas
-        const query = isAdmin
-            ? `DELETE FROM notifications WHERE id = ANY($1::uuid[])`
-            : `DELETE FROM notifications WHERE id = ANY($1::uuid[]) AND (user_id = $2 OR user_id IS NULL)`;
-        const params = isAdmin ? [notificationIds] : [notificationIds, session.userId];
-
-        const res = await client.query(query, params);
-        return { success: true, deletedCount: res.rowCount };
+        const locationScope = buildLocationScope(context.effectiveLocationId, 3);
+        const res = await client.query(
+            `
+            WITH visible_notifications AS (
+                SELECT n.id
+                FROM notifications n
+                LEFT JOIN notification_reads nr
+                  ON nr.notification_id = n.id
+                 AND nr.user_id = $2::uuid
+                WHERE n.id = ANY($1::uuid[])
+                  AND ${locationScope.clause}
+                  AND (n.user_id = $2::uuid OR n.user_id IS NULL)
+                  AND nr.deleted_at IS NULL
+            ),
+            upserted AS (
+                INSERT INTO notification_reads (
+                    id, notification_id, user_id, read_at, deleted_at, created_at, updated_at
+                )
+                SELECT gen_random_uuid(), vn.id, $2::uuid, NULL, NOW(), NOW(), NOW()
+                FROM visible_notifications vn
+                ON CONFLICT (notification_id, user_id)
+                DO UPDATE SET
+                    deleted_at = NOW(),
+                    updated_at = NOW()
+                RETURNING notification_id
+            )
+            SELECT COUNT(*)::int AS count FROM upserted
+            `,
+            [notificationIds, context.session.userId, ...locationScope.params],
+        );
+        return { success: true, deletedCount: Number(res.rows[0]?.count || 0) };
     } catch (error) {
         logger.error({ error }, '[Notifications] deleteNotificationSecure failed');
         return { success: false, error: 'Failed to delete notifications' };
@@ -367,7 +542,3 @@ export async function deleteOldNotifications(days: number) {
         client.release();
     }
 }
-
-// ─── Legacy compatibility ─────────────────────────────────────────────────────
-// Mantenemos getMyNotifications exportado para no romper imports existentes
-export { getNotificationsSecure as getMyNotifications };

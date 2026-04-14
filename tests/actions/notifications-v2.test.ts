@@ -33,10 +33,10 @@ describe('Notifications V2 - server-side session', () => {
         mockClient.release.mockReset();
     });
 
-    it('rechaza getMyNotifications sin sesión válida', async () => {
+    it('rechaza getNotificationsSecure sin sesión válida', async () => {
         vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
-        const result = await notificationsV2.getMyNotifications();
+        const result = await notificationsV2.getNotificationsSecure();
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('autenticado');
@@ -58,6 +58,29 @@ describe('Notifications V2 - server-side session', () => {
 
         expect(result).toBe(0);
         expect(getClient).not.toHaveBeenCalled();
+    });
+
+    it('fuerza el scope de notificaciones a la ubicación efectiva de la sesión', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440010',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        mockClient.query
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+            .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 });
+
+        const result = await notificationsV2.getNotificationsSecure('550e8400-e29b-41d4-a716-446655440099');
+
+        expect(result.success).toBe(true);
+        const fetchCall = mockClient.query.mock.calls[0];
+        expect(String(fetchCall[0])).toContain('notification_reads');
+        expect(fetchCall[1]).toContain('550e8400-e29b-41d4-a716-446655440010');
+        expect(fetchCall[1]).not.toContain('550e8400-e29b-41d4-a716-446655440099');
     });
 
     it('mantiene createNotificationSecure como flujo de sistema sin sesión', async () => {
@@ -131,5 +154,42 @@ describe('Notifications V2 - server-side session', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('Failed to fetch notifications');
+    });
+
+    it('markAsReadSecure opera sobre notification_reads y no muta notifications globales', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440010',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockClient.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        const result = await notificationsV2.markAsReadSecure(['550e8400-e29b-41d4-a716-446655440000']);
+
+        expect(result.success).toBe(true);
+        expect(String(mockClient.query.mock.calls[0]?.[0])).toContain('INSERT INTO notification_reads');
+        expect(String(mockClient.query.mock.calls[0]?.[0])).not.toContain('UPDATE notifications SET is_read = TRUE');
+    });
+
+    it('deleteNotificationSecure hace soft-delete por usuario en notification_reads', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440010',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockClient.query.mockResolvedValueOnce({ rows: [{ count: 1 }], rowCount: 1 });
+
+        const result = await notificationsV2.deleteNotificationSecure(['550e8400-e29b-41d4-a716-446655440000']);
+
+        expect(result.success).toBe(true);
+        expect(result.deletedCount).toBe(1);
+        expect(String(mockClient.query.mock.calls[0]?.[0])).toContain('INSERT INTO notification_reads');
+        expect(String(mockClient.query.mock.calls[0]?.[0])).not.toContain('DELETE FROM notifications');
     });
 });

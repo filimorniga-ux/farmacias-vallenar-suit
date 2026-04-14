@@ -1,11 +1,20 @@
 import { NextResponse } from 'next/server';
-import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
-import { Pool } from 'pg';
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } // Required for Timescale Cloud
-});
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { getClient } from '@/lib/db';
+
+async function resetAllProductsStock(
+    client: Awaited<ReturnType<typeof getClient>>,
+) {
+    await client.query(
+        `
+            UPDATE products
+            SET stock_total = 0,
+                stock_actual = 0,
+                updated_at = NOW()
+        `,
+    );
+}
 
 export async function POST(request: Request) {
     try {
@@ -16,42 +25,35 @@ export async function POST(request: Request) {
 
         const body = await request.json();
 
-        // 1. Security Check
         if (body.confirmation !== 'BORRAR') {
             return NextResponse.json(
                 { error: 'Confirmación inválida. Debe escribir BORRAR.' },
-                { status: 400 }
+                { status: 400 },
             );
         }
 
-        const client = await pool.connect();
+        const client = await getClient();
         try {
             await client.query('BEGIN');
-
-            // 2. Execute Truncate
-            // CASCADE is important to clear related tables if any (like lotes)
-            await client.query('TRUNCATE TABLE lotes CASCADE');
-            await client.query('TRUNCATE TABLE products CASCADE');
-
+            await client.query('DELETE FROM inventory_batches');
+            await resetAllProductsStock(client);
             await client.query('COMMIT');
 
             return NextResponse.json({
                 success: true,
-                message: 'Inventario vaciado correctamente.'
+                message: 'Inventario vaciado correctamente.',
             });
-
         } catch (error) {
             await client.query('ROLLBACK');
             throw error;
         } finally {
             client.release();
         }
-
     } catch (error) {
         console.error('Truncate error:', error);
         return NextResponse.json(
-            { error: 'Error al vaciar inventario', details: (error as Error).message },
-            { status: 500 }
+            { error: 'Error al vaciar inventario' },
+            { status: 500 },
         );
     }
 }

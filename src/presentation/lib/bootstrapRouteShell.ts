@@ -1,5 +1,5 @@
 import type { EmployeeProfile, Location } from '@/domain/types';
-import { fetchEmployeesSecure, fetchLocationsSecure, getUsersForLoginSecure } from '@/actions/sync-v2';
+import { fetchEmployeesSecure, fetchLocationsSecure } from '@/actions/sync-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 
@@ -19,17 +19,14 @@ function resolveBootstrapProfile(targetPath: string): BootstrapProfile {
 }
 
 async function loadEmployeesSeed(): Promise<EmployeeProfile[]> {
+    if (!usePharmaStore.getState().user?.id && !usePharmaStore.getState().user?.assigned_location_id) {
+        return usePharmaStore.getState().employees;
+    }
+
     try {
         const result = await fetchEmployeesSecure();
         if (result.success) {
             return (result.data || []) as unknown as EmployeeProfile[];
-        }
-
-        if (result.error === 'No autenticado') {
-            const fallback = await getUsersForLoginSecure();
-            if (fallback.success) {
-                return (fallback.data || []) as unknown as EmployeeProfile[];
-            }
         }
     } catch {
         // Best-effort bootstrap: keep current in-memory employees on failure.
@@ -39,6 +36,10 @@ async function loadEmployeesSeed(): Promise<EmployeeProfile[]> {
 }
 
 async function loadLocationsSeed(): Promise<Location[]> {
+    if (!usePharmaStore.getState().user?.id && !usePharmaStore.getState().user?.assigned_location_id) {
+        return useLocationStore.getState().locations;
+    }
+
     try {
         const result = await fetchLocationsSecure();
         if (result.success) {
@@ -107,6 +108,10 @@ export async function bootstrapRouteShell(targetPath: string): Promise<void> {
     const effectiveLocationId = locations.length > 0 ? syncLocationContext(locations) : usePharmaStore.getState().currentLocationId || undefined;
 
     if (profile.prefetchTerminals && effectiveLocationId) {
-        await usePharmaStore.getState().fetchTerminals(effectiveLocationId);
+        try {
+            await usePharmaStore.getState().fetchTerminals(effectiveLocationId);
+        } catch {
+            // Best-effort bootstrap: terminales no críticos no deben ensuciar el shell.
+        }
     }
 }
