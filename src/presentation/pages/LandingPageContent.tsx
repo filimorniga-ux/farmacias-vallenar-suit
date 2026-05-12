@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { brand } from '@/config/brand.config';
 import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
 import { readPreferredPublicContext, type PreferredPublicContext } from '@/presentation/lib/preferredPublicContext';
+import { formatChileanRutInput, isCompleteChileanRutInput } from '@/lib/chile-rut';
 
 export type LandingNavigateOptions = {
     replace?: boolean;
@@ -138,7 +139,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
         if (!context) return;
 
         const identifier = searchTerm.trim();
-        if (identifier.length < 7) {
+        if (!isCompleteChileanRutInput(identifier)) {
             setUsersLoadError('Ingrese su RUT para continuar.');
             setLocalEmployees([]);
             setHasUserLookupAttempt(true);
@@ -699,7 +700,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                                 onChange={(e) => {
                                                     const nextValue = employees.length > 0
                                                         ? e.target.value
-                                                        : e.target.value.replace(/[^0-9kK.-]/g, '').toUpperCase();
+                                                        : formatChileanRutInput(e.target.value);
                                                     setSearchTerm(nextValue);
                                                     if (employees.length === 0) {
                                                         setUsersLoadError('');
@@ -720,7 +721,7 @@ export const LandingPageContent: React.FC<LandingPageContentProps> = ({ navigate
                                             <button
                                                 type="button"
                                                 onClick={() => void lookupLoginUser()}
-                                                disabled={isRetryingUsers || searchTerm.trim().length < 7}
+                                                disabled={isRetryingUsers || !isCompleteChileanRutInput(searchTerm)}
                                                 className="min-h-11 w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold rounded-xl bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-60"
                                             >
                                                 {isRetryingUsers ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}

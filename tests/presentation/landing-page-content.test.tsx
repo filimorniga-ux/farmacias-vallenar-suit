@@ -189,6 +189,32 @@ describe('LandingPageContent', () => {
         expect(mocks.findUserForLogin).not.toHaveBeenCalled();
     });
 
+    it('autoformatea el RUT al buscar usuario sin directorio público', async () => {
+        localStorage.setItem('preferred_location_id', 'loc-1');
+        localStorage.setItem('preferred_location_name', 'Sucursal Centro');
+        localStorage.setItem('preferred_location_type', 'STORE');
+
+        render(<LandingPageContent navigateTo={vi.fn()} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: /Administración/i }));
+
+        const rutInput = await screen.findByPlaceholderText('Ingrese su RUT') as HTMLInputElement;
+        fireEvent.change(rutInput, { target: { value: '22222222' } });
+        expect(rutInput.value).toBe('2.222.222-2');
+
+        fireEvent.change(rutInput, { target: { value: '222222222' } });
+        expect(rutInput.value).toBe('22.222.222-2');
+
+        fireEvent.click(screen.getByRole('button', { name: /Buscar por RUT/i }));
+
+        await waitFor(() => {
+            expect(mocks.findUserForLogin).toHaveBeenCalledWith(expect.objectContaining({
+                identifier: '22.222.222-2',
+                locationId: 'loc-1',
+            }));
+        });
+    });
+
     it('mantiene el modal de login scrolleable para viewport móvil landscape', async () => {
         localStorage.setItem('preferred_location_id', 'loc-1');
         localStorage.setItem('preferred_location_name', 'Sucursal Centro');
