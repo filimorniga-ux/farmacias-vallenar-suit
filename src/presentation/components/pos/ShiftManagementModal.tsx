@@ -329,8 +329,15 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
         // Restore localStorage session (Critical for Page Reload/Crash Recovery)
         if (typeof window !== 'undefined') {
             try {
-                localStorage.setItem('pos_session_id', selectedTerminalData.session_id);
-                localStorage.setItem('current_location_id', selectedLocation);
+                saveSession({
+                    sessionId: selectedTerminalData.session_id,
+                    terminalId: selectedTerminalData.id,
+                    terminalName: selectedTerminalData.name || 'Terminal',
+                    userId: user!.id,
+                    locationId: selectedLocation,
+                    openedAt: selectedTerminalData.session_start_time || Date.now(),
+                    openingAmount: selectedTerminalData.session_opening_amount || 0,
+                });
                 // Sincronizar Contexto Global de Sucursal
                 useLocationStore.getState().switchLocation(selectedLocation);
                 console.log('🔄 Session token restored to localStorage and Location synchronized');
@@ -453,13 +460,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
                     terminalId: selectedTerminal,
                     terminalName: terminalData?.name || 'Terminal',
                     userId: selectedCashier,
+                    locationId: selectedLocation,
                     openedAt: Date.now(),
                     openingAmount: parseFormattedNumber(openingAmount)
                 });
-                // Also persist locationId for page reload recovery
-                if (typeof window !== 'undefined') {
-                    localStorage.setItem('current_location_id', selectedLocation);
-                }
             }
 
             // B. Actualizar Store Global (Zustand) para la UI inmediata

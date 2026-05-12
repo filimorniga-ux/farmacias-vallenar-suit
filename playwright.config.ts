@@ -23,6 +23,17 @@ const cleanNodeOptions = (process.env.NODE_OPTIONS ?? '')
     .filter((flag) => !flag.startsWith('--localstorage-file'))
     .join(' ')
     .trim();
+const webServerEnv: Record<string, string> = {
+    ...Object.fromEntries(
+        Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    ),
+    NODE_OPTIONS: cleanNodeOptions,
+    SENTRY_SUPPRESS_INSTRUMENTATION_FILE_WARNING: '1',
+    NODE_ENV: useProdServer ? 'production' : 'development',
+};
+
+delete webServerEnv.NO_COLOR;
+delete webServerEnv.FORCE_COLOR;
 
 export default defineConfig({
     testDir: './tests/e2e',
@@ -74,13 +85,6 @@ export default defineConfig({
         timeout: useProdServer ? 420000 : 180000,
         stdout: 'pipe',
         stderr: 'pipe',
-        env: {
-            ...process.env,
-            NODE_OPTIONS: cleanNodeOptions,
-            NO_COLOR: '1',
-            FORCE_COLOR: '0',
-            SENTRY_SUPPRESS_INSTRUMENTATION_FILE_WARNING: '1',
-            NODE_ENV: useProdServer ? 'production' : 'development',
-        },
+        env: webServerEnv,
     },
 });

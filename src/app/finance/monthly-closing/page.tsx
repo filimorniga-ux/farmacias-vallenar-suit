@@ -369,12 +369,12 @@ export default function MonthlyClosingPage() {
         setActiveTab: (cat: EntryCategory) => void,
         totalsMap: Record<string, number>,
     ) => (
-        <div className="flex gap-2 overflow-x-auto pb-2">
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
             {categories.map((cat) => (
                 <button
                     key={cat.key}
                     onClick={() => setActiveTab(cat.key)}
-                    className={`px-3 py-2 rounded-lg border text-sm flex items-center gap-2 whitespace-nowrap ${activeTab === cat.key
+                    className={`shrink-0 px-3 py-2 rounded-lg border text-sm flex items-center gap-2 whitespace-nowrap ${activeTab === cat.key
                         ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
                         : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                         }`}

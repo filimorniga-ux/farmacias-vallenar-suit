@@ -129,6 +129,7 @@ jobs:
       run: npm run test:e2e:release:critical
       env:
         DATABASE_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+        POSTGRES_URL_NON_POOLING: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
         APP_URL: http://localhost:3000
         NEXT_PUBLIC_APP_URL: http://localhost:3000
         CONFIG_ENCRYPTION_KEY: ci-config-encryption-key-32-bytes-minimum

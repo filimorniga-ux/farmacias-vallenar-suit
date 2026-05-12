@@ -3,6 +3,8 @@ import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import { assertScriptDbWriteTargetAllowed } from '../src/scripts/script-db-target-policy';
 
 // Load env
 const envPath = path.resolve(process.cwd(), '.env');
@@ -10,8 +12,34 @@ if (fs.existsSync(envPath)) {
     dotenv.config({ path: envPath });
 }
 
+const ISP_ENRICH_CLEANUP_ALLOW_NON_LOCAL_ENV = 'ISP_ENRICH_CLEANUP_ALLOW_NON_LOCAL';
+const ISP_ENRICH_CLEANUP_CONFIRM_ENV = 'ISP_ENRICH_CLEANUP_CONFIRM';
+const ISP_ENRICH_CLEANUP_CONFIRMATION = 'ENRICH_AND_DELETE_NAMELESS_ISP';
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
+    console.error('❌ DATABASE_URL is required');
+    process.exit(1);
+}
+
+if (process.env[ISP_ENRICH_CLEANUP_CONFIRM_ENV] !== ISP_ENRICH_CLEANUP_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to enrich/delete ISP products without explicit confirmation. ` +
+        `Set ${ISP_ENRICH_CLEANUP_CONFIRM_ENV}=${ISP_ENRICH_CLEANUP_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertScriptDbWriteTargetAllowed({
+    scriptName: 'enrich_and_cleanup_isp',
+    connectionString: dbUrl,
+    allowNonLocalEnv: ISP_ENRICH_CLEANUP_ALLOW_NON_LOCAL_ENV,
+});
+
+console.log('🎯 DB target:', redactConnectionString(dbUrl));
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined
 });
 

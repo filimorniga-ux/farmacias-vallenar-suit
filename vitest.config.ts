@@ -15,6 +15,8 @@ export default defineConfig({
             'server-only': path.resolve(__dirname, './tests/__mocks__/server-only.ts'),
         },
         exclude: ['**/node_modules/**', '**/dist/**', 'tests/e2e/**'],
+        maxWorkers: 4,
+        testTimeout: 15000,
         coverage: {
             provider: 'v8',
             reporter: ['text', 'html'],
@@ -35,4 +37,3 @@ export default defineConfig({
         },
     },
 });
-

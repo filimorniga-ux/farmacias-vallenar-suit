@@ -291,6 +291,7 @@ describe('ShiftManagementModal', () => {
             terminalId: 'term-1',
             terminalName: 'Caja 1',
             userId: 'cashier-1',
+            locationId: 'loc-1',
             openedAt: expect.any(Number),
             openingAmount: 5000,
         });

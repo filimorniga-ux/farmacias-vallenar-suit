@@ -322,13 +322,29 @@ export async function createSaleSecure(params: {
 
         // 2. Verificar sesión activa
         const sessionRes = await client.query(`
-            SELECT id, user_id, terminal_id 
-            FROM cash_register_sessions 
-            WHERE id = $1 AND terminal_id = $2 AND closed_at IS NULL
+            SELECT
+                s.id,
+                s.user_id,
+                s.terminal_id,
+                t.location_id::text AS location_id
+            FROM cash_register_sessions s
+            JOIN terminals t ON t.id = s.terminal_id
+            WHERE s.id = $1
+              AND s.terminal_id = $2
+              AND s.closed_at IS NULL
         `, [sessionId, terminalId]);
 
         if (sessionRes.rows.length === 0) {
             throw new Error('No hay sesión de caja activa para este terminal');
+        }
+
+        const activeSession = sessionRes.rows[0];
+        if (String(activeSession.user_id || '') !== actorUserId) {
+            throw new Error('La sesión activa pertenece a otro usuario');
+        }
+
+        if (String(activeSession.location_id || '') !== locationId) {
+            throw new Error('La sesión activa no corresponde a la ubicación seleccionada');
         }
 
         // 3. Verificar y bloquear stock de todos los ítems

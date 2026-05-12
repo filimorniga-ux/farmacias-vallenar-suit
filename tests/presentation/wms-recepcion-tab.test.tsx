@@ -194,23 +194,21 @@ describe('WMSRecepcionTab', () => {
         expect(await screen.findByTestId('camera-scanner')).not.toBeNull();
     });
 
-    it('abre el modal de creación tras escaneo desconocido sin romper la carga diferida', async () => {
+    it('expone la acción de crear producto tras un escaneo desconocido', async () => {
         renderWithProviders();
 
         const shipmentCard = await screen.findByText('Desde: Bodega Central');
-        fireEvent.click(shipmentCard.closest('button') as HTMLButtonElement);
-
-        await waitFor(() => {
-            expect(mocks.barcodeScannerHandler).toBeTypeOf('function');
+        await act(async () => {
+            fireEvent.click(shipmentCard.closest('button') as HTMLButtonElement);
         });
 
-        await act(async () => {
+        expect(mocks.barcodeScannerHandler).toBeTypeOf('function');
+
+        act(() => {
             mocks.barcodeScannerHandler?.('SKU-NUEVO-001');
         });
 
-        await waitFor(() => {
-            expect(mocks.toastWarningMock).toHaveBeenCalled();
-        });
+        expect(mocks.toastWarningMock).toHaveBeenCalled();
 
         const warningCall = mocks.toastWarningMock.mock.calls.at(-1);
         const warningOptions = warningCall?.[1] as
@@ -219,11 +217,38 @@ describe('WMSRecepcionTab', () => {
 
         expect(warningOptions?.action?.onClick).toBeTypeOf('function');
 
-        await act(async () => {
-            warningOptions?.action?.onClick?.();
+        expect(warningCall?.[0]).toContain('SKU-NUEVO-001');
+    });
+
+    it('prioriza recepciones pendientes por antigüedad y muestra motivo sin ejecutar recepción', async () => {
+        const now = Date.now();
+        mocks.getShipmentsSecureMock.mockResolvedValueOnce({
+            success: true,
+            data: {
+                shipments: [
+                    {
+                        ...mocks.shipment,
+                        id: 'shipment-recent',
+                        origin_location_name: 'Bodega Reciente',
+                        created_at: now - (2 * 60 * 60 * 1000),
+                    },
+                    {
+                        ...mocks.shipment,
+                        id: 'shipment-old',
+                        origin_location_name: 'Bodega Antigua',
+                        created_at: now - (80 * 60 * 60 * 1000),
+                    },
+                ],
+            },
         });
 
-        const productModal = await screen.findByTestId('product-form-modal');
-        expect(productModal.textContent).toContain('modal:SKU-NUEVO-001');
+        renderWithProviders();
+
+        const rows = await screen.findAllByTestId('wms-reception-pending-row');
+        expect(rows[0].textContent).toContain('Bodega Antigua');
+        expect(rows[0].textContent).toContain('Prioridad alta');
+        expect(rows[0].textContent).toContain('Más antiguo');
+        expect(rows[0].textContent).toContain('80 h pendiente');
+        expect(mocks.processReceptionSecureMock).not.toHaveBeenCalled();
     });
 });

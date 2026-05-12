@@ -606,14 +606,14 @@ export async function getSupplierPriceOverview(limit = 30): Promise<{
                     spp.product_id,
                     p.name as product_name,
                     p.sku,
-                    COALESCE(p.cost_net, p.cost_price, 0) as current_cost,
+                    COALESCE(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, p.cost_price, 0) as current_cost,
                     MIN(spp.unit_cost) as cheapest_cost,
                     MAX(spp.unit_cost) as most_expensive_cost,
                     COUNT(DISTINCT spp.supplier_id) as supplier_count
                 FROM supplier_product_prices spp
                 JOIN products p ON p.id::text = spp.product_id::text
                 WHERE spp.is_current = true
-                GROUP BY spp.product_id, p.name, p.sku, p.cost_net, p.cost_price
+                GROUP BY spp.product_id, p.name, p.sku, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, p.cost_price
                 HAVING COUNT(DISTINCT spp.supplier_id) >= 2
             )
             SELECT sp.*,

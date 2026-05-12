@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WMSPage } from '@/presentation/pages/WMSPage';
@@ -17,7 +17,12 @@ const mocks = vi.hoisted(() => {
             name: 'Sucursal Centro',
             type: 'STORE',
             default_warehouse_id: 'wh-1',
-        },
+        } as {
+            id: string;
+            name: string;
+            type: 'STORE';
+            default_warehouse_id: string;
+        } | null,
         locations: [{
             id: 'loc-1',
             name: 'Sucursal Centro',
@@ -34,6 +39,11 @@ const mocks = vi.hoisted(() => {
         receivePurchaseOrder: vi.fn(),
         finalizePurchaseOrderReview: vi.fn(),
         setInventory: setInventoryMock,
+    };
+    const platformState = {
+        isMobile: false,
+        isDesktopLike: true,
+        isLandscape: false,
     };
 
     const usePharmaStoreMock = Object.assign(
@@ -76,6 +86,7 @@ const mocks = vi.hoisted(() => {
         ],
         locationState,
         pharmaState,
+        platformState,
         setInventoryMock,
         usePharmaStoreMock,
     };
@@ -90,11 +101,7 @@ vi.mock('@/presentation/store/useLocationStore', () => ({
 }));
 
 vi.mock('@/hooks/usePlatform', () => ({
-    usePlatform: () => ({
-        isMobile: false,
-        isDesktopLike: true,
-        isLandscape: false,
-    }),
+    usePlatform: () => mocks.platformState,
 }));
 
 vi.mock('@/presentation/hooks/useBootstrapWms', () => ({
@@ -195,6 +202,28 @@ vi.mock('@/presentation/components/scm/MovementDetailModal', () => ({
 describe('WMSPage', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.unstubAllGlobals();
+        mocks.locationState.currentLocation = {
+            id: 'loc-1',
+            name: 'Sucursal Centro',
+            type: 'STORE',
+            default_warehouse_id: 'wh-1',
+        };
+        mocks.locationState.locations = [{
+            id: 'loc-1',
+            name: 'Sucursal Centro',
+            type: 'STORE',
+            default_warehouse_id: 'wh-1',
+        }];
+        mocks.pharmaState.currentLocationId = 'loc-1';
+        mocks.pharmaState.currentWarehouseId = 'wh-1';
+        mocks.pharmaState.currentTerminalId = 'term-1';
+        mocks.pharmaState.user = { id: 'user-1', assigned_location_id: 'loc-1' };
+        mocks.platformState.isMobile = false;
+        mocks.platformState.isDesktopLike = true;
+        mocks.platformState.isLandscape = false;
+        localStorage.removeItem?.('context_location_id');
+        localStorage.removeItem?.('preferred_location_id');
     });
 
     const renderPage = () => {
@@ -210,24 +239,56 @@ describe('WMSPage', () => {
     };
 
     it('usa inventory desde React Query en las tabs WMS sin volver a copiarlo al store', async () => {
+        const findLoadedTabText = (text: string) => screen.findByText(text, {}, { timeout: 5000 });
+
         renderPage();
 
         expect(screen.getByText('Despacho inventory 2')).toBeTruthy();
         expect(mocks.setInventoryMock).not.toHaveBeenCalled();
 
         fireEvent.click(screen.getByRole('button', { name: 'Recepción' }));
-        expect(await screen.findByText('Recepcion inventory 2')).toBeTruthy();
+        expect(await findLoadedTabText('Recepcion inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Transferencia' }));
-        expect(await screen.findByText('Transferencia inventory 2')).toBeTruthy();
+        expect(await findLoadedTabText('Transferencia inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Recep. Pedidos' }));
-        expect(await screen.findByText('Pedidos inventory 2')).toBeTruthy();
+        expect(await findLoadedTabText('Pedidos inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Crear Pedido' }));
-        expect(await screen.findByText('Crear pedido inventory 2')).toBeTruthy();
+        expect(await findLoadedTabText('Crear pedido inventory 2')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'En Tránsito' }));
-        expect(await screen.findByText('Transit shipments 1 purchase-orders 1')).toBeTruthy();
+        expect(await findLoadedTabText('Transit shipments 1 purchase-orders 1')).toBeTruthy();
+    });
+
+    it('bootstrapea desde el contexto canónico y no desde localStorage legacy', async () => {
+        mocks.pharmaState.currentLocationId = '';
+        mocks.pharmaState.currentWarehouseId = '';
+        mocks.locationState.currentLocation = null;
+        mocks.pharmaState.user = { id: 'user-1', assigned_location_id: 'loc-1' };
+        const getItemMock = vi.fn(() => 'loc-obsoleta');
+        vi.stubGlobal('localStorage', {
+            getItem: getItemMock,
+            removeItem: vi.fn(),
+        });
+
+        renderPage();
+
+        await waitFor(() => {
+            expect(mocks.pharmaState.setCurrentLocation).toHaveBeenCalledWith('loc-1', 'wh-1', 'term-1');
+        });
+        expect(getItemMock).not.toHaveBeenCalled();
+    });
+
+    it('usa target táctil mínimo en el refresh móvil', () => {
+        mocks.platformState.isMobile = true;
+        mocks.platformState.isDesktopLike = false;
+
+        renderPage();
+
+        const refreshButton = screen.getByRole('button', { name: /Actualizar WMS/i });
+        expect(refreshButton.className).toContain('h-11');
+        expect(refreshButton.className).toContain('w-11');
     });
 });

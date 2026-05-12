@@ -46,9 +46,9 @@ export default async function RRHHPage() {
     const historyData = historyRes.success ? historyRes.data : [];
 
     return (
-        <div className="min-h-screen bg-slate-50 py-8">
+        <div className="min-h-screen bg-slate-50 py-6 md:py-8">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6 md:mb-8">
                     <div>
                         <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:truncate sm:text-3xl sm:tracking-tight">
                             👥 Recursos Humanos

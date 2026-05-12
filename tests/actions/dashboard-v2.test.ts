@@ -9,8 +9,16 @@ vi.mock('@/lib/server-session', () => ({
 }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
+const queryResult = (rows: Record<string, unknown>[]) => ({
+    rows,
+    rowCount: rows.length,
+    command: '',
+    oid: 0,
+    fields: [],
+});
+
 beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(getValidatedSession).mockResolvedValue({
         userId: 'user-1',
         role: 'ADMIN',
@@ -126,5 +134,64 @@ describe('Dashboard V2 - Financial Metrics', () => {
 
         expect(result.success).toBe(false);
         expect(result.error?.toLowerCase()).toContain('error');
+    });
+});
+
+describe('Dashboard V2 - Executive gross profit contract', () => {
+    it('no usa fallback silencioso de 30% cuando faltan costos unitarios', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'exec-missing-costs',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce(queryResult([{ total: '100000', count: '10' }]))
+            .mockResolvedValueOnce(queryResult([{ total: '80000', count: '8' }]))
+            .mockResolvedValueOnce(queryResult([{ total_lines: '2', costed_lines: '0', cost: '0' }]))
+            .mockResolvedValueOnce(queryResult([{ name: 'Sucursal Centro', total: '100000' }]))
+            .mockResolvedValueOnce(queryResult([]));
+
+        const result = await dashboardV2.getExecutiveDashboardMetricsSecure();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.grossProfit.confidence).toBe('unavailable');
+        expect(result.data?.grossProfit.value).toBeNull();
+        expect(result.data?.grossProfit.margin).toBeNull();
+        expect(result.data?.grossProfit.reason).toContain('Costos unitarios incompletos');
+        expect(result.data?.grossProfit.costCoverage).toEqual({
+            costedLines: 0,
+            totalLines: 2,
+            complete: false,
+        });
+    });
+
+    it('marca margen bruto como production-safe solo con cobertura completa de costos', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'exec-complete-costs',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce(queryResult([{ total: '100000', count: '10' }]))
+            .mockResolvedValueOnce(queryResult([{ total: '90000', count: '9' }]))
+            .mockResolvedValueOnce(queryResult([{ total_lines: '2', costed_lines: '2', cost: '70000' }]))
+            .mockResolvedValueOnce(queryResult([{ name: 'Sucursal Centro', total: '100000' }]))
+            .mockResolvedValueOnce(queryResult([]));
+
+        const result = await dashboardV2.getExecutiveDashboardMetricsSecure();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.grossProfit.confidence).toBe('production-safe');
+        expect(result.data?.grossProfit.value).toBe(30000);
+        expect(result.data?.grossProfit.margin).toBe(30);
+        expect(result.data?.grossProfit.costCoverage.complete).toBe(true);
     });
 });

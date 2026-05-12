@@ -13,6 +13,7 @@ function resolveBootstrapProfile(targetPath: string): BootstrapProfile {
     return {
         prefetchTerminals:
             normalizedPath.startsWith('/pos') ||
+            normalizedPath.startsWith('/caja') ||
             normalizedPath.startsWith('/warehouse') ||
             normalizedPath.startsWith('/logistica'),
     };

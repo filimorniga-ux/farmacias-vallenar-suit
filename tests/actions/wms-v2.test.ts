@@ -451,6 +451,7 @@ describe('WMS V2 - hardening visible', () => {
         expect(result.success).toBe(true);
         expect(mockPoolQuery.mock.calls[0]?.[1]?.[0]).toBe(TEST_LOCATION_ID);
         expect(mockPoolQuery.mock.calls[0]?.[1]?.[0]).not.toBe(OTHER_LOCATION_ID);
+        expect(String(mockPoolQuery.mock.calls[1]?.[0] || '')).not.toContain('poi.product_id');
     });
 
     it('exige autenticación para historial WMS', async () => {
@@ -468,5 +469,30 @@ describe('WMS V2 - hardening visible', () => {
         expect(result.success).toBe(false);
         expect(result.error).toContain('Sesión no válida');
         expect(mockPoolQuery).not.toHaveBeenCalled();
+    });
+
+    it('aplica filtro de factura en historial WMS sin tocar mutaciones', async () => {
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [{ total: '1' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getStockHistorySecure({
+            warehouseId: TEST_WAREHOUSE_ID,
+            movementType: 'PURCHASE_ENTRY',
+            invoiceNumber: 'FAC-123',
+            page: 1,
+            pageSize: 10,
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockConnect).not.toHaveBeenCalled();
+        expect(mockPoolQuery).toHaveBeenCalledTimes(2);
+
+        const countSql = String(mockPoolQuery.mock.calls[0]?.[0] || '');
+        const dataSql = String(mockPoolQuery.mock.calls[1]?.[0] || '');
+        expect(countSql).toContain("COALESCE(sm.notes, '') ILIKE");
+        expect(dataSql).toContain("COALESCE(sm.notes, '') ILIKE");
+        expect(mockPoolQuery.mock.calls[0]?.[1]).toContain('%FAC-123%');
+        expect(mockPoolQuery.mock.calls[1]?.[1]).toContain('%FAC-123%');
     });
 });

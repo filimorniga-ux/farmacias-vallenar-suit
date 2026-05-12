@@ -209,6 +209,130 @@ describe('Reports V2 - Inventory Valuation', () => {
     });
 });
 
+describe('Reports V2 - Operational Drilldowns', () => {
+    it('returns critical low stock rows scoped to manager location', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        product_id: 'prod-1',
+                        sku: 'SKU-1',
+                        name: 'Producto Bajo',
+                        quantity: 1,
+                        stock_min: 5,
+                        deficit: 4,
+                        warehouse_id: 'wh-1',
+                        warehouse_name: 'Bodega 1',
+                        location_id: 'loc-1',
+                        location_name: 'Sucursal 1',
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: [],
+            });
+
+        const result = await reportsV2.getCriticalLowStockReportSecure();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]).toMatchObject({
+            productId: 'prod-1',
+            deficit: 4,
+            locationId: 'loc-1',
+        });
+
+        const dataCall = vi.mocked(dbModule.query).mock.calls[0];
+        expect(String(dataCall?.[0] || '')).toContain('inventory_batches');
+        expect(dataCall?.[1]).toContain('loc-1');
+    });
+
+    it('returns open purchase orders with canonical date and location filters', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'po-1',
+                        status: 'SENT',
+                        supplier_name: 'Proveedor 1',
+                        total_amount: 150000,
+                        created_at: new Date('2026-04-02T10:00:00.000Z'),
+                        delivery_date: null,
+                        item_count: 3,
+                        warehouse_id: 'wh-1',
+                        warehouse_name: 'Bodega 1',
+                        location_id: 'loc-1',
+                        location_name: 'Sucursal 1',
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: [],
+            });
+
+        const result = await reportsV2.getOpenPurchaseOrdersReportSecure({
+            startDate: '2026-04-01',
+            endDate: '2026-04-19',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]).toMatchObject({
+            id: 'po-1',
+            status: 'SENT',
+            supplierName: 'Proveedor 1',
+            totalAmount: 150000,
+        });
+
+        const dataCall = vi.mocked(dbModule.query).mock.calls[0];
+        expect(String(dataCall?.[0] || '')).toContain('purchase_orders');
+        const params = dataCall?.[1] || [];
+        expect(String(params[0])).toContain('2026-04-01');
+        expect(String(params[1])).toMatch(/^2026-04-(19|20)/);
+        expect(params[2]).toBe('loc-1');
+    });
+
+    it('returns pending shipment drilldown without using stock movement detail', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'ship-1',
+                        type: 'INTER_BRANCH',
+                        status: 'IN_TRANSIT',
+                        created_at: new Date('2026-04-02T10:00:00.000Z'),
+                        expected_delivery: null,
+                        origin_location_name: 'Origen',
+                        destination_location_name: 'Destino',
+                        created_by_name: 'Operador',
+                        item_count: 2,
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: [],
+            });
+
+        const result = await reportsV2.getPendingShipmentsReportSecure('TRANSFERS', {
+            startDate: '2026-04-01',
+            endDate: '2026-04-19',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]).toMatchObject({
+            id: 'ship-1',
+            type: 'INTER_BRANCH',
+            status: 'IN_TRANSIT',
+            itemCount: 2,
+        });
+
+        const dataCall = vi.mocked(dbModule.query).mock.calls[0];
+        expect(String(dataCall?.[0] || '')).toContain('FROM shipments s');
+        expect(String(dataCall?.[0] || '')).not.toContain('stock_movements');
+    });
+});
+
 describe('Reports V2 - Financial Scope', () => {
     it('should scope financial summary to manager location', async () => {
         vi.mocked(dbModule.query)

@@ -244,6 +244,48 @@ describe('Supply V2 Hardening', () => {
         expect(result.error).toContain('Acceso denegado');
     });
 
+    it('rechaza updatePurchaseOrderSecure si supplier_id no existe', async () => {
+        const orderId = '550e8400-e29b-41d4-a716-446655440902';
+        const missingSupplierId = '550e8400-e29b-41d4-a716-446655440111';
+
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (sql === 'BEGIN' || sql === 'ROLLBACK') {
+                return { rows: [], rowCount: 0 } as const;
+            }
+            if (sql.includes('FROM purchase_orders po') && sql.includes('LEFT JOIN warehouses')) {
+                return {
+                    rows: [{
+                        id: orderId,
+                        status: 'DRAFT',
+                        notes: '',
+                        location_id: '550e8400-e29b-41d4-a716-446655440099',
+                    }],
+                    rowCount: 1,
+                } as const;
+            }
+            if (sql.includes('SELECT id FROM suppliers WHERE id = $1')) {
+                return { rows: [], rowCount: 0 } as const;
+            }
+            return { rows: [], rowCount: 0 } as const;
+        });
+
+        mockPoolConnect.mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn(),
+        });
+
+        const result = await supplyV2.updatePurchaseOrderSecure(orderId, {
+            supplierId: missingSupplierId,
+            targetWarehouseId: '550e8400-e29b-41d4-a716-446655440001',
+            items: [{ sku: 'SKU-MISSING-SUP', name: 'Item', quantity: 1, cost: 100, productId: null }],
+        }, '550e8400-e29b-41d4-a716-446655440002');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Proveedor no encontrado');
+        expect(clientQuery).toHaveBeenCalledWith('SELECT id FROM suppliers WHERE id = $1', [missingSupplierId]);
+        expect(clientQuery.mock.calls.some(([sql]) => String(sql).includes('UPDATE purchase_orders'))).toBe(false);
+    });
+
     it('devuelve payload vacío para IDs temporales en getHistoryItemDetailsSecure', async () => {
         const result = await supplyV2.getHistoryItemDetailsSecure('PO-AUTO-777', 'PO');
 

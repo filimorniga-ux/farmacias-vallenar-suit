@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHmac, createHash, timingSafeEqual } from 'crypto';
 
-export type KioskSessionMode = 'ATTENDANCE';
+export type KioskSessionMode = 'ATTENDANCE' | 'QUEUE' | 'QUEUE_DISPLAY';
 
 export interface KioskSessionPayload {
     version: 1;
@@ -89,7 +89,10 @@ export function verifyKioskSessionToken(
     try {
         const parsed = JSON.parse(base64UrlDecode(encodedPayload)) as KioskSessionPayload;
 
-        if (parsed.version !== 1 || parsed.mode !== 'ATTENDANCE') {
+        if (
+            parsed.version !== 1
+            || !['ATTENDANCE', 'QUEUE', 'QUEUE_DISPLAY'].includes(parsed.mode)
+        ) {
             return { valid: false, error: 'Token de kiosko inválido' };
         }
 

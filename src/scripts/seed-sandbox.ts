@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import { DEV_TEST_ACCOUNT } from './dev-account-support';
+import { redactConnectionString } from './e2e-release-critical-db-policy';
 
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
@@ -13,7 +14,7 @@ async function seedSandbox() {
     // Seguridad extrema: Solo permitir si es localhost (Docker)
     if (!dbUrl?.includes('localhost') && !dbUrl?.includes('127.0.0.1')) {
         console.error('❌ SEGURIDAD: Este script SOLO puede correr en Docker (localhost).');
-        console.error('DATABASE_URL actual:', dbUrl);
+        console.error('DATABASE_URL actual:', dbUrl ? redactConnectionString(dbUrl) : 'MISSING');
         process.exit(1);
     }
 

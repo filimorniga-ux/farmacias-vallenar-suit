@@ -444,11 +444,23 @@ export interface ExecutiveMetrics {
         growth: number;
     };
     grossProfit: {
-        value: number;
-        margin: number;
+        value: number | null;
+        margin: number | null;
+        confidence: 'production-safe' | 'estimated' | 'unavailable';
+        reason: string;
+        costCoverage: {
+            costedLines: number;
+            totalLines: number;
+            complete: boolean;
+        };
     };
     salesByLocation: { name: string; total: number }[];
     recentSales: { id: string; amount: number; timestamp: string; location: string }[];
+}
+
+function parseDashboardNumber(value: unknown): number {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /**
@@ -484,32 +496,46 @@ export async function getExecutiveDashboardMetricsSecure(): Promise<{ success: b
             WHERE timestamp >= $1::timestamp AND timestamp <= $2::timestamp
         `, [startOfPrevious.toISOString(), endOfPrevious.toISOString()]);
 
-        const currTotal = parseFloat(currentRes.rows[0].total);
-        const currCount = parseInt(currentRes.rows[0].count);
-        const prevTotal = parseFloat(previousRes.rows[0].total);
-        const prevCount = parseInt(previousRes.rows[0].count);
+        const currTotal = parseDashboardNumber(currentRes.rows[0].total);
+        const currCount = parseDashboardNumber(currentRes.rows[0].count);
+        const prevTotal = parseDashboardNumber(previousRes.rows[0].total);
+        const prevCount = parseDashboardNumber(previousRes.rows[0].count);
 
         const revGrowth = prevTotal > 0 ? ((currTotal - prevTotal) / prevTotal) * 100 : 0;
         const currAov = currCount > 0 ? currTotal / currCount : 0;
         const prevAov = prevCount > 0 ? prevTotal / prevCount : 0;
         const aovGrowth = prevAov > 0 ? ((currAov - prevAov) / prevAov) * 100 : 0;
 
-        // 3. Gross Profit (Simplified estimation based on product costs)
-        // Note: This requires joining with product costs, approximating for now
+        // 3. Gross Profit: production-safe only when every sold line has a valid cost.
         const profitRes = await query(`
             SELECT 
-                SUM(s.total_amount) as revenue,
-                SUM(si.quantity * COALESCE(p.cost_price, 0)) as cost
+                COUNT(*) as total_lines,
+                COUNT(*) FILTER (WHERE p.cost_price IS NOT NULL AND p.cost_price > 0) as costed_lines,
+                COALESCE(SUM(
+                    CASE
+                        WHEN p.cost_price IS NOT NULL AND p.cost_price > 0
+                        THEN si.quantity * p.cost_price
+                        ELSE 0
+                    END
+                ), 0) as cost
             FROM sales s
             JOIN sale_items si ON s.id = si.sale_id
-            JOIN products p ON si.product_id = p.id
+            LEFT JOIN products p ON si.product_id = p.id
             WHERE s.timestamp >= $1::timestamp
         `, [startOfCurrent.toISOString()]);
 
-        const revenue = parseFloat(profitRes.rows[0]?.revenue) || currTotal;
-        const cost = parseFloat(profitRes.rows[0]?.cost) || (revenue * 0.7); // 30% margin fallback
-        const grossProfitValue = revenue - cost;
-        const grossMargin = revenue > 0 ? (grossProfitValue / revenue) * 100 : 0;
+        const profitRow = profitRes.rows[0] as { total_lines?: unknown; costed_lines?: unknown; cost?: unknown } | undefined;
+        const totalCostLines = parseDashboardNumber(profitRow?.total_lines);
+        const costedLines = parseDashboardNumber(profitRow?.costed_lines);
+        const cost = parseDashboardNumber(profitRow?.cost);
+        const hasRevenue = currTotal > 0;
+        const completeCostCoverage = totalCostLines > 0 && costedLines === totalCostLines;
+        const grossProfitProductionSafe = !hasRevenue || completeCostCoverage;
+        const grossProfitValue = grossProfitProductionSafe ? currTotal - cost : null;
+        const grossMargin = grossProfitProductionSafe && currTotal > 0 ? ((currTotal - cost) / currTotal) * 100 : grossProfitProductionSafe ? 0 : null;
+        const grossProfitReason = grossProfitProductionSafe
+            ? (hasRevenue ? 'Costos unitarios completos en líneas vendidas' : 'Sin ventas del período; margen bruto sin movimiento')
+            : 'Costos unitarios incompletos; margen bruto no mostrado como KPI ejecutivo final';
 
         // 4. Sales by Location
         const locRes = await query(`
@@ -533,7 +559,17 @@ export async function getExecutiveDashboardMetricsSecure(): Promise<{ success: b
         const data: ExecutiveMetrics = {
             revenue: { current: currTotal, previous: prevTotal, growth: revGrowth },
             aov: { current: currAov, previous: prevAov, growth: aovGrowth },
-            grossProfit: { value: grossProfitValue, margin: grossMargin },
+            grossProfit: {
+                value: grossProfitValue,
+                margin: grossMargin,
+                confidence: grossProfitProductionSafe ? 'production-safe' : 'unavailable',
+                reason: grossProfitReason,
+                costCoverage: {
+                    costedLines,
+                    totalLines: totalCostLines,
+                    complete: completeCostCoverage,
+                },
+            },
             salesByLocation: (locRes.rows as Record<string, unknown>[]).map(r => ({ name: r.name as string, total: parseFloat(r.total as string) })),
             recentSales: (recentRes.rows as Record<string, unknown>[]).map(r => ({
                 id: r.id as string,

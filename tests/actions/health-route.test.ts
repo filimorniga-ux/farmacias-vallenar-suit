@@ -55,6 +55,7 @@ describe('GET /api/health', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(401);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(false);
         expect(payload.code).toBe('HEALTH_UNAUTHORIZED');
     });
@@ -64,9 +65,43 @@ describe('GET /api/health', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.status).toBe('healthy');
-        expect(payload.database.poolTotal).toBe(4);
-        expect(payload.database.poolIdle).toBe(2);
-        expect(payload.database.poolWaiting).toBe(1);
+        expect(payload.database.connected).toBe(true);
+        expect(payload.database.latencyMs).toBeTypeOf('number');
+        expect(payload.environment).toBeUndefined();
+        expect(payload.uptime).toBeUndefined();
+        expect(payload.version).toBeUndefined();
+        expect(payload.database.poolTotal).toBeUndefined();
+        expect(payload.database.poolIdle).toBeUndefined();
+        expect(payload.database.poolWaiting).toBeUndefined();
+    });
+
+    it('mantiene no-store cuando la DB falla', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.mocked(pool.query).mockReset();
+        vi.mocked(pool.query).mockRejectedValueOnce(new Error('db unavailable') as never);
+
+        try {
+            const response = await GET(createRequest({ tokenHeader: 'test-health-token' }));
+            const payload = await response.json();
+
+            expect(response.status).toBe(503);
+            expect(response.headers.get('Cache-Control')).toContain('no-store');
+            expect(payload.status).toBe('unhealthy');
+            expect(payload.error).toBe('Database connection failed');
+            expect(consoleErrorSpy).toHaveBeenCalled();
+        } finally {
+            consoleErrorSpy.mockRestore();
+        }
+    });
+
+    it('rechaza token por query para evitar filtrarlo en logs o historial', async () => {
+        const response = await GET(createRequest({ tokenQuery: 'test-health-token' }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(401);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+        expect(payload.code).toBe('HEALTH_UNAUTHORIZED');
     });
 });

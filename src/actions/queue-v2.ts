@@ -21,6 +21,7 @@ import { logger } from '@/lib/logger';
 import { type PinRbacActor } from '@/lib/pin-rbac';
 import { resolveActorResult } from './actor-result';
 import { resolveScopedLocation } from './scoped-location';
+import { verifyKioskSessionToken } from '@/lib/kiosk-session';
 
 // ============================================================================
 // SCHEMAS
@@ -40,6 +41,7 @@ const CreateTicketSchema = z.object({
     type: TicketType.default('GENERAL'),
     name: z.string().max(100).optional(),
     phone: z.string().max(15).optional(), // +569XXXXXXXX
+    kioskToken: z.string().min(1).optional(),
 });
 
 // ============================================================================
@@ -88,6 +90,38 @@ function resolveQueueBranch(
     }
 
     return { success: true, branchId: scoped.locationId || branchId };
+}
+
+function requireQueueKioskBranch(
+    branchId: string,
+    kioskToken?: string
+): { success: true; branchId: string } | { success: false; error: string } {
+    const tokenResult = verifyKioskSessionToken(kioskToken || '', 'QUEUE');
+    if (!tokenResult.valid) {
+        return { success: false, error: tokenResult.error };
+    }
+
+    if (tokenResult.payload.locationId !== branchId) {
+        return { success: false, error: 'Totem no autorizado para otra sucursal' };
+    }
+
+    return { success: true, branchId };
+}
+
+function requireQueueDisplayBranch(
+    branchId: string,
+    kioskToken?: string
+): { success: true; branchId: string } | { success: false; error: string } {
+    const tokenResult = verifyKioskSessionToken(kioskToken || '', 'QUEUE_DISPLAY');
+    if (!tokenResult.valid) {
+        return { success: false, error: tokenResult.error };
+    }
+
+    if (tokenResult.payload.locationId !== branchId) {
+        return { success: false, error: 'Pantalla no autorizada para otra sucursal' };
+    }
+
+    return { success: true, branchId };
 }
 
 async function ensureTerminalInBranch(client: typeof pool | { query: typeof query }, terminalId: string, branchId: string) {
@@ -241,7 +275,20 @@ export async function createTicketSecure(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { branchId, rut, type, name, phone } = validated.data;
+    const { branchId, rut, type, name, phone, kioskToken } = validated.data;
+
+    const kioskScope = requireQueueKioskBranch(branchId, kioskToken);
+    if (!kioskScope.success) {
+        const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
+        if (!auth.success) {
+            return { success: false, error: kioskScope.error };
+        }
+
+        const scope = resolveQueueBranch(auth.actor, branchId);
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+    }
 
     // Validar RUT si no es anónimo
     const cleanRut = rut !== 'ANON' ? rut.replace(/\./g, '').toUpperCase() : 'ANON';
@@ -741,7 +788,7 @@ import { unstable_noStore as noStore } from 'next/cache';
  */
 export async function getQueueStatusSecure(
     branchId: string,
-    options?: { publicDisplay?: boolean }
+    options?: { publicDisplay?: boolean; kioskToken?: string }
 ): Promise<{ success: boolean; data?: any; error?: string }> {
     noStore(); // Disable Cache for this action
 
@@ -751,7 +798,12 @@ export async function getQueueStatusSecure(
 
     try {
         const isPublicDisplay = options?.publicDisplay === true;
-        if (!isPublicDisplay) {
+        if (isPublicDisplay) {
+            const displayScope = requireQueueDisplayBranch(branchId, options?.kioskToken);
+            if (!displayScope.success) {
+                return { success: false, error: displayScope.error };
+            }
+        } else {
             const auth = await requireQueueActor(QUEUE_OPERATOR_ROLES);
             if (!auth.success) {
                 return { success: false, error: auth.error };

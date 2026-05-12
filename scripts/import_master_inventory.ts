@@ -5,14 +5,36 @@ const fs = require('fs');
 const path = require('path');
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import { assertScriptDbWriteTargetAllowed } from '../src/scripts/script-db-target-policy';
 
 dotenv.config();
 
+const IMPORT_MASTER_INVENTORY_ALLOW_NON_LOCAL_ENV = 'IMPORT_MASTER_INVENTORY_ALLOW_NON_LOCAL';
+const IMPORT_MASTER_INVENTORY_CONFIRM_ENV = 'IMPORT_MASTER_INVENTORY_CONFIRM';
+const IMPORT_MASTER_INVENTORY_CONFIRMATION = 'IMPORT_LEGACY_MASTER_INVENTORY';
 const DB_URL = process.env.DATABASE_URL;
+
 if (!DB_URL) {
     console.error('❌ DATABASE_URL is required');
     process.exit(1);
 }
+
+if (process.env[IMPORT_MASTER_INVENTORY_CONFIRM_ENV] !== IMPORT_MASTER_INVENTORY_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to import legacy master inventory without explicit confirmation. ` +
+        `Set ${IMPORT_MASTER_INVENTORY_CONFIRM_ENV}=${IMPORT_MASTER_INVENTORY_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertScriptDbWriteTargetAllowed({
+    scriptName: 'import_master_inventory',
+    connectionString: DB_URL,
+    allowNonLocalEnv: IMPORT_MASTER_INVENTORY_ALLOW_NON_LOCAL_ENV,
+});
+
+console.log('🎯 DB target:', redactConnectionString(DB_URL));
 
 const pool = new Pool({
     connectionString: DB_URL,

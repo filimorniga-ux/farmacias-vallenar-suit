@@ -1,5 +1,6 @@
 import { pool } from '@/lib/db';
-import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { ADMIN_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 import { logger } from '@/lib/logger';
 import { NextResponse } from 'next/server';
 
@@ -9,7 +10,7 @@ export async function GET() {
     const startTime = Date.now();
     
     try {
-        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        const auth = await requireApiRoles(ADMIN_API_ROLES);
         if (!auth.ok) {
             return auth.response;
         }
@@ -25,8 +26,8 @@ export async function GET() {
         
         const elapsed = Date.now() - startTime;
         
-        return NextResponse.json({ 
-            success: true, 
+        return NextResponse.json({
+            success: true,
             data: {
                 server_time: result.rows[0]?.server_time,
                 active_users: Number(result.rows[0]?.active_users || 0),
@@ -34,15 +35,15 @@ export async function GET() {
             diagnostics: {
                 elapsed_ms: elapsed,
             },
-        });
+        }, { headers: API_NO_STORE_HEADERS });
     } catch (error: any) {
         const elapsed = Date.now() - startTime;
         logger.error({ error, elapsed }, '[DBTestRoute] Diagnostic failed');
-        
-        return NextResponse.json({ 
-            success: false, 
+
+        return NextResponse.json({
+            success: false,
             error: 'No fue posible ejecutar el diagnóstico de base de datos',
             elapsed_ms: elapsed,
-        }, { status: 500 });
+        }, { status: 500, headers: API_NO_STORE_HEADERS });
     }
 }

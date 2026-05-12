@@ -23,7 +23,7 @@
  * - PROC-006: No approval workflow
  */
 
-import { pool, type PoolClient } from '@/lib/db';
+import { pool, query, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
@@ -43,6 +43,7 @@ import {
     PROCUREMENT_GLOBAL_ROLES,
     PROCUREMENT_READ_ROLES,
     PROCUREMENT_WRITE_ROLES,
+    type ProcurementActor,
     requireProcurementActor,
     resolveEffectiveProcurementLocation,
     resolveWarehouseForActor,
@@ -102,6 +103,13 @@ const CancelPurchaseOrderSchema = z.object({
     cancelerPin: z.string().min(4).max(8).regex(/^\d+$/, 'PIN requerido'),
 });
 
+const SmartOrderLowStockPrefillSchema = z.object({
+    alertId: z.literal('inventory-critical-low-stock'),
+    locationId: UUIDSchema.optional(),
+    warehouseId: UUIDSchema.optional(),
+    limit: z.number().int().min(1).max(20).default(8),
+});
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -110,6 +118,37 @@ const MANAGER_ROLES = ROLE_GROUPS.MANAGER;
 const GERENTE_ROLES = ROLE_GROUPS.ADMIN;
 const MANAGER_THRESHOLD = 500000; // CLP - requires MANAGER PIN
 const GERENTE_THRESHOLD = 1000000; // CLP - requires GERENTE_GENERAL PIN
+
+export interface SmartOrderLowStockPrefillItem {
+    productId: string;
+    sku: string;
+    productName: string;
+    currentStock: number;
+    stockMin: number;
+    deficit: number;
+    suggestedQuantity: number;
+    unitCost: number;
+    suggestedSupplierId?: string;
+    suggestedSupplierName?: string;
+    suggestedSupplierCost?: number;
+    reason: string;
+}
+
+export interface SmartOrderLowStockPrefillPayload {
+    source: 'inventory-critical-low-stock';
+    locationId: string;
+    locationName: string;
+    warehouseId: string;
+    warehouseName: string;
+    generatedAt: string;
+    providerSelection: 'manual';
+    explanation: string;
+    items: SmartOrderLowStockPrefillItem[];
+}
+
+export type SmartOrderLowStockPrefillResult =
+    | { success: true; data: SmartOrderLowStockPrefillPayload }
+    | { success: false; error: string };
 
 function revalidateProcurementPaths(): void {
     revalidatePath('/supply-chain');
@@ -166,6 +205,128 @@ async function resolveScopedProcurementRead(
     };
 }
 
+async function resolveSmartOrderLowStockPrefillScope(
+    actor: ProcurementActor,
+    requestedLocationId?: string | null,
+    requestedWarehouseId?: string | null,
+): Promise<
+    | {
+        success: true;
+        locationId: string;
+        locationName: string;
+        warehouseId: string;
+        warehouseName: string;
+    }
+    | { success: false; error: string }
+> {
+    const normalizedLocationId = normalizeUuid(requestedLocationId);
+    const normalizedWarehouseId = normalizeUuid(requestedWarehouseId);
+
+    if (normalizedWarehouseId) {
+        const warehouseRes = await query(
+            `
+                SELECT
+                    w.id::text AS warehouse_id,
+                    COALESCE(w.name, 'Bodega sin nombre') AS warehouse_name,
+                    w.location_id::text AS location_id,
+                    COALESCE(l.name, 'Sucursal sin nombre') AS location_name
+                FROM warehouses w
+                LEFT JOIN locations l ON w.location_id::text = l.id::text
+                WHERE w.id::text = $1::text
+                  AND COALESCE(w.is_active, true) = true
+                LIMIT 1
+            `,
+            [normalizedWarehouseId],
+        );
+        const warehouse = warehouseRes.rows[0];
+        if (!warehouse) {
+            return { success: false, error: 'Bodega no encontrada o inactiva' };
+        }
+
+        const warehouseLocationId = String(warehouse.location_id || '');
+        const scopedWarehouseLocation = resolveEffectiveProcurementLocation(actor, warehouseLocationId);
+        if (!scopedWarehouseLocation.success) {
+            return scopedWarehouseLocation;
+        }
+
+        if (normalizedLocationId && normalizedLocationId !== warehouseLocationId) {
+            return { success: false, error: 'La bodega no pertenece a la ubicación solicitada' };
+        }
+
+        return {
+            success: true,
+            locationId: warehouseLocationId,
+            locationName: String(warehouse.location_name || 'Sucursal sin nombre'),
+            warehouseId: String(warehouse.warehouse_id),
+            warehouseName: String(warehouse.warehouse_name || 'Bodega sin nombre'),
+        };
+    }
+
+    const scopedLocation = resolveEffectiveProcurementLocation(actor, normalizedLocationId);
+    if (!scopedLocation.success) {
+        return scopedLocation;
+    }
+    if (!scopedLocation.locationId) {
+        return { success: false, error: 'Selecciona una ubicación válida para sugerir canasta' };
+    }
+
+    const locationRes = await query(
+        `
+            SELECT
+                l.id::text AS location_id,
+                COALESCE(l.name, 'Sucursal sin nombre') AS location_name,
+                w.id::text AS warehouse_id,
+                COALESCE(w.name, 'Bodega sin nombre') AS warehouse_name
+            FROM locations l
+            LEFT JOIN warehouses w
+                ON w.id::text = l.default_warehouse_id::text
+               AND COALESCE(w.is_active, true) = true
+            WHERE l.id::text = $1::text
+            LIMIT 1
+        `,
+        [scopedLocation.locationId],
+    );
+    const location = locationRes.rows[0];
+    if (!location) {
+        return { success: false, error: 'Ubicación no encontrada' };
+    }
+
+    const defaultWarehouseId = String(location.warehouse_id || '');
+    if (defaultWarehouseId) {
+        return {
+            success: true,
+            locationId: String(location.location_id),
+            locationName: String(location.location_name || 'Sucursal sin nombre'),
+            warehouseId: defaultWarehouseId,
+            warehouseName: String(location.warehouse_name || 'Bodega sin nombre'),
+        };
+    }
+
+    const fallbackWarehouseRes = await query(
+        `
+            SELECT id::text AS warehouse_id, COALESCE(name, 'Bodega sin nombre') AS warehouse_name
+            FROM warehouses
+            WHERE location_id::text = $1::text
+              AND COALESCE(is_active, true) = true
+            ORDER BY name ASC, id ASC
+            LIMIT 1
+        `,
+        [scopedLocation.locationId],
+    );
+    const fallbackWarehouse = fallbackWarehouseRes.rows[0];
+    if (!fallbackWarehouse) {
+        return { success: false, error: 'No se encontró bodega activa para la ubicación' };
+    }
+
+    return {
+        success: true,
+        locationId: String(location.location_id),
+        locationName: String(location.location_name || 'Sucursal sin nombre'),
+        warehouseId: String(fallbackWarehouse.warehouse_id),
+        warehouseName: String(fallbackWarehouse.warehouse_name || 'Bodega sin nombre'),
+    };
+}
+
 async function validateApproverPin(client: PoolClient, pin: string, requiredRoles: readonly string[]): Promise<{
     valid: boolean;
     approver?: PinAuthorizedUser;
@@ -197,15 +358,15 @@ async function resolveCanonicalProductBySku(
             p.id,
             p.name,
             COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
         FROM products p
-        WHERE p.id ~* $2
+        WHERE p.id::text ~* $2
           AND (
             p.sku = $1
             OR $1 = ANY(
               array_remove(
                 regexp_split_to_array(
-                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  regexp_replace(COALESCE(to_jsonb(p)->>'barcode', ''), '\\s+', '', 'g'),
                   ','
                 ),
                 ''
@@ -215,7 +376,7 @@ async function resolveCanonicalProductBySku(
         ORDER BY
             (p.sku = $1) DESC,
             (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
-            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            (COALESCE(p.cost_price, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0) > 0) DESC,
             p.id DESC
         LIMIT 1
     `, [normalizedSku, UUID_TEXT_REGEX]);
@@ -254,6 +415,150 @@ async function insertProcurementAudit(client: PoolClient, params: {
 // ============================================================================
 // PUBLIC FUNCTIONS
 // ============================================================================
+
+/**
+ * 🧺 Smart-order assisted basket from validated critical low-stock context.
+ * Read-only: it never creates orders, never selects supplier, and never mutates state.
+ */
+export async function getSmartOrderLowStockPrefillSecure(
+    rawInput: z.input<typeof SmartOrderLowStockPrefillSchema>,
+): Promise<SmartOrderLowStockPrefillResult> {
+    const parsed = SmartOrderLowStockPrefillSchema.safeParse(rawInput);
+    if (!parsed.success) {
+        return { success: false, error: 'Contexto de bajo stock inválido' };
+    }
+
+    const actorResult = await requireProcurementActor(
+        PROCUREMENT_READ_ROLES,
+        'getSmartOrderLowStockPrefillSecure',
+    );
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    try {
+        const scope = await resolveSmartOrderLowStockPrefillScope(
+            actorResult.actor,
+            parsed.data.locationId,
+            parsed.data.warehouseId,
+        );
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+
+        const lowStockRes = await query(
+            `
+                WITH low_stock AS (
+                    SELECT
+                        COALESCE(MAX(ib.product_id::text), MAX(p.id::text), MAX(ib.id::text)) AS product_id,
+                        MAX(COALESCE(NULLIF(p.sku, ''), NULLIF(ib.sku, ''), 'SIN-SKU')) AS sku,
+                        MAX(COALESCE(NULLIF(p.name, ''), NULLIF(ib.name, ''), 'Producto sin nombre')) AS product_name,
+                        SUM(COALESCE(ib.quantity_real, 0))::numeric AS current_stock,
+                        MAX(COALESCE(
+                            NULLIF(ib.stock_min, 0),
+                            NULLIF(NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric, 0),
+                            0
+                        ))::numeric AS stock_min,
+                        MAX(COALESCE(
+                            NULLIF(ib.unit_cost, 0),
+                            NULLIF(ib.cost_net, 0),
+                            NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0),
+                            NULLIF(p.cost_price, 0),
+                            1
+                        ))::numeric AS unit_cost
+                    FROM inventory_batches ib
+                    LEFT JOIN products p ON ib.product_id::text = p.id::text
+                    WHERE ib.location_id::text = $1::text
+                      AND ib.warehouse_id::text = $2::text
+                    GROUP BY COALESCE(ib.product_id::text, ib.sku, ib.name, ib.id::text)
+                    HAVING SUM(COALESCE(ib.quantity_real, 0)) < MAX(COALESCE(
+                        NULLIF(ib.stock_min, 0),
+                        NULLIF(NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric, 0),
+                        0
+                    ))
+                       AND MAX(COALESCE(
+                        NULLIF(ib.stock_min, 0),
+                        NULLIF(NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric, 0),
+                        0
+                    )) > 0
+                )
+                SELECT
+                    ls.product_id,
+                    ls.sku,
+                    ls.product_name,
+                    ls.current_stock,
+                    ls.stock_min,
+                    GREATEST((ls.stock_min - ls.current_stock), 1)::numeric AS suggested_quantity,
+                    GREATEST(COALESCE(ls.unit_cost, supplier.cost_price, 1), 1)::numeric AS unit_cost,
+                    supplier.supplier_id AS suggested_supplier_id,
+                    supplier.supplier_name AS suggested_supplier_name,
+                    supplier.cost_price AS suggested_supplier_cost
+                FROM low_stock ls
+                LEFT JOIN LATERAL (
+                    SELECT
+                        s.id::text AS supplier_id,
+                        s.business_name AS supplier_name,
+                        GREATEST(COALESCE(NULLIF(ps.last_cost, 0), NULLIF(ps.average_cost, 0), ls.unit_cost, 1), 1)::numeric AS cost_price
+                    FROM product_suppliers ps
+                    JOIN suppliers s ON ps.supplier_id::text = s.id::text
+                    WHERE ps.product_id::text = ls.product_id::text
+                    ORDER BY
+                        COALESCE(ps.is_preferred, false) DESC,
+                        GREATEST(COALESCE(NULLIF(ps.last_cost, 0), NULLIF(ps.average_cost, 0), ls.unit_cost, 1), 1) ASC,
+                        s.business_name ASC
+                    LIMIT 1
+                ) supplier ON true
+                ORDER BY (ls.stock_min - ls.current_stock) DESC, ls.product_name ASC
+                LIMIT $3
+            `,
+            [scope.locationId, scope.warehouseId, parsed.data.limit],
+        );
+
+        const items: SmartOrderLowStockPrefillItem[] = lowStockRes.rows.map((row) => {
+            const currentStock = Number(row.current_stock || 0);
+            const stockMin = Number(row.stock_min || 0);
+            const deficit = Math.max(stockMin - currentStock, 0);
+            const suggestedQuantity = Math.max(Math.ceil(Number(row.suggested_quantity || deficit || 1)), 1);
+            const unitCost = Math.max(Number(row.unit_cost || row.suggested_supplier_cost || 1), 1);
+            const suggestedSupplierId = String(row.suggested_supplier_id || '');
+            const suggestedSupplierName = String(row.suggested_supplier_name || '');
+            const suggestedSupplierCost = Number(row.suggested_supplier_cost || 0);
+
+            return {
+                productId: String(row.product_id),
+                sku: String(row.sku || 'SIN-SKU'),
+                productName: String(row.product_name || 'Producto sin nombre'),
+                currentStock,
+                stockMin,
+                deficit,
+                suggestedQuantity,
+                unitCost,
+                suggestedSupplierId: suggestedSupplierId || undefined,
+                suggestedSupplierName: suggestedSupplierName || undefined,
+                suggestedSupplierCost: suggestedSupplierCost > 0 ? suggestedSupplierCost : undefined,
+                reason: `Stock actual ${currentStock} bajo mínimo ${stockMin}`,
+            };
+        });
+
+        return {
+            success: true,
+            data: {
+                source: 'inventory-critical-low-stock',
+                locationId: scope.locationId,
+                locationName: scope.locationName,
+                warehouseId: scope.warehouseId,
+                warehouseName: scope.warehouseName,
+                generatedAt: new Date().toISOString(),
+                providerSelection: 'manual',
+                explanation: 'Canasta sugerida desde alerta de bajo stock validada en servidor. El proveedor y la confirmación siguen siendo manuales.',
+                items,
+            },
+        };
+    } catch (error) {
+        logger.error({ error }, '[PROCUREMENT-V2] Smart-order low stock prefill error');
+        return { success: false, error: 'Error generando canasta sugerida' };
+    }
+}
 
 /**
  * 📝 Create Purchase Order (DRAFT status)
@@ -930,8 +1235,8 @@ export async function generateRestockSuggestionSecure(
                     p.name as product_name, 
                     p.sku as product_sku, 
                     NULL as image_url,
-                    p.stock_minimo_seguridad as safety_stock,
-                    COALESCE(p.cost_net, p.cost_price, 0) as internal_cost,
+                    NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric as safety_stock,
+                    COALESCE(NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), p.cost_price, 0) as internal_cost,
                     
                     -- Top 3 Suppliers by Cost (or filtered supplier)
                     (
@@ -1455,7 +1760,7 @@ export async function generateSaleBasedSuggestionSecure(
                     p.id::uuid as product_id,
                     p.name as product_name,
                     p.sku as product_sku,
-                    COALESCE(p.cost_net, p.cost_price, 0) as internal_cost,
+                    COALESCE(NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), p.cost_price, 0) as internal_cost,
                     (
                         SELECT jsonb_agg(sub_s)
                         FROM (

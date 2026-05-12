@@ -1,7 +1,9 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { parseProductDetails } from '@/lib/product-parser';
+import { headers } from 'next/headers';
 
 export interface AlternativeResult {
     id: string;
@@ -19,22 +21,72 @@ export interface AlternativeResult {
     isp_register?: string;
 }
 
+const RATE_LIMIT_PER_MINUTE = 20;
+const MAX_TERM_LENGTH = 120;
+const MAX_WORDS = 6;
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+async function getClientIP(): Promise<string> {
+    try {
+        const headersList = await headers();
+        return headersList.get('x-forwarded-for')?.split(',')[0]?.trim()
+            || headersList.get('x-real-ip')
+            || 'unknown';
+    } catch {
+        return 'unknown';
+    }
+}
+
+function checkRateLimit(ip: string): boolean {
+    const now = Date.now();
+    const key = `alternatives:${ip}`;
+    const entry = rateLimitMap.get(key);
+
+    if (!entry || now > entry.resetAt) {
+        rateLimitMap.set(key, { count: 1, resetAt: now + 60_000 });
+        return true;
+    }
+
+    if (entry.count >= RATE_LIMIT_PER_MINUTE) {
+        return false;
+    }
+
+    entry.count++;
+    return true;
+}
+
+function getSearchWords(term: string) {
+    const cleanTerm = term
+        .replace(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ\s\-.]/g, '')
+        .trim()
+        .slice(0, MAX_TERM_LENGTH);
+
+    return cleanTerm
+        .split(/\s+/)
+        .filter((word) => word.length > 3)
+        .slice(0, MAX_WORDS);
+}
+
 export async function getAlternativesAction(dci: string, currentId: string): Promise<AlternativeResult[]> {
-    if (!dci || dci.trim().length === 0) return [];
+    const normalizedCurrentId = String(currentId || '').trim().slice(0, 100);
+    if (!dci || dci.trim().length === 0 || !normalizedCurrentId) return [];
 
     try {
-        console.log(`🔍 [Alternatives] Buscando DCI: "${dci}" excluyendo ID: ${currentId}`);
+        const ip = await getClientIP();
+        if (!checkRateLimit(ip)) {
+            logger.warn({ ip }, '[Alternatives] Rate limit exceeded');
+            return [];
+        }
 
         // Strategy 1: Exact DCI Match on Products (High Priority)
         // Extract words > 3 chars
-        const cleanTerm = dci.replace(/[^\w\s]/gi, '').trim();
-        const words = cleanTerm.split(/\s+/).filter(w => w.length > 3);
+        const words = getSearchWords(dci);
 
         if (words.length === 0) return []; // Too risky to search for "de" or "la"
 
         // Build dynamic OR conditions
         let paramCounter = 2; // $1 is currentId
-        const params = [currentId];
+        const params = [normalizedCurrentId];
         const conditions: string[] = [];
 
         words.forEach(w => {
@@ -55,11 +107,11 @@ export async function getAlternativesAction(dci: string, currentId: string): Pro
                     p.name::text,
                     p.sku::text,
                     p.dci::text,
-                    p.laboratory::text,
+                    NULLIF(to_jsonb(p)->>'laboratory', '')::text,
                     p.format::text,
-                    p.isp_register::text,
+                    NULLIF(to_jsonb(p)->>'isp_register', '')::text,
                     p.units_per_box,
-                    p.is_bioequivalent,
+                    COALESCE(NULLIF(to_jsonb(p)->>'is_bioequivalent', '')::boolean, false),
                     p.stock_actual as stock,
                     p.price_sell_box as price,
                     1 as source_prio
@@ -127,7 +179,7 @@ export async function getAlternativesAction(dci: string, currentId: string): Pro
         });
 
     } catch (error) {
-        console.error('❌ Error getting alternatives:', error);
+        logger.error({ error }, '[Alternatives] Search error');
         return [];
     }
 }

@@ -7,6 +7,7 @@ export function isValidUuid(value?: string): value is string {
 
 export function resolveManualOrderIds(params: {
     selectedSupplierId?: string;
+    requestedWarehouseId?: string;
     currentWarehouseId?: string;
     fallbackWarehouseId?: string;
 }): { supplierId: string | null; warehouseId: string } {
@@ -14,8 +15,10 @@ export function resolveManualOrderIds(params: {
     const supplierId = params.selectedSupplierId && params.selectedSupplierId !== 'TRANSFER' && isValidUuid(params.selectedSupplierId)
         ? params.selectedSupplierId
         : null;
-    const warehouseId = isValidUuid(params.currentWarehouseId)
-        ? params.currentWarehouseId
+    const warehouseId = isValidUuid(params.requestedWarehouseId)
+        ? params.requestedWarehouseId
+        : isValidUuid(params.currentWarehouseId)
+            ? params.currentWarehouseId
         : fallbackWarehouseId;
 
     return { supplierId, warehouseId };

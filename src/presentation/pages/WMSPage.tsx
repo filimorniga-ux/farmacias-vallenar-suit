@@ -2,11 +2,11 @@
 
 /**
  * WMSPage - Página principal del módulo WMS
- * 
+ *
  * Layout adaptativo:
  * - Móvil: Header sticky + Bottom Tab Bar + scroll independiente
  * - Desktop: Header normal + tabs horizontales arriba
- * 
+ *
  * Usa usePlatform() para detectar la plataforma (Capacitor/Electron/Web).
  * Skills: estilo-marca, modo-produccion, arquitecto-offline
  */
@@ -24,6 +24,7 @@ import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
 import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import { useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
 import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 import { receivePurchaseOrderSecure, finalizePurchaseOrderReviewSecure } from '@/actions/supply-v2';
 import { InventoryBatch, PurchaseOrder, Shipment } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
@@ -129,60 +130,32 @@ export const WMSPage: React.FC = () => {
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
 
-    const resolvedLocation = useMemo(() => {
-        if (locationStoreCurrent) return locationStoreCurrent;
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
 
-        const fromLocationStore = locationStoreLocations.find(loc => loc.id === currentLocationId);
-        if (fromLocationStore) return fromLocationStore;
-
-        return null;
-    }, [currentLocationId, locationStoreCurrent, locationStoreLocations]);
-
-    const currentLocationName = resolvedLocation?.name || 'Sin ubicación';
-    const currentLocationType = resolvedLocation?.type || 'STORE';
+    const currentLocationName = wmsContext.locationName;
+    const currentLocationType = wmsContext.locationType;
     const useMobileLayout = isMobile && !isDesktopLike;
 
     useEffect(() => {
-        const fallbackIds: string[] = [];
-        try {
-            const contextId = localStorage.getItem('context_location_id');
-            const preferredId = localStorage.getItem('preferred_location_id');
-            if (contextId) fallbackIds.push(contextId);
-            if (preferredId) fallbackIds.push(preferredId);
-        } catch {
-            // localStorage may be unavailable in constrained environments
-        }
-
-        const targetId =
-            currentLocationId ||
-            locationStoreCurrent?.id ||
-            user?.assigned_location_id ||
-            fallbackIds.find(Boolean) ||
-            '';
-
-        if (!targetId) return;
-
-        const targetLocation =
-            locationStoreLocations.find(loc => loc.id === targetId) ||
-            (locationStoreCurrent?.id === targetId ? locationStoreCurrent : undefined);
-
-        const targetWarehouseId = currentWarehouseId || targetLocation?.default_warehouse_id || '';
-
-        if (currentLocationId !== targetId || (targetWarehouseId && currentWarehouseId !== targetWarehouseId)) {
-            setCurrentLocation(targetId, targetWarehouseId, currentTerminalId || '');
+        if (wmsContext.shouldSyncStore && wmsContext.locationId) {
+            setCurrentLocation(wmsContext.locationId, wmsContext.warehouseId, currentTerminalId || '');
         }
     }, [
-        currentLocationId,
-        currentWarehouseId,
         currentTerminalId,
         setCurrentLocation,
-        locationStoreLocations,
-        locationStoreCurrent,
-        user?.assigned_location_id,
+        wmsContext.locationId,
+        wmsContext.shouldSyncStore,
+        wmsContext.warehouseId,
     ]);
 
     // 🚀 Load inventory via React Query (Same pattern as POSMainScreen for consistency)
-    const activeLocationId = currentLocationId || locationStoreCurrent?.id;
+    const activeLocationId = wmsContext.locationId;
     const shouldBootstrapTransit = activeTab === 'transito';
     const { bootstrapWms, isBootstrappingWms } = useBootstrapWms({ activeLocationId, auto: false });
     const shouldLoadInventory = INVENTORY_TABS.includes(activeTab);
@@ -390,7 +363,7 @@ export const WMSPage: React.FC = () => {
                     <div className="px-4 py-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
-                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600
                                               flex items-center justify-center shadow-lg shadow-sky-500/20">
                                     <Warehouse size={18} className="text-white" />
                                 </div>
@@ -410,9 +383,10 @@ export const WMSPage: React.FC = () => {
                             <button
                                 onClick={handleRefresh}
                                 disabled={isBootstrappingWms}
-                                className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 
+                                className="h-11 w-11 rounded-xl bg-slate-100 hover:bg-slate-200
                                          text-slate-600 transition-colors flex items-center justify-center
                                          active:scale-95 disabled:opacity-60"
+                                aria-label="Actualizar WMS"
                                 title="Actualizar"
                             >
                                 <RefreshCw size={16} className={isBootstrappingWms ? 'animate-spin' : ''} />

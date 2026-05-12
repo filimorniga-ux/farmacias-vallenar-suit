@@ -6,14 +6,36 @@ const path = require('path');
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
 import { randomUUID } from 'crypto';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import { assertScriptDbWriteTargetAllowed } from '../src/scripts/script-db-target-policy';
 
 dotenv.config();
 
+const REIMPORT_V2_ALLOW_NON_LOCAL_ENV = 'REIMPORT_V2_ALLOW_NON_LOCAL';
+const REIMPORT_V2_CONFIRM_ENV = 'REIMPORT_V2_CONFIRM';
+const REIMPORT_V2_CONFIRMATION = 'REIMPORT_V2_INVENTORY';
 const DB_URL = process.env.DATABASE_URL;
+
 if (!DB_URL) {
     console.error('❌ DATABASE_URL is required');
     process.exit(1);
 }
+
+if (process.env[REIMPORT_V2_CONFIRM_ENV] !== REIMPORT_V2_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to wipe and reimport inventory without explicit confirmation. ` +
+        `Set ${REIMPORT_V2_CONFIRM_ENV}=${REIMPORT_V2_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertScriptDbWriteTargetAllowed({
+    scriptName: 'reimport_v2',
+    connectionString: DB_URL,
+    allowNonLocalEnv: REIMPORT_V2_ALLOW_NON_LOCAL_ENV,
+});
+
+console.log('🎯 DB target:', redactConnectionString(DB_URL));
 
 const pool = new Pool({
     connectionString: DB_URL,

@@ -14,7 +14,11 @@ type PharmaState = {
     user: { id: string };
 };
 
-type LocationSelector = (state: { currentLocation: NullableLocation }) => unknown;
+type LocationStoreState = {
+    currentLocation: NullableLocation;
+    locations: Array<{ id: string; default_warehouse_id?: string | null; name?: string }>;
+};
+type LocationSelector = (state: LocationStoreState) => unknown;
 
 const mocks = vi.hoisted(() => {
     const refetchShipmentsMock = vi.fn<() => Promise<{ error: null }>>();
@@ -34,7 +38,7 @@ const mocks = vi.hoisted(() => {
         user: { id: '1719073d-9da1-40d7-9dce-28ac3a415a6b' },
     };
 
-    let locationState: { currentLocation: NullableLocation } = { currentLocation: null };
+    let locationState: LocationStoreState = { currentLocation: null, locations: [] };
 
     const usePharmaStoreMock = Object.assign(
         function <T>(selector?: (state: PharmaState) => T) {
@@ -61,7 +65,7 @@ const mocks = vi.hoisted(() => {
         usePurchaseOrdersQueryMock,
         usePharmaStoreMock,
         useLocationStoreMock,
-        setLocationState: (next: { currentLocation: NullableLocation }) => {
+        setLocationState: (next: LocationStoreState) => {
             locationState = next;
         },
     };
@@ -114,14 +118,9 @@ vi.mock('sonner', () => ({
 describe('SupplyKanban fallback de ubicación', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        if (typeof localStorage?.removeItem === 'function') {
-            localStorage.removeItem('context_location_id');
-            localStorage.removeItem('preferred_location_id');
-        }
-
         pharmaState.currentLocationId = undefined;
         pharmaState.suppliers = [];
-        setLocationState({ currentLocation: null });
+        setLocationState({ currentLocation: null, locations: [] });
 
         refetchShipmentsMock.mockResolvedValue({ error: null });
         refetchPurchaseOrdersMock.mockResolvedValue({ error: null });
@@ -158,6 +157,28 @@ describe('SupplyKanban fallback de ubicación', () => {
 
         expect(useShipmentsQueryMock).toHaveBeenCalledWith(undefined, { enabled: true });
         expect(usePurchaseOrdersQueryMock).toHaveBeenCalledWith(undefined, { enabled: true });
+    });
+
+    it('prioriza el locationId visible entregado por la página sobre el store global', () => {
+        pharmaState.currentLocationId = '550e8400-e29b-41d4-a716-446655440000';
+        setLocationState({
+            currentLocation: { id: '550e8400-e29b-41d4-a716-446655440000' },
+            locations: [
+                { id: '550e8400-e29b-41d4-a716-446655440000', default_warehouse_id: 'wh-1' },
+                { id: '550e8400-e29b-41d4-a716-446655440999', default_warehouse_id: 'wh-2' },
+            ],
+        });
+
+        render(
+            <SupplyKanban
+                locationId="550e8400-e29b-41d4-a716-446655440999"
+                onEditOrder={vi.fn()}
+                onReceiveOrder={vi.fn()}
+            />
+        );
+
+        expect(useShipmentsQueryMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440999', { enabled: true });
+        expect(usePurchaseOrdersQueryMock).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440999', { enabled: true });
     });
 
     it('usa solo el scope de la sucursal y delega el fallback al query layer', () => {

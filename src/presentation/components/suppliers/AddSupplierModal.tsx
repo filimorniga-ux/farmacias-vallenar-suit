@@ -225,33 +225,40 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-2 [padding-bottom:max(env(safe-area-inset-bottom),0.5rem)] [padding-top:max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:px-4">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="add-supplier-modal-title"
+                className="flex h-[calc(100dvh-1rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[90vh]"
+            >
                 {/* Header */}
-                <div className="bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-4 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-white/20 p-2 rounded-lg">
-                            <Building2 className="w-6 h-6 text-white" />
+                <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-cyan-600 px-4 py-4 sm:px-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="shrink-0 rounded-lg bg-white/20 p-2">
+                            <Building2 className="h-6 w-6 text-white" aria-hidden="true" />
                         </div>
-                        <div>
-                            <h2 className="text-xl font-bold text-white">{supplierToEdit ? 'Editar Proveedor' : 'Nuevo Proveedor'}</h2>
-                            <p className="text-blue-100 text-sm">{supplierToEdit ? 'Actualizar Ficha Técnica' : 'Alta Maestra de Socio Comercial'}</p>
+                        <div className="min-w-0">
+                            <h2 id="add-supplier-modal-title" className="truncate text-lg font-bold text-white sm:text-xl">{supplierToEdit ? 'Editar Proveedor' : 'Nuevo Proveedor'}</h2>
+                            <p className="truncate text-sm text-blue-100">{supplierToEdit ? 'Actualizar Ficha Técnica' : 'Alta Maestra de Socio Comercial'}</p>
                         </div>
                     </div>
                     <button
+                        type="button"
                         onClick={onClose}
-                        className="text-white/80 hover:text-white transition-colors"
+                        aria-label="Cerrar formulario de proveedor"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
-                        <X className="w-6 h-6" />
+                        <X className="h-6 w-6" aria-hidden="true" />
                     </button>
                 </div>
 
                 {/* Form */}
-                <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+                <form onSubmit={handleSubmit} className="flex-1 space-y-6 overflow-y-auto overscroll-contain p-4 sm:p-6">
                     {/* Section 1: Company Data */}
-                    <div className="bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl p-6 border border-blue-200">
+                    <div className="rounded-xl border border-blue-200 bg-gradient-to-r from-blue-50 to-cyan-50 p-4 sm:p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <Building2 className="w-5 h-5 text-blue-600" />
+                            <Building2 className="h-5 w-5 text-blue-600" aria-hidden="true" />
                             A. Datos de la Empresa
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -264,7 +271,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={rut}
                                     onChange={(e) => setRut(e.target.value)}
                                     placeholder="12.345.678-9"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -277,7 +284,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={businessName}
                                     onChange={(e) => setBusinessName(e.target.value)}
                                     placeholder="Laboratorios Chile S.A."
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -290,7 +297,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={fantasyName}
                                     onChange={(e) => setFantasyName(e.target.value)}
                                     placeholder="Lab Chile"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -301,7 +308,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                 <select
                                     value={sector}
                                     onChange={(e) => setSector(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
                                     required
                                 >
                                     <option value="">Seleccionar...</option>
@@ -319,16 +326,16 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={website}
                                     onChange={(e) => setWebsite(e.target.value)}
                                     placeholder="https://www.ejemplo.cl"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
                                 />
                             </div>
                         </div>
                     </div>
 
                     {/* Section 2: Location & Contact */}
-                    <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
+                    <div className="rounded-xl border border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 p-4 sm:p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <MapPin className="w-5 h-5 text-green-600" />
+                            <MapPin className="h-5 w-5 text-green-600" aria-hidden="true" />
                             B. Ubicación & Contacto
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -341,7 +348,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={address}
                                     onChange={(e) => setAddress(e.target.value)}
                                     placeholder="Av. Libertador Bernardo O'Higgins 1234"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -352,7 +359,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                 <select
                                     value={region}
                                     onChange={(e) => setRegion(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                     required
                                 >
                                     <option value="">Seleccionar...</option>
@@ -370,7 +377,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={city}
                                     onChange={(e) => setCity(e.target.value)}
                                     placeholder="Santiago"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -383,7 +390,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={commune}
                                     onChange={(e) => setCommune(e.target.value)}
                                     placeholder="Providencia"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                 />
                             </div>
                             <div>
@@ -395,7 +402,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={phone1}
                                     onChange={(e) => setPhone1(e.target.value)}
                                     placeholder="+56 2 2345 6789"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -408,7 +415,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={phone2}
                                     onChange={(e) => setPhone2(e.target.value)}
                                     placeholder="+56 9 8765 4321"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                 />
                             </div>
                             <div>
@@ -420,7 +427,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={contactName}
                                     onChange={(e) => setContactName(e.target.value)}
                                     placeholder="Juan Pérez"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                 />
                             </div>
                             <div>
@@ -432,7 +439,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={emailOrders}
                                     onChange={(e) => setEmailOrders(e.target.value)}
                                     placeholder="pedidos@proveedor.cl"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -445,7 +452,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={emailBilling}
                                     onChange={(e) => setEmailBilling(e.target.value)}
                                     placeholder="cobranza@proveedor.cl"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-green-500 sm:text-sm"
                                     required
                                 />
                             </div>
@@ -453,9 +460,9 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                     </div>
 
                     {/* Section 3: Banking */}
-                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
+                    <div className="rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-pink-50 p-4 sm:p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <CreditCard className="w-5 h-5 text-purple-600" />
+                            <CreditCard className="h-5 w-5 text-purple-600" aria-hidden="true" />
                             C. Datos Bancarios (Para Transferencias)
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -466,7 +473,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                 <select
                                     value={bankName}
                                     onChange={(e) => setBankName(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-purple-500 sm:text-sm"
                                 >
                                     <option value="">Seleccionar...</option>
                                     {CHILEAN_BANKS.map(bank => (
@@ -481,7 +488,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                 <select
                                     value={accountType}
                                     onChange={(e) => setAccountType(e.target.value as any)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-purple-500 sm:text-sm"
                                 >
                                     <option value="CORRIENTE">Cuenta Corriente</option>
                                     <option value="VISTA">Cuenta Vista</option>
@@ -497,7 +504,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={accountNumber}
                                     onChange={(e) => setAccountNumber(e.target.value)}
                                     placeholder="1234567890"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-purple-500 sm:text-sm"
                                 />
                             </div>
                             <div>
@@ -509,16 +516,16 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     value={rutHolder}
                                     onChange={(e) => setRutHolder(e.target.value)}
                                     placeholder="11.111.111-1"
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
+                                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-purple-500 sm:text-sm"
                                 />
                             </div>
                         </div>
                     </div>
 
                     {/* Section 4: Brands & Portfolio */}
-                    <div className="bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl p-6 border border-orange-200">
+                    <div className="rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 p-4 sm:p-6">
                         <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <Tag className="w-5 h-5 text-orange-600" />
+                            <Tag className="h-5 w-5 text-orange-600" aria-hidden="true" />
                             D. Marcas & Portafolio
                         </h3>
                         <div className="space-y-4">
@@ -526,21 +533,21 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                 <label className="block text-sm font-bold text-gray-700 mb-2">
                                     Agregar Marcas
                                 </label>
-                                <div className="flex gap-2">
+                                <div className="flex flex-col gap-2 sm:flex-row">
                                     <input
                                         type="text"
                                         value={brandInput}
                                         onChange={(e) => setBrandInput(e.target.value)}
                                         onKeyDown={handleKeyDown}
                                         placeholder="Escribe una marca y presiona Enter o Espacio"
-                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                                        className="min-h-11 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-orange-500 sm:text-sm"
                                     />
                                     <button
                                         type="button"
                                         onClick={handleAddBrand}
-                                        className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 flex items-center gap-2"
+                                        className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-white hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                                     >
-                                        <Plus className="w-4 h-4" />
+                                        <Plus className="h-4 w-4" aria-hidden="true" />
                                         Agregar
                                     </button>
                                 </div>
@@ -557,14 +564,15 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                             key={idx}
                                             className="bg-orange-100 text-orange-800 px-3 py-1.5 rounded-full flex items-center gap-2 text-sm font-medium"
                                         >
-                                            <Tag className="w-3 h-3" />
+                                            <Tag className="h-3 w-3" aria-hidden="true" />
                                             {brand}
                                             <button
                                                 type="button"
                                                 onClick={() => handleRemoveBrand(brand)}
-                                                className="hover:text-orange-900"
+                                                aria-label={`Eliminar marca ${brand}`}
+                                                className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full hover:bg-orange-200 hover:text-orange-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                                             >
-                                                <Trash2 className="w-3 h-3" />
+                                                <Trash2 className="h-3 w-3" aria-hidden="true" />
                                             </button>
                                         </div>
                                     ))}
@@ -580,7 +588,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                     <select
                                         value={paymentTerms}
                                         onChange={(e) => setPaymentTerms(e.target.value as any)}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                                        className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-orange-500 sm:text-sm"
                                     >
                                         <option value="CONTADO">Contado</option>
                                         <option value="30_DIAS">30 Días</option>
@@ -597,7 +605,7 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                                         value={leadTimeDays}
                                         onChange={(e) => setLeadTimeDays(parseInt(e.target.value) || 0)}
                                         min="1"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                                        className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base outline-none focus:ring-2 focus:ring-orange-500 sm:text-sm"
                                     />
                                 </div>
                             </div>
@@ -606,21 +614,22 @@ const AddSupplierModal: React.FC<AddSupplierModalProps> = ({ isOpen, onClose, on
                 </form>
 
                 {/* Footer */}
-                <div className="bg-gray-50 px-6 py-4 flex justify-between items-center border-t border-gray-200">
+                <div className="flex shrink-0 flex-col gap-3 border-t border-gray-200 bg-gray-50 px-4 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:px-6">
                     <p className="text-sm text-gray-600">
                         <span className="text-red-500">*</span> Campos obligatorios
                     </p>
-                    <div className="flex gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 font-medium"
+                            className="min-h-11 rounded-lg border border-gray-300 px-6 py-2 font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                         >
                             Cancelar
                         </button>
                         <button
+                            type="button"
                             onClick={handleSubmit}
-                            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg shadow-blue-200"
+                            className="min-h-11 rounded-lg bg-blue-600 px-6 py-2 font-bold text-white shadow-lg shadow-blue-200 hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                         >
                             Guardar Proveedor
                         </button>

@@ -22,7 +22,7 @@
     "test:e2e": "NODE_OPTIONS='' PLAYWRIGHT_USE_PROD_SERVER=0 PLAYWRIGHT_WORKERS=1 playwright test",
     "test:e2e:dev": "NODE_OPTIONS='' PLAYWRIGHT_USE_PROD_SERVER=0 PLAYWRIGHT_WORKERS=1 playwright test",
     "test:e2e:prod": "NODE_OPTIONS='' PLAYWRIGHT_USE_PROD_SERVER=1 PLAYWRIGHT_WORKERS=1 playwright test",
-    "test:e2e:release:critical": "sh -c 'DB=\"${DATABASE_URL:-${POSTGRES_URL:-postgres://postgres@localhost:55433/farmacia_guardrails_ci}}\"; BASE_URL=\"${PLAYWRIGHT_BASE_URL:-http://127.0.0.1:3100}\"; PORT_VALUE=\"${PORT:-3100}\"; export DATABASE_URL=\"$DB\" POSTGRES_URL=\"${POSTGRES_URL:-$DB}\" POSTGRES_URL_NON_POOLING=\"${POSTGRES_URL_NON_POOLING:-$DB}\" APP_URL=\"$BASE_URL\" NEXT_PUBLIC_APP_URL=\"$BASE_URL\" PLAYWRIGHT_BASE_URL=\"$BASE_URL\" PORT=\"$PORT_VALUE\" NODE_OPTIONS=\"\" PLAYWRIGHT_USE_PROD_SERVER=1 PLAYWRIGHT_WORKERS=1; npm run seed:demo && playwright test --project=chromium tests/e2e/login-flow.spec.ts tests/e2e/pos.spec.ts tests/e2e/treasury.spec.ts tests/e2e/reports.spec.ts'",
+    "test:e2e:release:critical": "tsx src/scripts/run-release-critical-gate.ts",
     "test:e2e:smoke:wms-supply": "NODE_OPTIONS='' PLAYWRIGHT_USE_PROD_SERVER=1 PLAYWRIGHT_WORKERS=1 playwright test tests/e2e/wms-tabs.spec.ts tests/e2e/procurement-v2.spec.ts",
     "smoke:health-db": "node scripts/smoke-health-db.mjs",
     "seed:sandbox": "npx tsx src/scripts/seed-sandbox.ts",

@@ -1,6 +1,7 @@
-import LegacyClientAppPage from '../LegacyClientAppPage';
+import { notFound } from 'next/navigation';
 
-// Force Rebuild
 export const dynamic = 'force-dynamic';
 
-export default LegacyClientAppPage;
+export default function LegacyCatchAllPage() {
+    notFound();
+}

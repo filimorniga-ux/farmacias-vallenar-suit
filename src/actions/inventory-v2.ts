@@ -21,6 +21,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
+import { normalizeSaleCondition } from '@/lib/sale-condition';
 import {
     ROLE_GROUPS,
     requireRole,
@@ -1289,33 +1290,48 @@ export async function getWMSInventorySecure(
                 ib.sku,
                 COALESCE(ib.name, p.name, 'Producto') as name,
                 p.dci,
-                p.laboratory,
+                to_jsonb(p)->>'laboratory' as laboratory,
                 p.category,
-                COALESCE(p.condicion_venta, 'VD') as condition,
-                p.barcode,
+                COALESCE(NULLIF(to_jsonb(p)->>'condicion_venta', ''), 'VD') as condition,
+                COALESCE(to_jsonb(ib)->>'barcode', to_jsonb(p)->>'barcode') as barcode,
                 ib.location_id::text as location_id,
                 ib.warehouse_id::text as warehouse_id,
                 ib.quantity_real as stock_actual,
-                COALESCE(ib.stock_min, p.stock_minimo_seguridad, 0) as stock_min,
+                COALESCE(
+                    ib.stock_min,
+                    NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric,
+                    NULLIF(to_jsonb(p)->>'stock_min', '')::numeric,
+                    0
+                ) as stock_min,
                 ib.expiry_date,
                 ib.lot_number,
-                COALESCE(ib.cost_net, p.cost_net, 0) as cost_net,
-                COALESCE(ib.price_sell_box, p.price_sell_box, p.price, 0) as price_sell_box,
-                COALESCE(p.price_sell_unit, p.price, 0) as price_sell_unit,
+                COALESCE(
+                    ib.cost_net,
+                    NULLIF(to_jsonb(p)->>'cost_net', '')::numeric,
+                    NULLIF(to_jsonb(p)->>'cost_price', '')::numeric,
+                    0
+                ) as cost_net,
+                COALESCE(
+                    ib.price_sell_box,
+                    NULLIF(to_jsonb(p)->>'price_sell_box', '')::numeric,
+                    p.price,
+                    0
+                ) as price_sell_box,
+                COALESCE(NULLIF(to_jsonb(p)->>'price_sell_unit', '')::numeric, p.price, 0) as price_sell_unit,
                 COALESCE(ib.sale_price, ib.price_sell_box, p.price, 0) as price,
-                COALESCE(ib.units_per_box, p.units_per_box, 1) as units_per_box,
-                COALESCE(ib.is_fractionable, true) as is_fractionable,
-                COALESCE(ib.units_stock_actual, 0) as units_stock_actual,
-                COALESCE(ib.is_retail_lot, false) as is_retail_lot,
-                ib.original_batch_id::text as original_batch_id,
+                COALESCE(NULLIF(to_jsonb(ib)->>'units_per_box', '')::numeric, p.units_per_box, 1) as units_per_box,
+                COALESCE(NULLIF(to_jsonb(ib)->>'is_fractionable', '')::boolean, true) as is_fractionable,
+                COALESCE(NULLIF(to_jsonb(ib)->>'units_stock_actual', '')::numeric, 0) as units_stock_actual,
+                COALESCE(NULLIF(to_jsonb(ib)->>'is_retail_lot', '')::boolean, false) as is_retail_lot,
+                to_jsonb(ib)->>'original_batch_id' as original_batch_id,
                 ib.source_system,
-                ib.created_at
+                NULLIF(to_jsonb(ib)->>'created_at', '')::timestamp as created_at
             FROM inventory_batches ib
             LEFT JOIN products p ON ib.product_id::text = p.id::text
             WHERE (
-                ib.location_id = $1::uuid
+                ib.location_id::text = $1::text
                 OR ib.warehouse_id IN (
-                    SELECT id FROM warehouses WHERE location_id = $1::uuid
+                    SELECT id FROM warehouses WHERE location_id::text = $1::text
                 )
             )
             AND ib.quantity_real > 0
@@ -1330,7 +1346,7 @@ export async function getWMSInventorySecure(
             dci: row.dci || undefined,
             laboratory: row.laboratory || undefined,
             category: row.category || 'GENERAL',
-            condition: row.condition || 'VD',
+            condition: normalizeSaleCondition(row.condition),
             barcode: row.barcode || undefined,
             location_id: row.location_id || effectiveLocationId,
             warehouse_id: row.warehouse_id || undefined,
@@ -1502,37 +1518,51 @@ export async function getInventorySecure(
                     ib.sku,
                     COALESCE(ib.name, p.name) as name,
                     p.dci,
-                    p.laboratory,
+                    to_jsonb(p)->>'laboratory' as laboratory,
                     p.category,
-                    p.condicion_venta as condition,
+                    NULLIF(to_jsonb(p)->>'condicion_venta', '') as condition,
                     ib.quantity_real as stock_actual,
-                    COALESCE(ib.stock_min, p.stock_minimo_seguridad, 5) as stock_min,
+                    COALESCE(
+                        ib.stock_min,
+                        NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric,
+                        NULLIF(to_jsonb(p)->>'stock_min', '')::numeric,
+                        5
+                    ) as stock_min,
                     COALESCE(ib.sale_price, ib.price_sell_box, p.price) as price,
-                    COALESCE(ib.cost_net, p.cost_net, 0) as cost_net,
-                    COALESCE(ib.price_sell_box, p.price_sell_box, p.price) as price_sell_box,
-                    COALESCE(p.price_sell_unit, p.price) as price_sell_unit,
+                    COALESCE(
+                        ib.cost_net,
+                        NULLIF(to_jsonb(p)->>'cost_net', '')::numeric,
+                        NULLIF(to_jsonb(p)->>'cost_price', '')::numeric,
+                        0
+                    ) as cost_net,
+                    COALESCE(
+                        ib.price_sell_box,
+                        NULLIF(to_jsonb(p)->>'price_sell_box', '')::numeric,
+                        p.price
+                    ) as price_sell_box,
+                    COALESCE(NULLIF(to_jsonb(p)->>'price_sell_unit', '')::numeric, p.price) as price_sell_unit,
                     ib.expiry_date,
                     ib.lot_number,
-                    COALESCE(ib.units_per_box, p.units_per_box, 1) as units_per_box,
-                    COALESCE(ib.is_fractionable, true) as is_fractionable,
-                    COALESCE(ib.units_stock_actual, 0) as units_stock_actual,
+                    COALESCE(NULLIF(to_jsonb(ib)->>'units_per_box', '')::numeric, p.units_per_box, 1) as units_per_box,
+                    COALESCE(NULLIF(to_jsonb(ib)->>'is_fractionable', '')::boolean, true) as is_fractionable,
+                    COALESCE(NULLIF(to_jsonb(ib)->>'units_stock_actual', '')::numeric, 0) as units_stock_actual,
                     ib.location_id,
                     ib.warehouse_id,
-                    COALESCE(ib.is_retail_lot, false) as is_retail_lot,
-                    ib.original_batch_id::text as original_batch_id,
+                    COALESCE(NULLIF(to_jsonb(ib)->>'is_retail_lot', '')::boolean, false) as is_retail_lot,
+                    to_jsonb(ib)->>'original_batch_id' as original_batch_id,
 
                     false as is_express_entry, -- Fallback since column missing in DB
                     ib.source_system,
-                    ib.created_at
+                    NULLIF(to_jsonb(ib)->>'created_at', '')::timestamp as created_at
                 FROM inventory_batches ib
-                LEFT JOIN products p ON ib.product_id::text = p.id
+                LEFT JOIN products p ON ib.product_id::text = p.id::text
                 WHERE (
-                    ib.location_id = $1::uuid
+                    ib.location_id::text = $1::text
                     OR ib.warehouse_id IN (
-                        SELECT id FROM warehouses WHERE location_id = $1::uuid
+                        SELECT id FROM warehouses WHERE location_id::text = $1::text
                     )
                 )
-                AND (p.is_active = true OR p.id IS NULL) -- Allow orphaned batches or active products
+                AND (COALESCE(NULLIF(to_jsonb(p)->>'is_active', '')::boolean, true) = true OR p.id IS NULL) -- Allow orphaned batches or active products
                 
                 UNION ALL
                 
@@ -1543,15 +1573,23 @@ export async function getInventorySecure(
                     p.sku,
                     p.name,
                     p.dci,
-                    p.laboratory,
+                    to_jsonb(p)->>'laboratory' as laboratory,
                     p.category,
-                    p.condicion_venta as condition,
+                    NULLIF(to_jsonb(p)->>'condicion_venta', '') as condition,
                     0 as stock_actual,
-                    COALESCE(p.stock_minimo_seguridad, 5) as stock_min,
+                    COALESCE(
+                        NULLIF(to_jsonb(p)->>'stock_minimo_seguridad', '')::numeric,
+                        NULLIF(to_jsonb(p)->>'stock_min', '')::numeric,
+                        5
+                    ) as stock_min,
                     p.price,
-                    COALESCE(p.cost_net, 0) as cost_net,
-                    COALESCE(p.price_sell_box, p.price) as price_sell_box,
-                    COALESCE(p.price_sell_unit, p.price) as price_sell_unit,
+                    COALESCE(
+                        NULLIF(to_jsonb(p)->>'cost_net', '')::numeric,
+                        NULLIF(to_jsonb(p)->>'cost_price', '')::numeric,
+                        0
+                    ) as cost_net,
+                    COALESCE(NULLIF(to_jsonb(p)->>'price_sell_box', '')::numeric, p.price) as price_sell_box,
+                    COALESCE(NULLIF(to_jsonb(p)->>'price_sell_unit', '')::numeric, p.price) as price_sell_unit,
                     NULL as expiry_date,
                     NULL as lot_number,
                     COALESCE(p.units_per_box, 1) as units_per_box,
@@ -1563,18 +1601,18 @@ export async function getInventorySecure(
                     NULL as original_batch_id,
 
                     false as is_express_entry, -- Fallback since column missing in DB
-                    p.source_system,
-                    p.created_at
+                    to_jsonb(p)->>'source_system' as source_system,
+                    NULLIF(to_jsonb(p)->>'created_at', '')::timestamp as created_at
                 FROM products p
-                WHERE (p.location_id = $1::text OR p.location_id IS NULL)
-                AND p.is_active = true
+                WHERE (NULLIF(to_jsonb(p)->>'location_id', '') IS NULL OR to_jsonb(p)->>'location_id' = $1::text)
+                AND COALESCE(NULLIF(to_jsonb(p)->>'is_active', '')::boolean, true) = true
                 AND NOT EXISTS (
                     SELECT 1 FROM inventory_batches ib 
                     WHERE ib.sku = p.sku
                     AND (
-                        ib.location_id = $1::uuid
+                        ib.location_id::text = $1::text
                         OR ib.warehouse_id IN (
-                            SELECT id FROM warehouses WHERE location_id = $1::uuid
+                            SELECT id FROM warehouses WHERE location_id::text = $1::text
                         )
                     )
                 )
@@ -1673,7 +1711,7 @@ export async function getInventorySecure(
                 units_stock_actual: Number(row.units_stock_actual_total || 0),
                 is_retail_lot: Boolean(row.is_retail_lot_group),
                 original_batch_id: row.original_batch_id_group || undefined,
-                condition: row.condition || 'VD',
+                condition: normalizeSaleCondition(row.condition),
                     location_id: row.location_id_group || effectiveLocationId,
                 warehouse_id: row.warehouse_id_group || undefined,
                 is_express_entry: false,
@@ -1712,7 +1750,7 @@ export async function getInventorySecure(
                             dci: row.dci,
                             laboratory: row.laboratory,
                             category: row.category,
-                            condition: row.condition || 'VD',
+                            condition: normalizeSaleCondition(row.condition),
                             location_id: row.location_id_group || effectiveLocationId,
                             warehouse_id: row.warehouse_id_group || undefined,
                             stock_actual: Number(batch.stock_actual || 0),
@@ -1746,7 +1784,7 @@ export async function getInventorySecure(
                     dci: row.dci,
                     laboratory: row.laboratory,
                     category: row.category,
-                    condition: row.condition || 'VD',
+                    condition: normalizeSaleCondition(row.condition),
                     location_id: effectiveLocationId,
                     warehouse_id: undefined,
                     stock_actual: 0,
@@ -2188,6 +2226,7 @@ export async function findBestBatchSecure(
         name: string;
         price: number;
         quantity: number;
+        condition?: string;
         lotNumber: string | null;
         expiryDate: string | null;
     };
@@ -2209,6 +2248,7 @@ export async function findBestBatchSecure(
                 ib.id,
                 ib.sku,
                 COALESCE(ib.name, p.name, 'Producto') as name,
+                COALESCE(NULLIF(to_jsonb(p)->>'condicion_venta', ''), 'VD') as condition,
                 COALESCE(ib.sale_price, ib.price_sell_box, p.price_sell_box, 0) as price,
                 ib.quantity_real as quantity,
                 ib.lot_number,
@@ -2231,6 +2271,7 @@ export async function findBestBatchSecure(
                     ib.id,
                     ib.sku,
                     COALESCE(ib.name, p.name, 'Producto') as name,
+                    COALESCE(NULLIF(to_jsonb(p)->>'condicion_venta', ''), 'VD') as condition,
                     COALESCE(ib.sale_price, ib.price_sell_box, p.price_sell_box, 0) as price,
                     ib.quantity_real as quantity,
                     ib.lot_number,
@@ -2264,6 +2305,7 @@ export async function findBestBatchSecure(
                 name: batch.name,
                 price: Number(batch.price) || 0,
                 quantity: Number(batch.quantity) || 0,
+                condition: normalizeSaleCondition(batch.condition),
                 lotNumber: batch.lot_number || null,
                 expiryDate: batch.expiry_date ? new Date(Number(batch.expiry_date)).toISOString() : null
             }

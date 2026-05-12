@@ -28,9 +28,12 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     getActorOrFail,
     PinRbacError,
+    requireRole,
     ROLE_GROUPS,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
+
+const PRODUCT_CATALOG_WRITE_ROLES = ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'] as const;
 
 async function requireSession() {
     try {
@@ -39,6 +42,26 @@ async function requireSession() {
     } catch (error) {
         if (error instanceof PinRbacError) {
             return { success: false as const, error: 'No autenticado' };
+        }
+
+        throw error;
+    }
+}
+
+async function requireProductCatalogWriter() {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return auth;
+    }
+
+    try {
+        return {
+            success: true as const,
+            session: requireRole(auth.session, PRODUCT_CATALOG_WRITE_ROLES),
+        };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'Acceso denegado' };
         }
 
         throw error;
@@ -314,7 +337,7 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
     data?: { productId: string };
     error?: string;
 }> {
-    const auth = await requireSession();
+    const auth = await requireProductCatalogWriter();
     if (!auth.success) {
         return { success: false, error: auth.error };
     }
@@ -1089,7 +1112,7 @@ const QuickCreateProductSchema = z.object({
 });
 
 export async function quickCreateProductSecure(data: z.infer<typeof QuickCreateProductSchema>) {
-    const auth = await requireSession();
+    const auth = await requireProductCatalogWriter();
     if (!auth.success) {
         return { success: false, error: auth.error };
     }

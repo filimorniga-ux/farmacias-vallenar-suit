@@ -10,6 +10,7 @@ import { Trash2, Plus, Minus, Package, AlertTriangle, Square, CheckCircle2 } fro
 
 export interface WMSCartItem {
     id: string;           // ID del batch/producto
+    productId?: string;   // ID del producto maestro canónico
     sku: string;
     name: string;
     quantity: number;      // Cantidad a mover

@@ -3,15 +3,8 @@ import { NextResponse } from 'next/server';
 
 const {
     mockRequireApiRoles,
-    mockGetClient,
-    mockClient,
 } = vi.hoisted(() => ({
     mockRequireApiRoles: vi.fn(),
-    mockGetClient: vi.fn(),
-    mockClient: {
-        query: vi.fn(),
-        release: vi.fn(),
-    },
 }));
 
 vi.mock('@/lib/api-auth', () => ({
@@ -19,16 +12,11 @@ vi.mock('@/lib/api-auth', () => ({
     requireApiRoles: mockRequireApiRoles,
 }));
 
-vi.mock('@/lib/db', () => ({
-    getClient: mockGetClient,
-}));
-
 import { POST } from '@/app/api/inventory/truncate/route';
 
 describe('POST /api/inventory/truncate', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mockGetClient.mockResolvedValue(mockClient);
         mockRequireApiRoles.mockResolvedValue({
             ok: true,
             session: {
@@ -54,39 +42,31 @@ describe('POST /api/inventory/truncate', () => {
         }));
 
         expect(response.status).toBe(401);
-        expect(mockGetClient).not.toHaveBeenCalled();
     });
 
-    it('rechaza confirmación inválida sin pedir cliente', async () => {
+    it('retorna 410 después de RBAC sin parsear payload legacy', async () => {
         const response = await POST(new Request('http://localhost/api/inventory/truncate', {
             method: 'POST',
-            body: JSON.stringify({ confirmation: 'NOPE' }),
+            body: '{payload-invalido',
         }));
         const payload = await response.json();
 
-        expect(response.status).toBe(400);
-        expect(payload.error).toContain('Confirmación inválida');
-        expect(mockGetClient).not.toHaveBeenCalled();
+        expect(response.status).toBe(410);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            error: 'Endpoint legacy deshabilitado. Use /api/inventory/maintenance con action TRUNCATE.',
+            code: 'INVENTORY_TRUNCATE_LEGACY_DISABLED',
+        });
     });
 
-    it('usa getClient compartido para truncar inventario', async () => {
-        mockClient.query.mockResolvedValue(undefined);
-
+    it('mantiene la respuesta 410 aunque llegue confirmación antigua válida', async () => {
         const response = await POST(new Request('http://localhost/api/inventory/truncate', {
             method: 'POST',
             body: JSON.stringify({ confirmation: 'BORRAR' }),
         }));
         const payload = await response.json();
 
-        expect(response.status).toBe(200);
-        expect(payload.success).toBe(true);
-        expect(mockGetClient).toHaveBeenCalledTimes(1);
-        expect(mockClient.query).toHaveBeenNthCalledWith(1, 'BEGIN');
-        expect(mockClient.query).toHaveBeenCalledWith('DELETE FROM inventory_batches');
-        expect(mockClient.query).toHaveBeenCalledWith(
-            expect.stringContaining('UPDATE products'),
-        );
-        expect(mockClient.query).toHaveBeenLastCalledWith('COMMIT');
-        expect(mockClient.release).toHaveBeenCalledTimes(1);
+        expect(response.status).toBe(410);
+        expect(payload.code).toBe('INVENTORY_TRUNCATE_LEGACY_DISABLED');
     });
 });

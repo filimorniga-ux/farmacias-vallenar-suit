@@ -2,14 +2,13 @@
 const { Pool } = require('pg');
 const dotenv = require('dotenv');
 const path = require('path');
+const { redactConnectionString } = require('./e2e-release-critical-db-policy');
+const { assertScriptDbWriteTargetAllowed } = require('./script-db-target-policy');
 
 // Load environment variables
 dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL_NON_POOLING,
-    ssl: { rejectUnauthorized: false }
-});
+const connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
 
 const DEV_TEST_ACCOUNT = {
     name: '[DEV] Gerente General 1',
@@ -17,65 +16,125 @@ const DEV_TEST_ACCOUNT = {
     jobTitle: 'DEV_TEST_ACCOUNT',
 };
 
+const REPAIR_CONFIRMATION = 'APLICAR';
+const SECURITY_AUDIT_REPAIR_ALLOW_NON_LOCAL_ENV = 'SECURITY_AUDIT_REPAIR_ALLOW_NON_LOCAL';
+
+function createAuditPool(repairMode: boolean) {
+    if (!connectionString) {
+        throw new Error('DATABASE_URL o POSTGRES_URL_NON_POOLING requerido para security:audit');
+    }
+
+    if (repairMode) {
+        assertScriptDbWriteTargetAllowed({
+            scriptName: 'security:audit:repair',
+            connectionString,
+            allowNonLocalEnv: SECURITY_AUDIT_REPAIR_ALLOW_NON_LOCAL_ENV,
+        });
+    }
+
+    const isLocalhost = connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+
+    return new Pool({
+        connectionString,
+        ssl: isLocalhost ? false : { rejectUnauthorized: false },
+    });
+}
+
 async function auditSystem() {
     console.log("🏥 Starting System Health Audit...");
+    const repairMode = process.env.SECURITY_AUDIT_REPAIR_CONFIRM === REPAIR_CONFIRMATION;
+    console.log(
+        repairMode
+            ? '⚠️ Repair mode enabled by SECURITY_AUDIT_REPAIR_CONFIRM=APLICAR'
+            : '🔎 Read-only mode. Set SECURITY_AUDIT_REPAIR_CONFIRM=APLICAR to apply repairs.'
+    );
+    console.log(`🔌 Target DB: ${redactConnectionString(connectionString ?? '')}`);
+
+    const pool = createAuditPool(repairMode);
     const client = await pool.connect();
 
     try {
-        await client.query('BEGIN');
+        if (repairMode) {
+            await client.query('BEGIN');
+        }
 
         // 1. Integridad de Datos
         console.log("\n🕵️‍♂️ Auditing Data Integrity...");
 
-        // Fix Orphaned Sales
         const orphanedSales = await client.query(`
-            UPDATE sales 
-            SET location_id = (SELECT id FROM locations WHERE name = 'Sucursal Centro' LIMIT 1),
-                terminal_id = (SELECT id FROM terminals WHERE name = 'Caja 1' LIMIT 1)
+            SELECT COUNT(*)::int AS count
+            FROM sales
             WHERE location_id IS NULL OR terminal_id IS NULL
-            RETURNING id;
         `);
-        console.log(`   - Fixed Orphaned Sales: ${(orphanedSales.rowCount ?? 0) > 0 ? orphanedSales.rowCount : 'OK'}`);
+        console.log(`   - Orphaned Sales: ${orphanedSales.rows[0].count}`);
 
-        // Fix Zombie Inventory
         const zombieInventory = await client.query(`
-            UPDATE inventory_batches 
-            SET warehouse_id = (SELECT id FROM locations WHERE name = 'Bodega General' LIMIT 1)
+            SELECT COUNT(*)::int AS count
+            FROM inventory_batches
             WHERE warehouse_id IS NULL
-            RETURNING id;
         `);
-        console.log(`   - Fixed Zombie Inventory: ${(zombieInventory.rowCount ?? 0) > 0 ? zombieInventory.rowCount : 'OK'}`);
+        console.log(`   - Zombie Inventory: ${zombieInventory.rows[0].count}`);
 
-        // Fix Homeless Users
         const homelessUsers = await client.query(`
-            UPDATE users 
-            SET assigned_location_id = (SELECT id FROM locations WHERE name = 'Sucursal Centro' LIMIT 1)
+            SELECT COUNT(*)::int AS count
+            FROM users
             WHERE assigned_location_id IS NULL
-            RETURNING id;
         `);
-        console.log(`   - Fixed Homeless Users: ${(homelessUsers.rowCount ?? 0) > 0 ? homelessUsers.rowCount : 'OK'}`);
-        console.log("   ✅ Integrity: [OK/CORREGIDO]");
+
+        console.log(`   - Homeless Users: ${homelessUsers.rows[0].count}`);
+
+        if (repairMode) {
+            const fixedOrphanedSales = await client.query(`
+                UPDATE sales
+                SET location_id = (SELECT id FROM locations WHERE name = 'Sucursal Centro' LIMIT 1),
+                    terminal_id = (SELECT id FROM terminals WHERE name = 'Caja 1' LIMIT 1)
+                WHERE location_id IS NULL OR terminal_id IS NULL
+                RETURNING id;
+            `);
+            console.log(`   - Fixed Orphaned Sales: ${fixedOrphanedSales.rowCount ?? 0}`);
+
+            const fixedZombieInventory = await client.query(`
+                UPDATE inventory_batches
+                SET warehouse_id = (SELECT id FROM locations WHERE name = 'Bodega General' LIMIT 1)
+                WHERE warehouse_id IS NULL
+                RETURNING id;
+            `);
+            console.log(`   - Fixed Zombie Inventory: ${fixedZombieInventory.rowCount ?? 0}`);
+
+            const fixedHomelessUsers = await client.query(`
+                UPDATE users
+                SET assigned_location_id = (SELECT id FROM locations WHERE name = 'Sucursal Centro' LIMIT 1)
+                WHERE assigned_location_id IS NULL
+                RETURNING id;
+            `);
+            console.log(`   - Fixed Homeless Users: ${fixedHomelessUsers.rowCount ?? 0}`);
+        }
+        console.log(repairMode ? "   ✅ Integrity: [OK/CORREGIDO]" : "   ✅ Integrity: [READ-ONLY]");
 
 
         // 2. Rendimiento (Indices)
         console.log("\n⚡ Auditing Performance (Indexes)...");
 
-        const createIndex = async (tableName: string, indexName: string, columns: string) => {
+        const verifyIndex = async (tableName: string, indexName: string, columns: string) => {
             const check = await client.query(`SELECT 1 FROM pg_indexes WHERE indexname = $1`, [indexName]);
             if ((check.rowCount ?? 0) === 0) {
-                await client.query(`CREATE INDEX ${indexName} ON ${tableName} (${columns})`);
-                console.log(`   - Created Index: ${indexName}`);
+                if (repairMode) {
+                    await client.query(`CREATE INDEX ${indexName} ON ${tableName} (${columns})`);
+                    console.log(`   - Created Index: ${indexName}`);
+                } else {
+                    console.log(`   - Missing Index: ${indexName}`);
+                }
                 return true;
             }
             return false;
         };
 
-        await createIndex('sales', 'idx_sales_location_created', 'location_id, created_at');
-        await createIndex('sales', 'idx_sales_terminal', 'terminal_id');
-        await createIndex('cash_movements', 'idx_cash_movements_shift', 'shift_id');
-        await createIndex('cash_movements', 'idx_cash_movements_timestamp', 'timestamp');
+        await verifyIndex('sales', 'idx_sales_location_created', 'location_id, created_at');
+        await verifyIndex('sales', 'idx_sales_terminal', 'terminal_id');
+        await verifyIndex('cash_movements', 'idx_cash_movements_shift', 'shift_id');
+        await verifyIndex('cash_movements', 'idx_cash_movements_timestamp', 'timestamp');
 
-        console.log("   ✅ Rendimiento: [ÍNDICES CREADOS/OK]");
+        console.log(repairMode ? "   ✅ Rendimiento: [ÍNDICES CREADOS/OK]" : "   ✅ Rendimiento: [READ-ONLY]");
 
 
         // 3. Validación Financiera
@@ -97,8 +156,8 @@ async function auditSystem() {
             WHERE reason IN ('SERVICES', 'SALARY_ADVANCE')
             GROUP BY reason
         `);
-        expenses.rows.forEach((r: any) => {
-            console.log(`   - Expense (${r.reason}): ${r.count} records, $${parseInt(r.total).toLocaleString()}`);
+        expenses.rows.forEach((r: { reason: string; count: string | number; total: string | number | null }) => {
+            console.log(`   - Expense (${r.reason}): ${r.count} records, $${Number(r.total ?? 0).toLocaleString()}`);
         });
 
         console.log("   ✅ Finanzas: [COHERENTE]");
@@ -120,9 +179,13 @@ async function auditSystem() {
             console.log("   ❌ Cuenta DEV controlada: [FALTANTE]");
         }
 
-        await client.query('COMMIT');
+        if (repairMode) {
+            await client.query('COMMIT');
+        }
     } catch (e) {
-        await client.query('ROLLBACK');
+        if (repairMode) {
+            await client.query('ROLLBACK');
+        }
         console.error("❌ Audit Failed:", e);
     } finally {
         client.release();

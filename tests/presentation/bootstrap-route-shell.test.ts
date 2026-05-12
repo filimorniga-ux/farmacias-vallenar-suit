@@ -108,8 +108,14 @@ describe('bootstrapRouteShell', () => {
         expect(mocks.pharmaState.fetchTerminals).not.toHaveBeenCalled();
     });
 
-    it('prefetch terminals solo en rutas operativas', async () => {
+    it('prefetch terminals solo en rutas operativas canónicas de POS/WMS', async () => {
         await bootstrapRouteShell('/pos');
+
+        expect(mocks.pharmaState.fetchTerminals).toHaveBeenCalledWith('loc-1');
+    });
+
+    it('prefetch terminals también para /caja para que no compita con /pos', async () => {
+        await bootstrapRouteShell('/caja');
 
         expect(mocks.pharmaState.fetchTerminals).toHaveBeenCalledWith('loc-1');
     });

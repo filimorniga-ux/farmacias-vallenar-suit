@@ -1,5 +1,6 @@
 export const DEV_TEST_ACCOUNT = {
     name: '[DEV] Gerente General 1',
+    rut: '22.222.222-2',
     email: 'dev.gerente.general.1@local.invalid',
     role: 'GERENTE_GENERAL',
     jobTitle: 'DEV_TEST_ACCOUNT',
@@ -10,6 +11,7 @@ export const DEV_TEST_ACCOUNT = {
 
 export function printDevAccountSummary() {
     console.log(`   👤 Nombre: ${DEV_TEST_ACCOUNT.name}`);
+    console.log(`   🪪 RUT: ${DEV_TEST_ACCOUNT.rut}`);
     console.log(`   📧 Email: ${DEV_TEST_ACCOUNT.email}`);
     console.log(`   🛡 Rol: ${DEV_TEST_ACCOUNT.role}`);
     console.log(`   🏷 Marcador: ${DEV_TEST_ACCOUNT.jobTitle}`);

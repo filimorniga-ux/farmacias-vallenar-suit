@@ -123,25 +123,33 @@ export default function ProductMappingDialog({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto px-2 [padding-bottom:max(env(safe-area-inset-bottom),0.5rem)] [padding-top:max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:px-4">
             {/* Backdrop */}
             <div
+                aria-hidden="true"
                 className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                 onClick={onClose}
             />
 
             {/* Dialog */}
-            <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="product-mapping-dialog-title"
+                className="relative flex w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-2xl max-h-[calc(100dvh-1rem)]"
+            >
                 {/* Header */}
-                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-gray-900">
+                <div className="p-4 border-b border-gray-200 flex items-center justify-between gap-3">
+                    <h2 id="product-mapping-dialog-title" className="text-lg font-semibold text-gray-900 text-pretty">
                         {mode === 'create' ? 'Crear Nuevo Producto' : 'Vincular Producto'}
                     </h2>
                     <button
+                        type="button"
                         onClick={onClose}
-                        className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                        aria-label="Cerrar vínculo de producto"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
                     >
-                        <X size={20} />
+                        <X size={20} aria-hidden="true" />
                     </button>
                 </div>
 
@@ -163,17 +171,19 @@ export default function ProductMappingDialog({
                         {/* Search */}
                         <div className="p-4 border-b border-gray-200">
                             <div className="relative">
-                                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true" />
                                 <input
+                                    aria-label="Buscar producto por nombre o SKU"
+                                    name="product-mapping-search"
                                     type="text"
+                                    autoComplete="off"
                                     value={searchTerm}
                                     onChange={(e) => handleSearchChange(e.target.value)}
-                                    placeholder="Buscar producto por nombre o SKU..."
-                                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-                                    autoFocus
+                                    placeholder="Buscar producto por nombre o SKU…"
+                                    className="w-full min-h-11 pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-base focus:ring-2 focus:ring-purple-500 focus:border-purple-500 focus:outline-none sm:text-sm"
                                 />
                                 {isLoading && (
-                                    <Loader size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" />
+                                    <Loader size={18} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" aria-hidden="true" />
                                 )}
                             </div>
                         </div>
@@ -181,8 +191,8 @@ export default function ProductMappingDialog({
                         {/* Results */}
                         <div className="flex-1 overflow-y-auto p-4 min-h-[200px] max-h-[300px]">
                             {error ? (
-                                <div className="flex items-center gap-2 text-red-600 justify-center py-8">
-                                    <AlertCircle size={18} />
+                                <div className="flex items-center gap-2 text-red-600 justify-center py-8" aria-live="polite">
+                                    <AlertCircle size={18} aria-hidden="true" />
                                     {error}
                                 </div>
                             ) : results.length === 0 ? (
@@ -190,17 +200,18 @@ export default function ProductMappingDialog({
                                     {searchTerm.length < 2 ? (
                                         <p>Escriba al menos 2 caracteres para buscar</p>
                                     ) : isLoading ? (
-                                        <p>Buscando...</p>
+                                        <p>Buscando…</p>
                                     ) : (
                                         <>
-                                            <Package size={48} className="mx-auto mb-3 opacity-50" />
+                                            <Package size={48} className="mx-auto mb-3 opacity-50" aria-hidden="true" />
                                             <p>No se encontraron productos</p>
                                             <button
+                                                type="button"
                                                 onClick={() => setMode('create')}
-                                                className="mt-2 text-purple-600 hover:text-purple-700 inline-flex items-center gap-1 text-sm font-medium"
+                                                className="mt-2 inline-flex min-h-11 items-center justify-center gap-1 rounded-lg px-3 text-sm font-medium text-purple-600 hover:bg-purple-50 hover:text-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
                                             >
                                                 Crear nuevo producto
-                                                <ExternalLink size={14} />
+                                                <ExternalLink size={14} aria-hidden="true" />
                                             </button>
                                         </>
                                     )}
@@ -209,9 +220,10 @@ export default function ProductMappingDialog({
                                 <div className="space-y-2">
                                     {results.map((product) => (
                                         <button
+                                            type="button"
                                             key={product.productId}
                                             onClick={() => handleSelect(product)}
-                                            className={`w-full p-3 rounded-lg border text-left transition-all ${selectedProduct?.productId === product.productId
+                                            className={`w-full min-h-11 p-3 rounded-lg border text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 ${selectedProduct?.productId === product.productId
                                                     ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500'
                                                     : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                                                 }`}
@@ -231,7 +243,7 @@ export default function ProductMappingDialog({
                                                     </div>
                                                 </div>
                                                 {selectedProduct?.productId === product.productId && (
-                                                    <Check size={20} className="text-purple-600 flex-shrink-0 ml-2" />
+                                                    <Check size={20} className="text-purple-600 flex-shrink-0 ml-2" aria-hidden="true" />
                                                 )}
                                             </div>
                                         </button>
@@ -239,8 +251,9 @@ export default function ProductMappingDialog({
 
                                     <div className="pt-2 border-t border-gray-100 mt-2">
                                         <button
+                                            type="button"
                                             onClick={() => setMode('create')}
-                                            className="w-full py-2 text-center text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                            className="w-full min-h-11 py-2 text-center text-sm text-purple-600 hover:bg-purple-50 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
                                         >
                                             + Crear nuevo producto si no está en la lista
                                         </button>
@@ -250,25 +263,27 @@ export default function ProductMappingDialog({
                         </div>
 
                         {/* Footer */}
-                        <div className="p-4 border-t border-gray-200 flex items-center justify-between bg-gray-50">
+                        <div className="p-4 border-t border-gray-200 flex flex-col-reverse gap-3 bg-gray-50 sm:flex-row sm:items-center sm:justify-between">
                             <button
+                                type="button"
                                 onClick={handleSkip}
-                                className="px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                                className="min-h-11 px-4 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
                             >
                                 Omitir este item
                             </button>
                             <button
+                                type="button"
                                 onClick={handleConfirm}
                                 disabled={!selectedProduct}
-                                className="px-6 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                className="min-h-11 px-6 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
                             >
-                                <Check size={18} />
+                                <Check size={18} aria-hidden="true" />
                                 Confirmar Vinculación
                             </button>
                         </div>
                     </>
                 ) : (
-                    <div className="p-4">
+                    <div className="min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4">
                         <QuickProductCreate
                             defaultName={item?.description || ''}
                             // Fallback to unit_cost or total_cost/qty if unit_cost is 0 or missing

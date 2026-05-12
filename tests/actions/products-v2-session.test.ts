@@ -48,7 +48,7 @@ vi.mock('next/cache', () => ({
     revalidatePath: vi.fn(),
 }));
 
-import { getActorOrFail, validatePinForRoles } from '@/lib/pin-rbac';
+import { getActorOrFail, requireRole, validatePinForRoles } from '@/lib/pin-rbac';
 import {
     createProductSecure,
     deactivateProductSecure,
@@ -92,6 +92,32 @@ describe('Products V2 - server-side session', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('No autenticado');
+    });
+
+    it('rechaza crear producto con rol de bodega antes de abrir transacción', async () => {
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'warehouse-1',
+            role: 'WAREHOUSE',
+            locationId: 'loc-1',
+            userName: 'Bodega',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        const result = await createProductSecure({
+            sku: 'ABC123',
+            name: 'Producto Test',
+            price: 1000,
+            userId: '550e8400-e29b-41d4-a716-446655440000',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
+        expect(requireRole).toHaveBeenCalledWith(
+            expect.objectContaining({ role: 'WAREHOUSE' }),
+            ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'],
+        );
+        expect(mockClient.query).not.toHaveBeenCalled();
     });
 
     it('usa el userId de sesión para la auditoría y no el userId del payload', async () => {
@@ -172,6 +198,28 @@ describe('Products V2 - server-side session', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('No autenticado');
+    });
+
+    it('quickCreateProductSecure rechaza rol de bodega antes de insertar catálogo', async () => {
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'warehouse-1',
+            role: 'WAREHOUSE',
+            locationId: 'loc-1',
+            userName: 'Bodega',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        const result = await quickCreateProductSecure({
+            name: 'Producto Rápido',
+            sku: 'SKU123',
+            costPrice: 500,
+            salePrice: 1000,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
+        expect(mockClient.query).not.toHaveBeenCalled();
     });
 
     it('deactivateProductSecure usa el helper compartido de PIN admin', async () => {

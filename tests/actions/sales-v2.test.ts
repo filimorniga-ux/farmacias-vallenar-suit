@@ -133,6 +133,13 @@ const VALID_SALE_ID = '550e8400-e29b-41d4-a716-446655440004';
 const VALID_SALE_ITEM_ID = '550e8400-e29b-41d4-a716-446655440005';
 const VALID_USER_ID = 'user-123';
 
+const ACTIVE_SESSION_ROW = {
+    id: VALID_SESSION_ID,
+    user_id: VALID_USER_ID,
+    terminal_id: VALID_TERMINAL_ID,
+    location_id: VALID_LOCATION_ID,
+};
+
 // =====================================================
 // TESTS - createSaleSecure
 // =====================================================
@@ -234,7 +241,7 @@ describe('Sales V2 - createSaleSecure', () => {
         // Setup mocks for successful flow
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session check
             .mockResolvedValueOnce({ rows: [{ id: validSaleParams.items[0].batch_id, quantity_real: 100, sku: 'PARA-500' }] }) // Stock check
             .mockResolvedValueOnce({}) // Insert sale
             .mockResolvedValueOnce({}) // Insert item
@@ -261,10 +268,44 @@ describe('Sales V2 - createSaleSecure', () => {
         expect(result.error).toContain('sesión de caja activa');
     });
 
+    it('should reject sale creation when cash session belongs to another user', async () => {
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    ...ACTIVE_SESSION_ROW,
+                    user_id: 'another-user',
+                }],
+            });
+
+        const result = await createSaleSecure(validSaleParams);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('otro usuario');
+        expect(mockQuery).toHaveBeenCalledWith('ROLLBACK');
+    });
+
+    it('should reject sale creation when cash session location mismatches payload location', async () => {
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({
+                rows: [{
+                    ...ACTIVE_SESSION_ROW,
+                    location_id: '550e8400-e29b-41d4-a716-446655440099',
+                }],
+            });
+
+        const result = await createSaleSecure(validSaleParams);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ubicación seleccionada');
+        expect(mockQuery).toHaveBeenCalledWith('ROLLBACK');
+    });
+
     it('should allow sale with insufficient stock (negative inventory)', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session check
             .mockResolvedValueOnce({
                 rows: [{
                     id: validSaleParams.items[0].batch_id,
@@ -301,7 +342,12 @@ describe('Sales V2 - createSaleSecure', () => {
 
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
+            .mockResolvedValueOnce({
+                rows: [{
+                    ...ACTIVE_SESSION_ROW,
+                    user_id: 'session-user-999',
+                }],
+            }) // Session check
             .mockResolvedValueOnce({
                 rows: [{
                     id: validSaleParams.items[0].batch_id,
@@ -337,7 +383,7 @@ describe('Sales V2 - createSaleSecure', () => {
     it('should handle lock errors gracefully', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session check
             .mockRejectedValueOnce({ code: '55P03' }); // Lock not available
 
         const result = await createSaleSecure(validSaleParams);
@@ -349,7 +395,7 @@ describe('Sales V2 - createSaleSecure', () => {
     it('should handle serialization conflicts', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session check
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session check
             .mockRejectedValueOnce({ code: '40001' }); // Serialization failure
 
         const result = await createSaleSecure(validSaleParams);
@@ -1023,7 +1069,7 @@ describe('Sales V2 - Security Features', () => {
     it('should use FOR UPDATE NOWAIT for stock locking', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session
             .mockResolvedValueOnce({ rows: [] }); // Stock query
 
         await createSaleSecure({
@@ -1049,7 +1095,7 @@ describe('Sales V2 - Security Features', () => {
     it('should insert audit log for sales', async () => {
         mockQuery
             .mockResolvedValueOnce({}) // BEGIN
-            .mockResolvedValueOnce({ rows: [{ id: 'session-1' }] }) // Session
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session
             .mockResolvedValueOnce({
                 rows: [{
                     id: VALID_BATCH_ID,

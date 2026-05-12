@@ -25,6 +25,11 @@ import {
     ROLE_GROUPS,
     validatePinForRoles,
 } from '@/lib/pin-rbac';
+import {
+    ensureTerminalInPosScope,
+    requirePosActor,
+    resolveEffectivePosLocation,
+} from './pos-scope';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -986,6 +991,19 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
     error?: string;
 }> {
     try {
+        const auth = await requirePosActor(undefined, 'getTerminalsByLocationSecure');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const scoped = resolveEffectivePosLocation(auth.actor, locationId);
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         let sql = `
             SELECT 
                 t.id, t.name, t.location_id,
@@ -1021,9 +1039,9 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
         `;
         const params: (string | number | boolean | Date)[] = [];
 
-        if (locationId) {
+        if (scoped.locationId) {
             sql += ` AND t.location_id = $1`;
-            params.push(locationId);
+            params.push(scoped.locationId);
         }
 
         sql += ` ORDER BY l.name, t.name`;
@@ -1246,6 +1264,19 @@ export async function getActiveSession(terminalId: string): Promise<{
     }
 
     try {
+        const auth = await requirePosActor(undefined, 'getActiveSession');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const terminalScope = await ensureTerminalInPosScope(terminalId, auth.actor);
+        if (!terminalScope.success) {
+            return { success: false, error: terminalScope.error };
+        }
+
         const result = await query(`
             SELECT 
                 s.id as session_id,

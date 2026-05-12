@@ -152,6 +152,7 @@ import {
     fractionateBatchSecure,
     fractionateBatchSecureDetailed,
     clearLocationInventorySecure,
+    findBestBatchSecure,
     getInventorySecure,
     getWMSInventorySecure,
 } from '@/actions/inventory-v2';
@@ -954,6 +955,52 @@ describe('getInventorySecure', () => {
     });
 });
 
+describe('findBestBatchSecure', () => {
+    it('normaliza condicion_venta legacy del producto al contrato corto del batch', async () => {
+        mockDirectQuery.mockReset();
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{
+                id: VALID_BATCH_ID,
+                sku: 'SKU-RR',
+                name: 'Producto retenido',
+                condition: 'RECETA_RETENIDA',
+                price: 1500,
+                quantity: 7,
+                lot_number: 'LOT-RR',
+                expiry_date: null,
+            }],
+        });
+
+        const result = await findBestBatchSecure('SKU-RR', VALID_LOCATION_ID);
+
+        expect(result.success).toBe(true);
+        expect(result.batch?.condition).toBe('RR');
+        expect(String(mockDirectQuery.mock.calls[0]?.[0])).toContain("to_jsonb(p)->>'condicion_venta'");
+        expect(String(mockDirectQuery.mock.calls[0]?.[0])).not.toContain('p.condicion_venta');
+    });
+
+    it('degrada condiciones desconocidas a venta directa en read-side', async () => {
+        mockDirectQuery.mockReset();
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{
+                id: VALID_BATCH_ID,
+                sku: 'SKU-UNKNOWN',
+                name: 'Producto sin contrato',
+                condition: 'OTRA_CONDICION',
+                price: 1500,
+                quantity: 7,
+                lot_number: 'LOT-VD',
+                expiry_date: null,
+            }],
+        });
+
+        const result = await findBestBatchSecure('SKU-UNKNOWN', VALID_LOCATION_ID);
+
+        expect(result.success).toBe(true);
+        expect(result.batch?.condition).toBe('VD');
+    });
+});
+
 describe('getWMSInventorySecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -1011,8 +1058,21 @@ describe('getWMSInventorySecure', () => {
         expect(result.data[0].sku).toBe('WMS-001');
         expect(result.data[0].stock_actual).toBe(22);
         expect(result.data[0].location_id).toBe(VALID_LOCATION_ID);
+        expect(capturedSql).toContain("to_jsonb(p)->>'laboratory'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'barcode'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'stock_minimo_seguridad'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'cost_price'");
+        expect(capturedSql).toContain("to_jsonb(ib)->>'barcode'");
+        expect(capturedSql).toContain("to_jsonb(ib)->>'units_per_box'");
+        expect(capturedSql).not.toContain('p.laboratory');
+        expect(capturedSql).not.toContain('p.barcode');
+        expect(capturedSql).not.toContain('p.stock_minimo_seguridad');
+        expect(capturedSql).not.toContain('p.cost_net');
+        expect(capturedSql).not.toContain('p.price_sell_unit');
+        expect(capturedSql).not.toContain('ib.barcode');
         expect(capturedSql).toContain('ib.warehouse_id IN');
-        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id = $1::uuid');
+        expect(capturedSql).toContain('ib.location_id::text = $1::text');
+        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id::text = $1::text');
     });
 
     it('should include warehouse scope in getInventorySecure fallback query', async () => {
@@ -1027,8 +1087,22 @@ describe('getWMSInventorySecure', () => {
         const result = await getInventorySecure(VALID_LOCATION_ID, { pagination: false });
 
         expect(result.success).toBe(true);
+        expect(capturedSql).toContain("to_jsonb(p)->>'laboratory'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'stock_minimo_seguridad'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'cost_price'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'location_id'");
+        expect(capturedSql).toContain("to_jsonb(ib)->>'units_per_box'");
+        expect(capturedSql).not.toContain('p.laboratory');
+        expect(capturedSql).not.toContain('p.stock_minimo_seguridad');
+        expect(capturedSql).not.toContain('p.cost_net');
+        expect(capturedSql).not.toContain('p.price_sell_unit');
+        expect(capturedSql).not.toContain('p.location_id');
+        expect(capturedSql).not.toContain('p.is_active');
+        expect(capturedSql).toContain('LEFT JOIN products p ON ib.product_id::text = p.id::text');
         expect(capturedSql).toContain('ib.warehouse_id IN');
-        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id = $1::uuid');
+        expect(capturedSql).toContain('ib.location_id::text = $1::text');
+        expect(capturedSql).toContain("to_jsonb(p)->>'location_id' = $1::text");
+        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id::text = $1::text');
     });
 });
 

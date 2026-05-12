@@ -43,6 +43,14 @@ release/
 data_imports/
 coverage/
 .agent/tmp/
+tsconfig.tsbuildinfo
+
+# Artefactos locales de auditoría visual
+.playwright-mcp/
+e21-*.png
+e21-*.md
+e21-*-mobile-audit/
+e21-*-mobile-visual-audit/
 
 # Material criptográfico y certificados
 config/certs/

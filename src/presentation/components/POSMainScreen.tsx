@@ -42,6 +42,8 @@ import { buildPOSCatalog, filterInventoryForPOS, selectRetailLotCandidate, sortI
 // useSettingsStore moved to useCheckout hook
 import { applyPromotions } from '../../domain/logic/promotionEngine';
 import { useInventoryQuery } from '../hooks/useInventoryQuery';
+import { useTerminalSession } from '../../hooks/useTerminalSession';
+import { resolvePosBootstrapContext } from '../lib/pos-runtime-state';
 
 
 // NEW MODULAR IMPORTS
@@ -135,16 +137,35 @@ const POSMainScreen: React.FC = () => {
     const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
     const terminals = usePharmaStore((state) => state.terminals);
     const user = usePharmaStore((state) => state.user);
+    const { getSession, clearSession } = useTerminalSession();
+    const [storedSession, setStoredSession] = useState<ReturnType<typeof getSession> | null>(null);
+    const [storedLocationId, setStoredLocationId] = useState<string | null>(null);
+    const [contextLocationId, setContextLocationId] = useState<string | null>(null);
 
     const [mounted, setMounted] = useState(false);
     useEffect(() => {
         setMounted(true);
-    }, []);
+        if (typeof window !== 'undefined') {
+            setStoredSession(getSession());
+            setStoredLocationId(localStorage.getItem('current_location_id'));
+            setContextLocationId(localStorage.getItem('context_location_id'));
+        }
+    }, [getSession]);
+
+    const posBootstrap = resolvePosBootstrapContext({
+        currentTerminalId,
+        currentLocationId,
+        persistedSession: storedSession,
+        storedLocationId,
+        contextLocationId,
+    });
+    const effectiveTerminalId = posBootstrap.terminalId || undefined;
+    const effectiveLocationId = posBootstrap.locationId || undefined;
 
     const currentLocation = useLocationStore((state) => state.currentLocation);
     const activeTerminal = useMemo(
-        () => terminals.find(t => t.id === currentTerminalId),
-        [terminals, currentTerminalId]
+        () => terminals.find(t => t.id === effectiveTerminalId),
+        [effectiveTerminalId, terminals]
     );
     console.log('🔍 [POSMainScreen] Current Location (Store):', currentLocation?.id, 'Current Location (Pharma):', currentLocationId);
 
@@ -152,8 +173,8 @@ const POSMainScreen: React.FC = () => {
     const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
     const activeLocationId = isUUID(currentLocation?.id || '')
         ? (currentLocation?.id as string)
-        : isUUID(currentLocationId)
-            ? currentLocationId
+        : isUUID(effectiveLocationId || '')
+            ? (effectiveLocationId as string)
             : undefined;
 
     const { data: inventoryData, invalidateInventory } = useInventoryQuery(activeLocationId);
@@ -184,15 +205,21 @@ const POSMainScreen: React.FC = () => {
     }, [currentShift, currentTerminalId]);
 
     useEffect(() => {
+        if (!currentLocationId && effectiveLocationId) {
+            usePharmaStore.setState({ currentLocationId: effectiveLocationId });
+        }
+    }, [currentLocationId, effectiveLocationId]);
+
+    useEffect(() => {
         const checkActiveSession = async () => {
             try {
                 // Import actions dynamically
                 const { getCashDrawerStatus } = await import('../../actions/cash-management-v2');
 
                 // Guard: Need a terminal to check status
-                if (!currentTerminalId) return;
+                if (!effectiveTerminalId) return;
 
-                const status = await getCashDrawerStatus(currentTerminalId);
+                const status = await getCashDrawerStatus(effectiveTerminalId);
 
                 // Si la consulta falló (error de BD o timeout), NO deslogueamos. 
                 // Tolerancia a fallos de red.
@@ -218,12 +245,14 @@ const POSMainScreen: React.FC = () => {
                             return;
                         }
 
-                        console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.', {
-                            server: serverSessionId,
-                            local: currentShift.id,
-                            timeSinceOpen: `${Math.round(timeSinceOpen / 1000)}s`
-                        });
+                            console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.', {
+                                server: serverSessionId,
+                                local: currentShift.id,
+                                timeSinceOpen: `${Math.round(timeSinceOpen / 1000)}s`
+                            });
                         usePharmaStore.getState().logoutShift();
+                        clearSession();
+                        setStoredSession(null);
                         toast.error('Sesión local no válida', { description: 'Su sesión expiró o fue cerrada remotamente.' });
                     } else {
                         console.log('✅ [POS] Local session validated with server.');
@@ -247,7 +276,7 @@ const POSMainScreen: React.FC = () => {
                         console.log('🔄 [POS] Recovering active session for SAME user:', status.data.sessionId);
                         const recoveredShift: any = {
                             id: status.data.sessionId,
-                            terminal_id: currentTerminalId,
+                            terminal_id: effectiveTerminalId,
                             user_id: currentUser || '',
                             opening_amount: Number(status.data.openingAmount || 0),
                             start_time: status.data.openedAt ? new Date(status.data.openedAt).getTime() : Date.now(),
@@ -270,6 +299,9 @@ const POSMainScreen: React.FC = () => {
                             });
                         }
                     }
+                } else if (!currentShift && storedSession?.terminalId) {
+                    clearSession();
+                    setStoredSession(null);
                 }
             } catch (error) {
                 console.error('Failed to recover/check session', error);
@@ -277,7 +309,7 @@ const POSMainScreen: React.FC = () => {
         };
 
         checkActiveSession();
-    }, [currentTerminalId, currentShift?.id, user?.id]);
+    }, [clearSession, currentShift, effectiveTerminalId, storedSession?.terminalId, user?.id]);
 
     const metrics = getShiftMetrics();
     const [isEditBaseModalOpen, setIsEditBaseModalOpen] = useState(false);

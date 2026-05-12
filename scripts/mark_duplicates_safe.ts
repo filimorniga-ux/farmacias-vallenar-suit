@@ -3,10 +3,38 @@ import 'dotenv/config';
 import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import { assertScriptDbWriteTargetAllowed } from '../src/scripts/script-db-target-policy';
 
 const { Pool } = pg;
+const MARK_DUPLICATES_ALLOW_NON_LOCAL_ENV = 'MARK_DUPLICATES_ALLOW_NON_LOCAL';
+const MARK_DUPLICATES_CONFIRM_ENV = 'MARK_DUPLICATES_CONFIRM';
+const MARK_DUPLICATES_CONFIRMATION = 'RENAME_DUPLICATE_PRODUCTS';
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
+    console.error('❌ DATABASE_URL is required');
+    process.exit(1);
+}
+
+if (process.env[MARK_DUPLICATES_CONFIRM_ENV] !== MARK_DUPLICATES_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to rename duplicate products without explicit confirmation. ` +
+        `Set ${MARK_DUPLICATES_CONFIRM_ENV}=${MARK_DUPLICATES_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertScriptDbWriteTargetAllowed({
+    scriptName: 'mark_duplicates_safe',
+    connectionString: dbUrl,
+    allowNonLocalEnv: MARK_DUPLICATES_ALLOW_NON_LOCAL_ENV,
+});
+
+console.log('🎯 DB target:', redactConnectionString(dbUrl));
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: { rejectUnauthorized: false }
 });
 

@@ -7,6 +7,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { fileURLToPath } from 'url';
 import { DEV_TEST_ACCOUNT } from './dev-account-support';
+import { redactConnectionString } from './e2e-release-critical-db-policy';
 import { ensureMinimalRuntimeSchema } from './runtime-schema-contract';
 
 // Load environment variables from .env.local
@@ -15,9 +16,45 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 // DB Connection
-const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
+const connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.POSTGRES_URL || process.env.DATABASE_URL;
+const SEED_DEMO_NON_LOCAL_CONFIRMATION = 'APLICAR';
 
-console.log('🔌 Connecting to DB:', connectionString ? connectionString.replace(/:[^:@]+@/, ':****@') : 'URL MISSING');
+function isLocalConnectionString(value?: string) {
+    if (!value) {
+        return false;
+    }
+
+    try {
+        const parsed = new URL(value);
+        return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+    } catch {
+        return value.includes('localhost') || value.includes('127.0.0.1');
+    }
+}
+
+function assertSeedTargetIsAllowed(value?: string): asserts value is string {
+    if (!value) {
+        throw new Error('No hay POSTGRES_URL_NON_POOLING, POSTGRES_URL ni DATABASE_URL para seed:demo');
+    }
+
+    if (isLocalConnectionString(value)) {
+        return;
+    }
+
+    if (process.env.SEED_DEMO_ALLOW_NON_LOCAL === SEED_DEMO_NON_LOCAL_CONFIRMATION) {
+        console.warn('⚠️ seed:demo ejecutándose contra una DB no local por confirmación explícita.');
+        return;
+    }
+
+    throw new Error(
+        'seed:demo es destructivo y solo corre contra localhost por defecto. ' +
+        'Para un entorno no local, define SEED_DEMO_ALLOW_NON_LOCAL=APLICAR.'
+    );
+}
+
+assertSeedTargetIsAllowed(connectionString);
+
+console.log('🔌 Connecting to DB:', redactConnectionString(connectionString));
 
 const pool = new Pool({
     connectionString: connectionString,
@@ -98,19 +135,57 @@ async function main() {
                 health_system VARCHAR(100),
                 session_token TEXT,
                 token_version INT DEFAULT 1,
+                last_login_at TIMESTAMP,
+                last_login_ip VARCHAR(45),
                 last_active_at TIMESTAMP DEFAULT NOW(),
                 current_context_data JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )`,
-            `CREATE TABLE IF NOT EXISTS products(id UUID PRIMARY KEY, sku VARCHAR(50) UNIQUE, name VARCHAR(255), description TEXT, sale_price NUMERIC(15, 2), price NUMERIC(15, 2), cost_price NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, stock_actual INTEGER DEFAULT 0)`,
+            `CREATE TABLE IF NOT EXISTS products(id UUID PRIMARY KEY, sku VARCHAR(50) UNIQUE, name VARCHAR(255), description TEXT, sale_price NUMERIC(15, 2), price NUMERIC(15, 2), cost_price NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, stock_actual INTEGER DEFAULT 0, condicion_venta VARCHAR(10) DEFAULT 'VD')`,
             `CREATE TABLE IF NOT EXISTS inventory_batches(id UUID PRIMARY KEY, product_id UUID, sku VARCHAR(50), name VARCHAR(255), location_id UUID, warehouse_id UUID, quantity_real INTEGER DEFAULT 0, expiry_date TIMESTAMP, lot_number VARCHAR(100), cost_net NUMERIC(15, 2), price_sell_box NUMERIC(15, 2), stock_min INTEGER, stock_max INTEGER, unit_cost NUMERIC(15, 2), sale_price NUMERIC(15, 2), updated_at TIMESTAMP DEFAULT NOW(), source_system VARCHAR(50))`,
             `CREATE TABLE IF NOT EXISTS sales(id UUID PRIMARY KEY, location_id UUID, terminal_id UUID, user_id UUID, customer_rut VARCHAR(20), total_amount NUMERIC(15, 2), total NUMERIC(15, 2), payment_method VARCHAR(50), dte_folio INTEGER, dte_status VARCHAR(50), timestamp TIMESTAMP DEFAULT NOW())`,
             `CREATE TABLE IF NOT EXISTS sale_items(id UUID PRIMARY KEY, sale_id UUID, batch_id UUID, quantity INTEGER, unit_price NUMERIC(15, 2), total_price NUMERIC(15, 2))`,
             `CREATE TABLE IF NOT EXISTS cash_movements(id UUID PRIMARY KEY, location_id UUID, terminal_id UUID, user_id UUID, type VARCHAR(50), amount NUMERIC(15, 2), reason TEXT, timestamp TIMESTAMP DEFAULT NOW(), created_at TIMESTAMP DEFAULT NOW())`,
-            `CREATE TABLE IF NOT EXISTS customers(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), rut VARCHAR(20), name VARCHAR(255), email VARCHAR(255), phone VARCHAR(50), address TEXT, source VARCHAR(50), created_at TIMESTAMP DEFAULT NOW())`,
+            `CREATE TABLE IF NOT EXISTS customers(id UUID PRIMARY KEY DEFAULT gen_random_uuid(), rut VARCHAR(20), name VARCHAR(255), email VARCHAR(255), phone VARCHAR(50), address TEXT, source VARCHAR(50), status VARCHAR(20) DEFAULT 'ACTIVE', loyalty_points INTEGER DEFAULT 0, tags TEXT[] DEFAULT '{}'::text[], health_tags TEXT[] DEFAULT '{}'::text[], last_visit TIMESTAMP, created_at TIMESTAMP DEFAULT NOW())`,
             `CREATE TABLE IF NOT EXISTS invoice_parsings(id UUID PRIMARY KEY, status VARCHAR(50), original_file_name VARCHAR(255), parsed_items JSONB, mapped_items INTEGER, unmapped_items INTEGER, created_by UUID, invoice_number VARCHAR(50), document_type VARCHAR(50), original_file_type VARCHAR(50), created_at TIMESTAMP DEFAULT NOW())`,
-            `CREATE TABLE IF NOT EXISTS stock_movements(id UUID PRIMARY KEY, sku VARCHAR(50), product_name VARCHAR(255), location_id UUID, movement_type VARCHAR(50), quantity INTEGER, stock_before INTEGER, stock_after INTEGER, timestamp TIMESTAMP DEFAULT NOW(), user_id UUID, notes TEXT, batch_id UUID, reference_type VARCHAR(50), reference_id UUID)`
+            `CREATE TABLE IF NOT EXISTS stock_movements(id UUID PRIMARY KEY, sku VARCHAR(50), product_name VARCHAR(255), location_id UUID, movement_type VARCHAR(50), quantity INTEGER, stock_before INTEGER, stock_after INTEGER, timestamp TIMESTAMP DEFAULT NOW(), user_id UUID, notes TEXT, batch_id UUID, reference_type VARCHAR(50), reference_id UUID)`,
+            `CREATE TABLE IF NOT EXISTS audit_action_catalog (
+                code TEXT PRIMARY KEY,
+                action_code TEXT UNIQUE,
+                description TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'OPERATIONAL',
+                severity TEXT NOT NULL DEFAULT 'LOW',
+                requires_justification BOOLEAN NOT NULL DEFAULT false,
+                retention_days INTEGER NOT NULL DEFAULT 365,
+                is_active BOOLEAN NOT NULL DEFAULT true
+            )`,
+            `CREATE TABLE IF NOT EXISTS audit_log (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id TEXT,
+                user_name TEXT,
+                user_role TEXT,
+                session_id TEXT,
+                terminal_id TEXT,
+                location_id TEXT,
+                action_code TEXT,
+                entity_type TEXT,
+                entity_id TEXT,
+                old_values JSONB,
+                new_values JSONB,
+                metadata JSONB DEFAULT '{}'::jsonb,
+                justification TEXT,
+                authorized_by TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                request_id TEXT,
+                checksum TEXT,
+                previous_checksum TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                server_timestamp TIMESTAMPTZ DEFAULT NOW(),
+                client_timestamp TIMESTAMPTZ,
+                timestamp TIMESTAMPTZ DEFAULT NOW()
+            )`
         ];
 
         for (const stmt of ddlStatements) {
@@ -136,11 +211,61 @@ async function main() {
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS current_context_data JSONB DEFAULT '{}'::jsonb",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_price NUMERIC(15, 2)",
-            "ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(15, 2)"
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_price NUMERIC(15, 2)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS price_sell_box NUMERIC(15, 2)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS price_sell_unit NUMERIC(15, 2)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS cost_net NUMERIC(15, 2)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS tax_percent NUMERIC(5, 2) DEFAULT 19",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_minimo_seguridad INTEGER DEFAULT 0",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS stock_total INTEGER DEFAULT 0",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(100)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS dci TEXT",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS units_per_box INTEGER DEFAULT 1",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS format VARCHAR(50) DEFAULT 'CAJA'",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS laboratory VARCHAR(100)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS isp_register VARCHAR(50)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_bioequivalent BOOLEAN DEFAULT false",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS requires_prescription BOOLEAN DEFAULT false",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS es_frio BOOLEAN DEFAULT false",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS barcode VARCHAR(50)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS location_id UUID",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS comisionable BOOLEAN DEFAULT false",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS registration_source VARCHAR(50)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS is_express_entry BOOLEAN DEFAULT false",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS source_system VARCHAR(50)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMP",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS deactivated_by VARCHAR(255)",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS deactivation_reason TEXT",
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS condicion_venta VARCHAR(10) DEFAULT 'VD'",
+            "ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS barcode VARCHAR(50)",
+            "ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS stock_actual INTEGER DEFAULT 0",
+            "ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS units_per_box INTEGER DEFAULT 1",
+            "ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS laboratory VARCHAR(100)",
+            "ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+            "ALTER TABLE inventory_batches ADD COLUMN IF NOT EXISTS is_retail_lot BOOLEAN DEFAULT false",
+            "ALTER TABLE audit_action_catalog ADD COLUMN IF NOT EXISTS action_code TEXT UNIQUE",
+            "ALTER TABLE audit_action_catalog ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true",
+            "ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS server_timestamp TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS timestamp TIMESTAMPTZ DEFAULT NOW()",
+            "ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb"
         ];
         for (const stmt of alterStatements) {
             try { await client.query(stmt); } catch (e) { }
         }
+
+        await client.query(`
+            INSERT INTO audit_action_catalog(code, description, category, severity, requires_justification, retention_days, is_active)
+            VALUES
+                ('DATA_SYNC', 'Acceso a datos de sincronización durante rehearsal', 'OPERATIONAL', 'LOW', false, 365, true),
+                ('REPORT_ACCESS', 'Acceso a reportes durante rehearsal', 'OPERATIONAL', 'LOW', false, 365, true),
+                ('PAYROLL_ACCESS', 'Acceso a reporte de remuneraciones durante rehearsal', 'OPERATIONAL', 'MEDIUM', false, 365, true),
+                ('INVENTORY_DIAGNOSTIC', 'Consulta de diagnóstico de inventario durante rehearsal', 'OPERATIONAL', 'LOW', false, 365, true),
+                ('CI_HEALTHCHECK', 'Registro base para checks CI', 'OPERATIONAL', 'LOW', false, 365, true)
+            ON CONFLICT (code) DO NOTHING
+        `);
 
         await ensureMinimalRuntimeSchema(client);
 
@@ -148,6 +273,7 @@ async function main() {
         console.log('🧹 Cleaning Operational Data...');
         await client.query('BEGIN');
         const tablesToTruncate = [
+            'audit_log',
             'sale_items',
             'sales',
             'stock_movements',
@@ -159,7 +285,12 @@ async function main() {
             'customers',
             'notification_reads',
             'notifications',
+            'shipment_items',
+            'shipments',
+            'purchase_order_items',
             'purchase_orders',
+            'product_suppliers',
+            'suppliers',
             'app_settings',
             'system_configs',
             'cash_register_sessions',
@@ -256,7 +387,7 @@ async function main() {
             ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE', true, $9, $10, 2500000, $11, $12)
         `, [
             uuidv4(),
-            '22.222.222-2',
+            DEV_TEST_ACCOUNT.rut,
             DEV_TEST_ACCOUNT.name,
             DEV_TEST_ACCOUNT.email,
             DEV_TEST_ACCOUNT.role,
@@ -289,21 +420,21 @@ async function main() {
         console.log('📦 Stocking Warehouses (Legacy & 2025)...');
 
         // Fetch Products
-        let products = (await client.query("SELECT id, sku, name, cost_price, sale_price FROM products")).rows;
+        let products = (await client.query("SELECT id, sku, name, cost_price, sale_price, condicion_venta FROM products")).rows;
         if (products.length === 0) {
             console.warn("⚠️ No products found. Creating dummy products...");
             const dummyProducts = [
-                { sku: 'P1', name: 'Paracetamol 500mg', cost: 500, sale: 1500 },
-                { sku: 'P2', name: 'Ibuprofeno 400mg', cost: 800, sale: 2500 },
-                { sku: 'P3', name: 'Amoxicilina 500mg', cost: 2000, sale: 4500 },
-                { sku: 'P4', name: 'Losartan 50mg', cost: 1500, sale: 3500 },
-                { sku: 'P5', name: 'Atorvastatina 20mg', cost: 3000, sale: 7000 }
+                { sku: 'P1', name: 'Paracetamol 500mg', cost: 500, sale: 1500, condition: 'VD' },
+                { sku: 'P2', name: 'Ibuprofeno 400mg', cost: 800, sale: 2500, condition: 'VD' },
+                { sku: 'P3', name: 'Amoxicilina 500mg', cost: 2000, sale: 4500, condition: 'R' },
+                { sku: 'P4', name: 'Losartan 50mg', cost: 1500, sale: 3500, condition: 'RR' },
+                { sku: 'P5', name: 'Atorvastatina 20mg', cost: 3000, sale: 7000, condition: 'RCH' }
             ];
             for (const p of dummyProducts) {
                 const id = uuidv4();
-                await client.query(`INSERT INTO products(id, sku, name, category, cost_price, sale_price, stock_min, stock_max) VALUES($1, $2, $3, 'MEDICAMENTO', $4, $5, 10, 1000)`, [id, p.sku, p.name, p.cost, p.sale]);
+                await client.query(`INSERT INTO products(id, sku, name, category, cost_price, sale_price, stock_min, stock_max, condicion_venta) VALUES($1, $2, $3, 'MEDICAMENTO', $4, $5, 10, 1000, $6)`, [id, p.sku, p.name, p.cost, p.sale, p.condition]);
             }
-            products = (await client.query("SELECT id, sku, name, cost_price, sale_price FROM products")).rows;
+            products = (await client.query("SELECT id, sku, name, cost_price, sale_price, condicion_venta FROM products")).rows;
         }
 
         // Prepare Inventory Batches

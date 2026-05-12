@@ -6,6 +6,7 @@ const {
     mockClientQuery,
     mockRelease,
     mockGetActorOrFail,
+    mockVerifyKioskSessionToken,
     PinRbacError,
 } = vi.hoisted(() => {
     class MockPinRbacError extends Error {
@@ -24,6 +25,7 @@ const {
         mockClientQuery: vi.fn(),
         mockRelease: vi.fn(),
         mockGetActorOrFail: vi.fn(),
+        mockVerifyKioskSessionToken: vi.fn(),
         PinRbacError: MockPinRbacError,
     };
 });
@@ -53,6 +55,10 @@ vi.mock('@/lib/pin-rbac', () => ({
     getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
 }));
 
+vi.mock('@/lib/kiosk-session', () => ({
+    verifyKioskSessionToken: (...args: unknown[]) => mockVerifyKioskSessionToken(...args),
+}));
+
 import * as queueV2 from '@/actions/queue-v2';
 import { PinRbacError as ImportedPinRbacError } from '@/lib/pin-rbac';
 
@@ -77,6 +83,17 @@ describe('queue-v2 hardening', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         setActor();
+        mockVerifyKioskSessionToken.mockReturnValue({
+            valid: true,
+            payload: {
+                version: 1,
+                mode: 'QUEUE_DISPLAY',
+                locationId: BRANCH_ID,
+                authorizedBy: ACTOR_ID,
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + 60_000,
+            },
+        });
         mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
         mockClientQuery.mockResolvedValue({ rows: [], rowCount: 0 });
         mockPoolConnect.mockResolvedValue({
@@ -90,6 +107,7 @@ describe('queue-v2 hardening', () => {
             branchId: BRANCH_ID,
             rut: 'invalid-rut',
             type: 'GENERAL',
+            kioskToken: 'queue-kiosk-token',
         });
 
         expect(result.success).toBe(false);
@@ -129,6 +147,17 @@ describe('queue-v2 hardening', () => {
     });
 
     it('expone un payload público mínimo para display sin debug ni branch interna', async () => {
+        mockVerifyKioskSessionToken.mockReturnValueOnce({
+            valid: true,
+            payload: {
+                version: 1,
+                mode: 'QUEUE_DISPLAY',
+                locationId: BRANCH_ID,
+                authorizedBy: ACTOR_ID,
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + 60_000,
+            },
+        });
         mockQuery
             .mockResolvedValueOnce({
                 rows: [{
@@ -161,7 +190,10 @@ describe('queue-v2 hardening', () => {
                 rowCount: 1,
             });
 
-        const result = await queueV2.getQueueStatusSecure(BRANCH_ID, { publicDisplay: true });
+        const result = await queueV2.getQueueStatusSecure(BRANCH_ID, {
+            publicDisplay: true,
+            kioskToken: 'display-token',
+        });
 
         expect(result.success).toBe(true);
         expect(result.data?.debug_allRows).toBeUndefined();
@@ -172,6 +204,39 @@ describe('queue-v2 hardening', () => {
         });
         expect(result.data?.calledTickets?.[0]?.branch_id).toBeUndefined();
         expect(result.data?.calledTickets?.[0]?.called_by).toBeUndefined();
+    });
+
+    it('rechaza createTicketSecure sin token de totem ni actor autenticado', async () => {
+        mockGetActorOrFail.mockRejectedValue(
+            new ImportedPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida')
+        );
+        mockVerifyKioskSessionToken.mockReturnValueOnce({
+            valid: false,
+            error: 'Token de kiosko inválido',
+        });
+
+        const result = await queueV2.createTicketSecure({
+            branchId: BRANCH_ID,
+            rut: '12345678-5',
+            type: 'GENERAL',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('kiosko');
+    });
+
+    it('rechaza getQueueStatusSecure público sin token válido de display', async () => {
+        mockVerifyKioskSessionToken.mockReturnValueOnce({
+            valid: false,
+            error: 'Token de kiosko inválido',
+        });
+
+        const result = await queueV2.getQueueStatusSecure(BRANCH_ID, {
+            publicDisplay: true,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Token');
     });
 
     it('requiere rol manager o superior para resetear la cola', async () => {

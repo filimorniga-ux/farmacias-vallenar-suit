@@ -33,6 +33,10 @@ const ExportParamsSchema = z.object({
     endDate: DateSchema,
     locationId: z.string().optional().nullable().transform(val => (val === '' || val === 'ALL') ? undefined : val).optional(),
     movementType: z.string().optional().nullable().transform(val => (val === '' || val === 'ALL') ? undefined : val).optional(),
+    invoiceNumber: z.string().max(100).optional().nullable().transform(val => {
+        const trimmed = typeof val === 'string' ? val.trim() : '';
+        return trimmed || undefined;
+    }).optional(),
     limit: z.number().min(1).max(10000).default(5000),
 });
 
@@ -97,7 +101,7 @@ export async function exportStockMovementsSecure(
     const validated = ExportParamsSchema.safeParse(params);
     if (!validated.success) return { success: false, error: validated.error.issues[0]?.message };
 
-    const { startDate, endDate, limit } = validated.data;
+    const { startDate, endDate, invoiceNumber, limit } = validated.data;
     let locationId = params.locationId;
     if (!ADMIN_ROLES.includes(session.role) && session.locationId) {
         locationId = session.locationId;
@@ -115,6 +119,11 @@ export async function exportStockMovementsSecure(
         if (validated.data.movementType && validated.data.movementType !== 'ALL') {
             whereClause += ` AND sm.movement_type = $${sqlParams.length + 1}`;
             sqlParams.push(validated.data.movementType);
+        }
+
+        if (invoiceNumber) {
+            whereClause += ` AND COALESCE(sm.notes, '') ILIKE $${sqlParams.length + 1}`;
+            sqlParams.push(`%${invoiceNumber}%`);
         }
 
         // Asegurar que endDate incluya todo el día (hasta 23:59:59)

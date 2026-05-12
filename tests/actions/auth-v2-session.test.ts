@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
     mockCreateServerSession: vi.fn(),
     mockGetValidatedSession: vi.fn(),
     mockInvalidateCurrentSession: vi.fn(),
+    mockValidatePinForRoles: vi.fn(),
     mockValidatePinForUser: vi.fn(),
 }));
 
@@ -22,8 +23,10 @@ vi.mock('@/lib/server-session', () => ({
 vi.mock('@/lib/pin-rbac', () => ({
     ROLE_GROUPS: {
         MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+        OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
     },
-    validatePinForRoles: vi.fn(),
+    normalizeRole: (role: string | null | undefined) => String(role || '').trim().toUpperCase(),
+    validatePinForRoles: mocks.mockValidatePinForRoles,
     validatePinForUser: mocks.mockValidatePinForUser,
 }));
 
@@ -39,6 +42,11 @@ describe('Auth V2 - session issuance and logout', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.mockValidatePinForUser.mockResolvedValue({ valid: true });
+        mocks.mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: { id: 'manager-1', name: 'Gerente', role: 'MANAGER' },
+            matchedBy: 'hash',
+        });
         mocks.mockCreateServerSession.mockResolvedValue({
             sessionToken: 'session-token',
             tokenVersion: 7,
@@ -107,5 +115,63 @@ describe('Auth V2 - session issuance and logout', () => {
         await authV2.logoutCurrentSessionSecure();
 
         expect(mocks.mockInvalidateCurrentSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('validateSupervisorPin falla cerrado sin sesión activa', async () => {
+        const authV2 = await import('@/actions/auth-v2');
+        mocks.mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await authV2.validateSupervisorPin('1234');
+
+        expect(result).toEqual({
+            success: false,
+            error: 'Sesión no válida. Vuelve a iniciar sesión.',
+        });
+        expect(mocks.mockValidatePinForRoles).not.toHaveBeenCalled();
+    });
+
+    it('validateSupervisorPin usa rate limit y solo permite roles de override', async () => {
+        const authV2 = await import('@/actions/auth-v2');
+        mocks.mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'cashier-1',
+            userName: 'Caja',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        const result = await authV2.validateSupervisorPin('1234', ['MANAGER', 'CASHIER', 'QF']);
+
+        expect(result.success).toBe(true);
+        expect(mocks.mockValidatePinForRoles).toHaveBeenCalledWith(
+            expect.anything(),
+            '1234',
+            ['MANAGER', 'QF'],
+            {
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            }
+        );
+    });
+
+    it('validateSupervisorPin rechaza roles no autorizables antes de consultar PIN', async () => {
+        const authV2 = await import('@/actions/auth-v2');
+        mocks.mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'cashier-1',
+            userName: 'Caja',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        const result = await authV2.validateSupervisorPin('1234', ['CASHIER']);
+
+        expect(result).toEqual({
+            success: false,
+            error: 'Rol de autorización no permitido',
+        });
+        expect(mocks.mockValidatePinForRoles).not.toHaveBeenCalled();
     });
 });

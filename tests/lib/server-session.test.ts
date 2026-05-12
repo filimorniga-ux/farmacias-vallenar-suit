@@ -42,7 +42,7 @@ describe('server-session', () => {
         expect(query).not.toHaveBeenCalled();
     });
 
-    it('ignora user_role cookie y devuelve el rol validado desde DB', async () => {
+    it('ignora cookies de rol y ubicación cuando DB define la autoridad de sesión', async () => {
         setCookieValues({
             user_id: 'user-1',
             user_role: 'ADMIN',
@@ -73,10 +73,43 @@ describe('server-session', () => {
         expect(result).toEqual({
             userId: 'user-1',
             role: 'CASHIER',
-            locationId: 'loc-cookie',
+            locationId: 'loc-db',
             userName: 'Usuario DB',
             tokenVersion: 3,
             sessionToken: 'token-valido',
+        });
+    });
+
+    it('usa user_location cookie solo como fallback transicional si DB no tiene ubicación asignada', async () => {
+        setCookieValues({
+            user_id: 'user-1',
+            user_location: 'loc-cookie',
+            session_token: 'token-valido',
+            user_token_version: '3',
+        });
+
+        vi.mocked(query).mockResolvedValueOnce({
+            rows: [{
+                id: 'user-1',
+                name: 'Usuario DB',
+                role: 'GERENTE_GENERAL',
+                assigned_location_id: null,
+                token_version: 3,
+                session_token: 'token-valido',
+                is_active: true,
+            }],
+            rowCount: 1,
+            command: '',
+            oid: 0,
+            fields: [],
+        });
+
+        const result = await getValidatedSession();
+
+        expect(result).toMatchObject({
+            userId: 'user-1',
+            role: 'GERENTE_GENERAL',
+            locationId: 'loc-cookie',
         });
     });
 
@@ -210,7 +243,7 @@ describe('server-session', () => {
         expect(result).toEqual({
             userId: 'user-1',
             role: 'MANAGER',
-            locationId: 'loc-cookie',
+            locationId: 'loc-db',
             userName: 'Usuario DB',
             tokenVersion: 4,
             sessionToken: 'token-valido',

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useTransition } from 'react';
-import { Search, ScanBarcode, Loader2, ArrowRight, ArrowLeft, TrendingDown, Pill, FlaskConical, Scale, FileText, Stethoscope, BookOpen, ChevronRight, Scan } from 'lucide-react';
+import { Search, ScanBarcode, Loader2, ArrowRight, ArrowLeft, TrendingDown, Pill, FlaskConical, Scale, FileText, Stethoscope, BookOpen, ChevronRight, Scan, X } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
 import { CameraScanner } from '../ui/CameraScanner';
 import { searchProductsAction } from '@/actions/public/search-products';
@@ -385,10 +385,12 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                 <div className="flex items-center gap-4">
                     {mode !== 'LANDING' ? (
                         <button
+                            type="button"
+                            aria-label="Volver al inicio del consultor"
                             onClick={handleBack}
-                            className="bg-slate-100 p-3 rounded-full hover:bg-slate-200 text-slate-600 transition-colors"
+                            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full bg-slate-100 p-3 text-slate-600 transition-colors hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
                         >
-                            <ArrowLeft size={28} />
+                            <ArrowLeft size={28} aria-hidden="true" />
                         </button>
                     ) : (
                         <div className="bg-gradient-to-br from-cyan-500 to-blue-600 p-3 rounded-xl text-white shadow-lg shadow-cyan-200/50">
@@ -408,10 +410,13 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
                 <div className="flex gap-3">
                     <button
+                        type="button"
+                        aria-label="Salir del consultor de precios"
                         onClick={onClose}
-                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 transition-colors font-bold text-sm tracking-wide"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-xl bg-red-50 px-4 py-2.5 text-sm font-bold tracking-wide text-red-600 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 md:px-5"
                     >
                         <span className="hidden md:inline">SALIR</span>
+                        <X size={20} aria-hidden="true" className="md:hidden" />
                     </button>
                 </div>
             </div>
@@ -432,6 +437,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-6xl">
                             {/* OPTION 1: PRODUCT SEARCH */}
                             <button
+                                type="button"
                                 onClick={() => setMode('SEARCH_PRODUCT')}
                                 className="group relative bg-white border-2 border-slate-100 hover:border-blue-400 p-8 rounded-3xl shadow-sm hover:shadow-2xl hover:shadow-blue-100 transition-all text-left flex flex-col gap-6 active:scale-95"
                             >
@@ -449,6 +455,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
                             {/* OPTION 2: ACTIVE INGREDIENT */}
                             <button
+                                type="button"
                                 onClick={() => setMode('SEARCH_ACTIVE')}
                                 className="group relative bg-white border-2 border-slate-100 hover:border-emerald-400 p-8 rounded-3xl shadow-sm hover:shadow-2xl hover:shadow-emerald-100 transition-all text-left flex flex-col gap-6 active:scale-95"
                             >
@@ -466,6 +473,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
 
                             {/* OPTION 3: BIOEQUIVALENTS */}
                             <button
+                                type="button"
                                 onClick={() => setMode('SEARCH_BIO')}
                                 className="group relative bg-[#FFED00] border-2 border-yellow-400 hover:border-red-500 p-0 rounded-3xl shadow-sm hover:shadow-xl hover:shadow-yellow-100 transition-all text-left overflow-hidden active:scale-95 h-full min-h-[300px]"
                             >
@@ -491,6 +499,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                         {/* LEGAL BUTTON */}
                         <div className="mt-16">
                             <button
+                                type="button"
                                 onClick={() => setIsLegalModalOpen(true)}
                                 className="flex items-center gap-3 px-8 py-4 bg-slate-200 text-slate-600 rounded-full font-bold hover:bg-slate-300 hover:text-slate-800 transition-colors"
                             >
@@ -533,28 +542,33 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                     <div className="flex items-center gap-2 pr-2 md:pr-4">
                                         {query && (
                                             <button
+                                                type="button"
+                                                aria-label="Limpiar búsqueda"
                                                 onClick={() => {
                                                     setQuery('');
                                                     setActiveLetter(null);
                                                     if (inputRef.current) inputRef.current.focus();
                                                 }}
-                                                className="p-2 rounded-full hover:bg-slate-100 text-slate-300 hover:text-red-500"
+                                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full p-2 text-slate-300 hover:bg-slate-100 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
                                             >
-                                                <span className="text-xl font-bold">✕</span>
+                                                <span className="text-xl font-bold" aria-hidden="true">✕</span>
                                             </button>
                                         )}
 
                                         {/* Mobile Scanner Button */}
                                         {(isMobile || isNative) && mode === 'SEARCH_PRODUCT' && (
                                             <button
+                                                type="button"
+                                                aria-label="Escanear código de barras"
                                                 onClick={() => setShowScanner(true)}
-                                                className="p-3 bg-blue-100 text-blue-600 rounded-xl hover:bg-blue-200 transition-colors"
+                                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-blue-100 p-3 text-blue-600 transition-colors hover:bg-blue-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                                             >
-                                                <Scan size={24} />
+                                                <Scan size={24} aria-hidden="true" />
                                             </button>
                                         )}
 
                                         <button
+                                            type="button"
                                             onClick={() => setShowKeyboard(!showKeyboard)}
                                             className={`hidden md:block p-2 rounded-xl border-2 font-bold text-xs transition-all ${showKeyboard ? 'bg-slate-800 text-white border-slate-800' : 'bg-slate-50 text-slate-500 border-slate-200 hover:border-slate-300'}`}
                                         >
@@ -645,11 +659,11 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                                     </tbody>
                                                 </table>
                                             </div>
-                                            ```
                                             {/* LOAD MORE BUTTON */}
                                             {hasMore && (
                                                 <div className="p-4 bg-slate-50 border-t border-slate-200 text-center">
                                                     <button
+                                                        type="button"
                                                         onClick={handleLoadMore}
                                                         className="w-full bg-slate-100 border-2 border-slate-200 rounded-2xl py-6 pl-16 pr-6 text-2xl font-bold focus:border-cyan-500 focus:bg-white transition-all outline-none text-base hover:border-cyan-300 flex items-center gap-2 mx-auto shadow-sm"
                                                     >
@@ -666,6 +680,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                                             {bioResults.map((ingredient: any, idx) => (
                                                 <button
+                                                    type="button"
                                                     key={idx}
                                                     onClick={() => handleActiveIngredientSelect(ingredient)}
                                                     className="bg-white p-6 rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-50 text-left transition-all group"
@@ -685,6 +700,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                             {hasMore && (
                                                 <div className="col-span-full text-center py-4">
                                                     <button
+                                                        type="button"
                                                         onClick={handleLoadMore}
                                                         className="px-6 py-3 bg-slate-100 rounded-full text-slate-600 font-bold hover:bg-slate-200 transition-colors"
                                                     >
@@ -733,6 +749,7 @@ export default function PriceCheckerModal({ isOpen, onClose }: PriceCheckerModal
                                     {mode === 'SEARCH_PRODUCT' && hasMore && productResults.length > 0 && (
                                         <div className="text-center py-4">
                                             <button
+                                                type="button"
                                                 onClick={handleLoadMore}
                                                 className="px-6 py-3 bg-slate-100 rounded-full text-slate-600 font-bold hover:bg-slate-200 transition-colors"
                                             >

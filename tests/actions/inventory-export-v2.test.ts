@@ -151,6 +151,46 @@ describe('Inventory Export V2', () => {
         expect(stockSql).toContain('batch_lot_number');
     });
 
+    it('should apply invoice number filter to stock movement export', async () => {
+        const mockedQuery = vi.mocked(dbModule.query);
+
+        mockedQuery.mockImplementation(((sql: string) => {
+            if (sql.includes('information_schema.columns')) {
+                return Promise.resolve({
+                    rows: [{ exists: true }],
+                    rowCount: 1
+                });
+            }
+
+            if (sql.includes('FROM stock_movements sm')) {
+                return Promise.resolve({
+                    rows: [],
+                    rowCount: 0
+                });
+            }
+
+            return Promise.resolve({ rows: [], rowCount: 0 });
+        }) as any);
+
+        const result = await actionModule.exportStockMovementsSecure({
+            startDate: '2026-02-13',
+            endDate: '2026-02-20',
+            movementType: 'PURCHASE_ENTRY',
+            locationId: VALID_LOCATION_ID,
+            invoiceNumber: 'FAC-123',
+            limit: 1000
+        });
+
+        expect(result.success).toBe(true);
+
+        const stockQueryCall = mockedQuery.mock.calls.find(([sql]) =>
+            typeof sql === 'string' && sql.includes('FROM stock_movements sm')
+        );
+        expect(stockQueryCall).toBeDefined();
+        expect(String(stockQueryCall?.[0] || '')).toContain("COALESCE(sm.notes, '') ILIKE");
+        expect(stockQueryCall?.[1]).toContain('%FAC-123%');
+    });
+
     it('should return backend error details when both detailed and fallback queries fail', async () => {
         const mockedQuery = vi.mocked(dbModule.query);
 

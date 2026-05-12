@@ -45,6 +45,14 @@ function buildPostRequest(formData: FormData) {
     }) as unknown as NextRequest;
 }
 
+function buildPostRequestWithHeaders(body: BodyInit, headers: Record<string, string>) {
+    return new Request('http://localhost/api/sii/certificate', {
+        method: 'POST',
+        body,
+        headers,
+    }) as unknown as NextRequest;
+}
+
 describe('SII certificate route', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -108,8 +116,68 @@ describe('SII certificate route', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(400);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(false);
         expect(payload.error).toBe('El certificado debe ser .pfx o .p12');
+    });
+
+    it('rechaza multipart declarado demasiado grande antes de parsear formData', async () => {
+        mocks.requireApiRolesMock.mockResolvedValueOnce({
+            ok: true,
+            session: {
+                userId: 'admin-1',
+                role: 'ADMIN',
+                locationId: 'loc-1',
+                userName: 'Admin',
+            },
+        });
+
+        const response = await POST(buildPostRequestWithHeaders('too-large', {
+            'content-length': String((6 * 1024 * 1024) + 1),
+            'content-type': 'multipart/form-data; boundary=test',
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(413);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+        expect(payload).toMatchObject({
+            success: false,
+            code: 'SII_CERTIFICATE_UPLOAD_TOO_LARGE',
+        });
+        expect(mocks.saveSiiConfigurationMock).not.toHaveBeenCalled();
+    });
+
+    it('permite continuar al validador de certificado cuando el upload declarado cabe en el límite', async () => {
+        mocks.requireApiRolesMock.mockResolvedValueOnce({
+            ok: true,
+            session: {
+                userId: 'admin-1',
+                role: 'ADMIN',
+                locationId: 'loc-1',
+                userName: 'Admin',
+            },
+        });
+        mocks.saveSiiConfigurationMock.mockResolvedValueOnce(SAFE_SUMMARY);
+
+        const certificateFile = new File([Uint8Array.from([1, 2, 3])], 'certificado.pfx', {
+            type: 'application/x-pkcs12',
+        });
+
+        const formData = new FormData();
+        formData.set('certificate', certificateFile);
+        formData.set('certificatePassword', 'clave-secreta');
+        formData.set('rut_emisor', SAFE_SUMMARY.rut_emisor);
+        formData.set('razon_social', SAFE_SUMMARY.razon_social);
+        formData.set('giro', SAFE_SUMMARY.giro);
+        formData.set('acteco', String(SAFE_SUMMARY.acteco));
+        formData.set('ambiente', SAFE_SUMMARY.ambiente);
+
+        const response = await POST(buildPostRequestWithHeaders(formData, {
+            'content-length': String(1024),
+        }));
+
+        expect(response.status).toBe(200);
+        expect(mocks.saveSiiConfigurationMock).toHaveBeenCalledTimes(1);
     });
 
     it('acepta upload válido y devuelve sólo metadatos seguros', async () => {
@@ -141,6 +209,7 @@ describe('SII certificate route', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(true);
         expect(payload.data).toEqual(SAFE_SUMMARY);
         expect(payload.data).not.toHaveProperty('certificatePfxBase64');
@@ -181,6 +250,7 @@ describe('SII certificate route', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(true);
         expect(payload.data).toEqual(SAFE_SUMMARY);
         expect(mocks.requireApiRolesMock).toHaveBeenCalledWith(['ADMIN', 'GERENTE_GENERAL']);

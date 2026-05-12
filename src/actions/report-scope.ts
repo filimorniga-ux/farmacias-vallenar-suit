@@ -9,6 +9,7 @@ import {
 } from './scoped-location';
 
 export const REPORT_GLOBAL_ROLES = ['ADMIN', 'GERENTE_GENERAL'] as const;
+export const REPORTS_PAGE_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF', 'CASHIER', 'CONTADOR', 'WAREHOUSE', 'RRHH'] as const;
 export const PRODUCT_REPORT_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'] as const;
 export const RECEIPT_REPORT_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
 export const ATTENDANCE_FULL_REPORT_ROLES = ['MANAGER', 'RRHH', 'ADMIN', 'GERENTE_GENERAL'] as const;

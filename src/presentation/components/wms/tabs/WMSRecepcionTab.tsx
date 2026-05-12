@@ -4,7 +4,7 @@
  * Flujo: Listar envíos pendientes → Seleccionar → Escanear/Verificar productos → Confirmar recepción
  * Soporta escaneo continuo con cámara o lector USB/BT.
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import {
     Truck, Package, CheckCircle, AlertTriangle, Clock, ChevronRight,
@@ -17,11 +17,17 @@ import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { getShipmentsSecure, processReceptionSecure } from '@/actions/wms-v2';
 import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { validateSupervisorPin } from '@/actions/auth-v2';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
 import { InventoryBatch } from '@/domain/types';
+import {
+    compareWmsPendingPriority,
+    getWmsPendingPriority,
+    type WmsPendingPriority,
+} from '@/presentation/lib/wms-pending-priority';
 
 const CameraScanner = dynamic(
     () => import('../../ui/CameraScanner'),
@@ -66,6 +72,7 @@ interface PendingShipment {
     }>;
     created_at: number;
     notes?: string;
+    priority?: WmsPendingPriority;
 }
 
 interface ReceivedItem {
@@ -93,15 +100,31 @@ interface ReportFilters {
     movementType?: string;
 }
 
+const PRIORITY_META: Record<WmsPendingPriority['level'], { label: string; badge: string }> = {
+    high: { label: 'Prioridad alta', badge: 'bg-rose-50 text-rose-700 border-rose-200' },
+    medium: { label: 'Prioridad media', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+    low: { label: 'Prioridad baja', badge: 'bg-slate-50 text-slate-600 border-slate-200' },
+};
+
 export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     inventory = [],
     preselectedShipmentId,
     onPreselectionHandled
 }) => {
     const queryClient = useQueryClient();
-    const { currentLocationId } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const user = usePharmaStore((state) => state.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
-    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
+    const locationStoreLocations = useLocationStore(s => s.locations);
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
+    const effectiveLocationId = wmsContext.locationId;
 
     // State
     const [pendingShipments, setPendingShipments] = useState<PendingShipment[]>([]);
@@ -471,6 +494,22 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
             hour: '2-digit', minute: '2-digit',
         });
     };
+
+    const prioritizedPendingShipments = useMemo(() => {
+        return pendingShipments
+            .map((shipment) => ({
+                ...shipment,
+                priority: getWmsPendingPriority({
+                    id: shipment.id,
+                    createdAt: shipment.created_at,
+                    direction: shipment.direction || 'INCOMING',
+                    status: shipment.status,
+                    itemCount: shipment.items.length,
+                    totalQuantity: shipment.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+                }),
+            }))
+            .sort(compareWmsPendingPriority);
+    }, [pendingShipments]);
 
     // Vista: Detalle de recepción
     if (selectedShipment) {
@@ -924,9 +963,10 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {pendingShipments.map((shipment) => (
+                    {prioritizedPendingShipments.map((shipment) => (
                         <button
                             key={shipment.id}
+                            data-testid="wms-reception-pending-row"
                             onClick={() => handleSelectShipment(shipment)}
                             className="w-full text-left bg-white border border-slate-200 rounded-2xl p-4
                                      hover:border-sky-300 hover:shadow-md hover:shadow-sky-100/50
@@ -957,6 +997,14 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                                         {shipment.carrier && (
                                             <><span>•</span><span>{shipment.carrier}</span></>
                                         )}
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                                        <span className={`rounded-full border px-2.5 py-1 font-semibold ${PRIORITY_META[shipment.priority.level].badge}`}>
+                                            {PRIORITY_META[shipment.priority.level].label}
+                                        </span>
+                                        <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 font-semibold text-sky-700">
+                                            {shipment.priority.reasonLabel}: {shipment.priority.evidenceLabel}
+                                        </span>
                                     </div>
                                 </div>
                                 <div className="shrink-0 flex items-center gap-2">

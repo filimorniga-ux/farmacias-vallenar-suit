@@ -43,7 +43,7 @@ describe('GET /api/db-test', () => {
         expect(payload.code).toBe('AUTH_UNAUTHORIZED');
     });
 
-    it('rechaza roles sin permisos operativos', async () => {
+    it('rechaza roles sin permisos administrativos', async () => {
         vi.mocked(getValidatedSession).mockResolvedValueOnce({
             userId: 'cashier-1',
             role: 'CASHIER',
@@ -58,6 +58,24 @@ describe('GET /api/db-test', () => {
 
         expect(response.status).toBe(403);
         expect(payload.code).toBe('AUTH_FORBIDDEN');
+    });
+
+    it('rechaza MANAGER porque el diagnóstico DB es administrativo', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Gerente',
+            tokenVersion: 2,
+            sessionToken: 'token',
+        });
+
+        const response = await GET();
+        const payload = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(payload.code).toBe('AUTH_FORBIDDEN');
+        expect(mockPool.query).not.toHaveBeenCalled();
     });
 
     it('permite acceso a roles autorizados sin exponer detalles internos de DB', async () => {
@@ -89,6 +107,7 @@ describe('GET /api/db-test', () => {
         expect(payload.env).toBeUndefined();
         expect(payload.connection).toBeUndefined();
         expect(payload.diagnostics.elapsed_ms).toBeTypeOf('number');
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(mockPool.query).toHaveBeenCalledTimes(1);
     });
 
@@ -111,5 +130,6 @@ describe('GET /api/db-test', () => {
         expect(payload.error).toBe('No fue posible ejecutar el diagnóstico de base de datos');
         expect(payload.code).toBeUndefined();
         expect(payload.env).toBeUndefined();
+        expect(response.headers.get('cache-control')).toContain('no-store');
     });
 });

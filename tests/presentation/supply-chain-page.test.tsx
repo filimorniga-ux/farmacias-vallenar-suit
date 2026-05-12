@@ -22,15 +22,21 @@ const mocks = vi.hoisted(() => {
         viewportWidth: 1400,
     };
     const bootstrapSupplyProcurementMock = vi.fn();
+    const manualOrderModalPropsMock = vi.fn();
 
     const pharmaState = {
         generateSuggestedPOs: generateSuggestedPOsMock,
         currentLocationId: 'loc-1',
+        currentWarehouseId: 'wh-1',
         user: { id: '1719073d-9da1-40d7-9dce-28ac3a415a6b' },
     };
 
     const locationState = {
-        locations: [{ id: 'loc-1', name: 'Farmacia Test', default_warehouse_id: null }],
+        currentLocation: { id: 'loc-1', name: 'Farmacia Test', default_warehouse_id: 'wh-1' },
+        locations: [
+            { id: 'loc-1', name: 'Farmacia Test', default_warehouse_id: 'wh-1' },
+            { id: 'loc-2', name: 'Farmacia Norte', default_warehouse_id: 'wh-2' },
+        ],
     };
 
     const usePharmaStoreMock = Object.assign(
@@ -51,6 +57,7 @@ const mocks = vi.hoisted(() => {
         locationState,
         platformState,
         bootstrapSupplyProcurementMock,
+        manualOrderModalPropsMock,
     };
 });
 
@@ -89,7 +96,10 @@ vi.mock('@/presentation/components/scm/PurchaseOrderReceivingModal', () => ({
 
 vi.mock('@/presentation/components/supply/ManualOrderModal', () => ({
     __esModule: true,
-    default: () => null,
+    default: (props: unknown) => {
+        mocks.manualOrderModalPropsMock(props);
+        return null;
+    },
 }));
 
 vi.mock('@/presentation/components/supply/SupplyKanban', () => ({
@@ -159,6 +169,7 @@ describe('SupplyChainPage - edición de sugerido', () => {
             success: true,
             data: [
                 {
+                    product_id: 'prod-1',
                     sku: 'SKU-001',
                     product_name: 'Producto Test',
                     supplier_name: 'Proveedor Test',
@@ -176,7 +187,7 @@ describe('SupplyChainPage - edición de sugerido', () => {
                     selected_analysis_window: 30,
                     selected_coverage_days: 15,
                     stock_level_percent: 0,
-                    urgency: 'LOW',
+                    urgency: 'MEDIUM',
                     velocities: { 30: 1 },
                     sold_counts: { 30: 30 },
                     action_type: 'PURCHASE',
@@ -215,6 +226,8 @@ describe('SupplyChainPage - edición de sugerido', () => {
 
         expect(screen.getByTestId('mobile-filters-toggle')).toBeTruthy();
         expect(screen.getByLabelText('Cambiar vista de abastecimiento')).toBeTruthy();
+        expect(screen.getByRole('button', { name: /abrir scanner de abastecimiento/i }).className).toContain('h-11');
+        expect(screen.getByTestId('analyze-stock-btn').className).toContain('min-h-11');
 
         fireEvent.click(screen.getByTestId('analyze-stock-btn'));
 
@@ -234,5 +247,28 @@ describe('SupplyChainPage - edición de sugerido', () => {
         fireEvent.click(screen.getByRole('button', { name: /abrir scanner de abastecimiento/i }));
 
         expect(await screen.findByTestId('camera-scanner')).not.toBeNull();
+    });
+
+    it('preload de orden respeta el contexto efectivo de ubicación y bodega', async () => {
+        renderPage();
+
+        fireEvent.click(screen.getByTestId('analyze-stock-btn'));
+
+        await waitFor(() => {
+            expect(mockGenerateRestockSuggestionSecure).toHaveBeenCalledTimes(1);
+        });
+
+        fireEvent.click(screen.getByRole('button', { name: /Generar \(1\)/i }));
+
+        await waitFor(() => {
+            expect(mocks.manualOrderModalPropsMock).toHaveBeenCalled();
+        });
+
+        const lastCall = mocks.manualOrderModalPropsMock.mock.calls.at(-1)?.[0] as {
+            initialOrder?: { destination_location_id?: string; target_warehouse_id?: string };
+        };
+
+        expect(lastCall.initialOrder?.destination_location_id).toBe('loc-1');
+        expect(lastCall.initialOrder?.target_warehouse_id).toBe('wh-1');
     });
 });

@@ -32,7 +32,7 @@ test.describe('Reports - Release Critical', () => {
         await productSalesButton.click();
         await page.waitForLoadState('networkidle').catch(() => undefined);
 
-        await expect(page).toHaveURL(/\/reports\/sales-by-product$/);
+        await expect(page).toHaveURL(/\/reports\/sales-by-product(?:\?|$)/);
         await expect(page.getByTestId('product-sales-report-page')).toBeVisible();
     });
 

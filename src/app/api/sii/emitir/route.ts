@@ -18,6 +18,8 @@ import { buildDteXML, calculateIVA, calculateNetoFromTotal, DteData, DteItem } f
 import { signXML } from '@/domain/logic/sii/crypto';
 import { getSiiEmissionConfig } from '@/lib/sii-config';
 import { requireApiRoles } from '@/lib/api-auth';
+import { logger } from '@/lib/logger';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 // In production, import DB client:
 // import { db } from '@/domain/db/client';
 
@@ -39,7 +41,17 @@ interface EmitirRequest {
 }
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 const SII_EMIT_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'] as const;
+const MAX_SII_EMIT_BODY_BYTES = 256 * 1024;
+
+function getDeclaredContentLength(request: NextRequest) {
+    const raw = request.headers.get('content-length');
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
 const EmitirRequestSchema = z.object({
     tipo: z.union([z.literal(33), z.literal(39)]),
@@ -65,6 +77,15 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        const declaredContentLength = getDeclaredContentLength(request);
+        if (declaredContentLength !== null && declaredContentLength > MAX_SII_EMIT_BODY_BYTES) {
+            return NextResponse.json({
+                success: false,
+                error: 'PAYLOAD_TOO_LARGE',
+                message: 'El payload de emisión supera el límite permitido',
+            }, { status: 413, headers: API_NO_STORE_HEADERS });
+        }
+
         const bodyResult = await request.json().catch(() => null);
         const parsedBody = EmitirRequestSchema.safeParse(bodyResult);
         if (!parsedBody.success) {
@@ -72,7 +93,7 @@ export async function POST(request: NextRequest) {
                 success: false,
                 error: 'INVALID_PAYLOAD',
                 message: parsedBody.error.issues[0]?.message || 'Payload inválido',
-            }, { status: 400 });
+            }, { status: 400, headers: API_NO_STORE_HEADERS });
         }
 
         const body: EmitirRequest = parsedBody.data;
@@ -101,7 +122,7 @@ export async function POST(request: NextRequest) {
                 success: false,
                 error: 'NO_FOLIOS',
                 message: '⛔ No hay folios disponibles. Contacte a Gerencia.'
-            }, { status: 400 });
+            }, { status: 400, headers: API_NO_STORE_HEADERS });
         }
 
         // STEP 3: Build DTE
@@ -155,24 +176,24 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: false,
                 error: 'SIGNATURE_ERROR',
-                message: signResult.error
-            }, { status: 500 });
+                message: 'No se pudo firmar el DTE'
+            }, { status: 500, headers: API_NO_STORE_HEADERS });
         }
 
         // STEP 5: Send to SII (MOCK)
         // In production: const siiResponse = await sendToSII(signResult.signedXml, siiConfig.ambiente);
         const mockTrackId = `TRACK_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        console.log('📤 DTE enviado al SII (MOCK):', {
+        logger.info({
             tipo: body.tipo,
             folio: nextFolio,
             trackId: mockTrackId,
             total
-        });
+        }, 'DTE enviado al SII (MOCK)');
 
         // STEP 6: Update stock (MOCK)
         // In production: Update inventory_batches
-        console.log('📦 Stock actualizado (MOCK)');
+        logger.info({ tipo: body.tipo, folio: nextFolio }, 'Stock actualizado por emisión DTE (MOCK)');
 
         // STEP 7: Save DTE to history (MOCK)
         // In production: INSERT INTO dte_documents
@@ -188,17 +209,22 @@ export async function POST(request: NextRequest) {
                 trackId: mockTrackId,
                 fecha: dteData.fechaEmision,
                 total,
-                xml: signResult.signedXml,
+                xmlAvailable: Boolean(signResult.signedXml),
                 pdfUrl: `/api/sii/pdf/${body.tipo}/${nextFolio}` // Future endpoint
             }
-        });
+        }, { headers: API_NO_STORE_HEADERS });
 
     } catch (error) {
-        console.error('Error emitiendo DTE:', error);
+        logger.error(
+            {
+                error: error instanceof Error ? error.message : String(error),
+            },
+            'Error emitiendo DTE'
+        );
         return NextResponse.json({
             success: false,
             error: 'INTERNAL_ERROR',
-            message: error instanceof Error ? error.message : 'Error desconocido'
-        }, { status: 500 });
+            message: 'No se pudo emitir el DTE'
+        }, { status: 500, headers: API_NO_STORE_HEADERS });
     }
 }

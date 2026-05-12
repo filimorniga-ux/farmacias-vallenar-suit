@@ -1,20 +1,32 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { ProductResult, buildPublicProductResult } from './public-product-result';
+import {
+    enforcePublicSearchGuard,
+    normalizePublicSearchLimit,
+    normalizePublicSearchPage,
+    normalizePublicSearchTerm,
+} from './public-search-guard';
 
 export async function browseProductsAction(
     letter: string,
     page: number = 1,
     limit: number = 50
 ): Promise<ProductResult[]> {
-    if (!letter && letter !== '') return [];
+    if (!await enforcePublicSearchGuard('product-browse')) return [];
 
-    const offset = (page - 1) * limit;
-    const searchPattern = letter ? `${letter}%` : '%'; // If empty, list everything? Usually browsing implies a filter.
+    const normalizedLetter = normalizePublicSearchTerm(letter, 1);
+    if (!normalizedLetter && letter !== '') return [];
+
+    const safePage = normalizePublicSearchPage(page);
+    const safeLimit = normalizePublicSearchLimit(limit);
+    const offset = (safePage - 1) * safeLimit;
+    const searchPattern = normalizedLetter ? `${normalizedLetter}%` : '%'; // If empty, list everything? Usually browsing implies a filter.
 
     try {
-        console.log(`🔍 [Browse] Browsing for letter: "${letter}", Page: ${page}`);
+        logger.info({ page: safePage, limit: safeLimit, hasLetter: normalizedLetter.length > 0 }, '[PublicSearch] Browse started');
 
         const sql = `
             WITH unified_inventory AS (
@@ -76,14 +88,9 @@ export async function browseProductsAction(
             LIMIT $2 OFFSET $3
         `;
 
-        const result = await query(sql, [searchPattern, limit, offset]);
+        const result = await query(sql, [searchPattern, safeLimit, offset]);
 
-        console.log(`✅ [Browse] Found ${result.rows.length} products for letter ${letter}.`);
-
-        // Debug first result for units
-        if (result.rows.length > 0) {
-            console.log(`🔍 [Browse Sample] ${result.rows[0].name} - Units: ${result.rows[0].units_per_box}`);
-        }
+        logger.info({ count: result.rows.length }, '[PublicSearch] Browse completed');
 
         return result.rows.map((row) => buildPublicProductResult({
             id: row.id,
@@ -99,7 +106,7 @@ export async function browseProductsAction(
         }));
 
     } catch (error) {
-        console.error('❌ Error in browseProductsAction:', error);
+        logger.error({ error }, '[PublicSearch] Browse failed');
         return [];
     }
 }

@@ -4,7 +4,7 @@
  * Flujo: Scanner/Búsqueda → Agregar a lista → Seleccionar destino → Confirmar despacho
  * Usa createDispatchSecure del backend.
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Truck, Send, FileText, Loader2 } from 'lucide-react';
 import { DispatchWizard } from '../wizard/DispatchWizard';
 import { WMSProductScanner } from '../WMSProductScanner';
@@ -15,6 +15,7 @@ import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { createDispatchSecure } from '@/actions/wms-v2';
 import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -28,8 +29,17 @@ interface WMSDespachoTabProps {
 export const WMSDespachoTab: React.FC<WMSDespachoTabProps> = ({ inventory, isLoading = false }) => {
     const queryClient = useQueryClient();
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const user = usePharmaStore((state) => state.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
 
     // State
     const [cartItems, setCartItems] = useState<WMSCartItem[]>([]);
@@ -44,11 +54,8 @@ export const WMSDespachoTab: React.FC<WMSDespachoTabProps> = ({ inventory, isLoa
     // Wizard de Devolución
     const [wizardOpen, setWizardOpen] = useState(false);
 
-    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
-    const currentLocationName =
-        locationStoreCurrent?.name ||
-        locationStoreLocations.find((loc) => loc.id === currentLocationId)?.name ||
-        'Sucursal Actual';
+    const effectiveLocationId = wmsContext.locationId;
+    const currentLocationName = wmsContext.locationName || 'Sucursal Actual';
 
     // Agregar producto al carrito
     const handleProductSelected = useCallback((product: InventoryBatch) => {

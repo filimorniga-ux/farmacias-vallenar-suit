@@ -37,7 +37,7 @@ export default function ResetPasswordPage() {
             if (res.success) {
                 setIsSuccess(true);
                 toast.success(res.message);
-                setTimeout(() => router.push('/login'), 3000);
+                setTimeout(() => router.push('/'), 3000);
             } else {
                 toast.error(res.message);
             }
@@ -49,9 +49,9 @@ export default function ResetPasswordPage() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-            <div className="bg-white max-w-md w-full rounded-2xl shadow-xl overflow-hidden">
-                <div className="p-8">
+        <div className="min-h-dvh bg-slate-50 flex items-center justify-center p-4 pt-safe pb-safe">
+            <div className="bg-white max-w-md w-full rounded-2xl shadow-xl overflow-hidden max-h-[calc(100dvh-1rem)] overflow-y-auto">
+                <div className="p-6 sm:p-8">
                     {/* Header */}
                     <div className="text-center mb-8">
                         <div className="w-16 h-16 bg-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -66,29 +66,35 @@ export default function ResetPasswordPage() {
                     {!isSuccess ? (
                         <form onSubmit={handleSubmit} className="space-y-6">
                             <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">
+                                <label htmlFor="new-password" className="block text-sm font-bold text-slate-700 mb-2">
                                     Nueva Contraseña
                                 </label>
                                 <input
+                                    id="new-password"
+                                    name="new-password"
                                     type="password"
+                                    autoComplete="new-password"
                                     required
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors"
+                                    className="w-full min-h-11 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors"
                                     placeholder="••••••••"
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">
+                                <label htmlFor="confirm-new-password" className="block text-sm font-bold text-slate-700 mb-2">
                                     Confirmar Contraseña
                                 </label>
                                 <input
+                                    id="confirm-new-password"
+                                    name="confirm-new-password"
                                     type="password"
+                                    autoComplete="new-password"
                                     required
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
-                                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors"
+                                    className="w-full min-h-11 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors"
                                     placeholder="••••••••"
                                 />
                             </div>
@@ -96,7 +102,7 @@ export default function ResetPasswordPage() {
                             <button
                                 type="submit"
                                 disabled={isLoading}
-                                className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="w-full min-h-11 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {isLoading ? (
                                     <>
@@ -116,15 +122,15 @@ export default function ResetPasswordPage() {
                             <p className="text-slate-500 text-sm mb-6">
                                 Tu contraseña ha sido cambiada exitosamente. Redirigiendo al inicio de sesión...
                             </p>
-                            <Link href="/login" className="px-6 py-2 bg-slate-100 text-slate-600 font-bold rounded-full hover:bg-slate-200 transition-colors">
-                                Ir al Login ahora
+                            <Link href="/" className="min-h-11 inline-flex items-center justify-center px-6 py-2 bg-slate-100 text-slate-600 font-bold rounded-full hover:bg-slate-200 transition-colors">
+                                Ir al inicio de sesión
                             </Link>
                         </div>
                     )}
 
                     {!isSuccess && (
                         <div className="mt-8 text-center">
-                            <Link href="/login" className="text-slate-400 hover:text-slate-600 text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                            <Link href="/" className="min-h-11 text-slate-400 hover:text-slate-600 text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors">
                                 <ArrowLeft size={16} /> Cancelar
                             </Link>
                         </div>

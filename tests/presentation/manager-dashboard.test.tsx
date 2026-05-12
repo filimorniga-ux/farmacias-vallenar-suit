@@ -99,6 +99,14 @@ describe('ManagerDashboard', () => {
         });
     });
 
+    it('mantiene target táctil mínimo en el refresh manual', () => {
+        renderWithQueryClient(<ManagerDashboard initialData={sampleManagerData} />);
+
+        const refreshButton = screen.getByRole('button', { name: 'Actualizar tablero gerencial' });
+        expect(refreshButton.className).toContain('min-h-11');
+        expect(refreshButton.className).toContain('min-w-11');
+    });
+
     it('consulta la sucursal seleccionada cuando cambia el branch activo', async () => {
         mocks.getManagerRealTimeDataSecureMock.mockResolvedValue({
             success: true,

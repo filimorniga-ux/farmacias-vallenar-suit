@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Shield, Key, Lock, AlertTriangle, Clock, UserCheck, ExternalLink } from 'lucide-react';
 import { ActiveSessionsTable } from './ActiveSessionsTable';
-import { Link } from 'react-router-dom';
 import { getOperationalSettingsSecure } from '@/actions/settings-v2';
+import { OPERATIONAL_AUTHORITY_LABELS } from '@/lib/operational-message-catalog';
 
 export const SecurityPolicyPanel: React.FC = () => {
     const [security, setSecurity] = useState({
@@ -120,7 +121,7 @@ export const SecurityPolicyPanel: React.FC = () => {
 
             <div className="mt-6 flex justify-end">
                 <p className="text-sm text-slate-500">
-                    Políticas aplicadas desde backend. Esta vista es solo informativa.
+                    {OPERATIONAL_AUTHORITY_LABELS.serverSourceOfTruth}: esta vista es solo informativa.
                 </p>
             </div>
             {/* Active Sessions Monitoring */}
@@ -141,7 +142,7 @@ export const SecurityPolicyPanel: React.FC = () => {
                         </div>
                     </div>
                     <Link
-                        to="/kiosk"
+                        href="/kiosk"
                         className="flex items-center gap-2 px-6 py-3 bg-cyan-600 text-white font-bold rounded-xl hover:bg-cyan-700 transition shadow-lg"
                     >
                         <ExternalLink size={18} />
@@ -160,8 +161,7 @@ export const SecurityPolicyPanel: React.FC = () => {
                     <div className="bg-white/60 p-4 rounded-xl">
                         <p className="text-xs text-slate-500 font-bold uppercase">PIN Maestro</p>
                         <p className="text-sm text-slate-700 mt-2">
-                            El acceso administrativo del kiosko se valida server-side
-                            y no depende de secretos embebidos en el cliente.
+                            {OPERATIONAL_AUTHORITY_LABELS.serverSourceOfTruth}: el acceso administrativo del kiosko no depende de secretos embebidos en el cliente.
                         </p>
                     </div>
                     <div className="bg-white/60 p-4 rounded-xl">

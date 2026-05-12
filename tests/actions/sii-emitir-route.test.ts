@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
     calculateIVAMock: vi.fn(),
     calculateNetoFromTotalMock: vi.fn(),
     signXMLMock: vi.fn(),
+    loggerInfoMock: vi.fn(),
+    loggerErrorMock: vi.fn(),
 }));
 
 vi.mock('@/lib/api-auth', () => ({
@@ -28,6 +30,13 @@ vi.mock('@/domain/logic/sii/dteBuilder', () => ({
     calculateNetoFromTotal: mocks.calculateNetoFromTotalMock,
 }));
 
+vi.mock('@/lib/logger', () => ({
+    logger: {
+        info: mocks.loggerInfoMock,
+        error: mocks.loggerErrorMock,
+    },
+}));
+
 import { POST } from '@/app/api/sii/emitir/route';
 
 function buildRequest(body: unknown) {
@@ -35,6 +44,17 @@ function buildRequest(body: unknown) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    }) as unknown as NextRequest;
+}
+
+function buildRequestWithHeaders(body: unknown, headers: Record<string, string>) {
+    return new Request('http://localhost/api/sii/emitir', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...headers,
         },
         body: JSON.stringify(body),
     }) as unknown as NextRequest;
@@ -112,8 +132,26 @@ describe('POST /api/sii/emitir', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(400);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(false);
         expect(payload.error).toBe('INVALID_PAYLOAD');
+        expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
+        expect(mocks.signXMLMock).not.toHaveBeenCalled();
+    });
+
+    it('rechaza payload declarado demasiado grande antes de tocar config o firma', async () => {
+        const response = await POST(buildRequestWithHeaders(BASE_BODY, {
+            'content-length': String((256 * 1024) + 1),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(413);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'PAYLOAD_TOO_LARGE',
+            message: 'El payload de emisión supera el límite permitido',
+        });
         expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
         expect(mocks.signXMLMock).not.toHaveBeenCalled();
     });
@@ -137,7 +175,10 @@ describe('POST /api/sii/emitir', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(true);
+        expect(payload.data.xml).toBeUndefined();
+        expect(payload.data.xmlAvailable).toBe(true);
         expect(mocks.getSiiEmissionConfigMock).toHaveBeenCalledTimes(1);
         expect(mocks.buildDteXMLMock).toHaveBeenCalledTimes(1);
         expect(mocks.signXMLMock).toHaveBeenCalledWith('<DTE />', 'MOCK_CERT', 'MOCK_PASS');
@@ -162,8 +203,27 @@ describe('POST /api/sii/emitir', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(500);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(false);
         expect(payload.error).toBe('SIGNATURE_ERROR');
+        expect(payload.message).toBe('No se pudo firmar el DTE');
+        expect(JSON.stringify(payload)).not.toContain('firma inválida');
         expect(mocks.signXMLMock).toHaveBeenCalledWith('<DTE />', 'SERVER_CERT', 'SERVER_PASS');
+    });
+
+    it('redacta errores internos del flujo de emisión', async () => {
+        mocks.getSiiEmissionConfigMock.mockRejectedValueOnce(new Error('secret internal db detail'));
+
+        const response = await POST(buildRequest(BASE_BODY));
+        const payload = await response.json();
+
+        expect(response.status).toBe(500);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+        expect(payload.success).toBe(false);
+        expect(payload.error).toBe('INTERNAL_ERROR');
+        expect(payload.message).toBe('No se pudo emitir el DTE');
+        expect(JSON.stringify(payload)).not.toContain('secret internal db detail');
+        expect(mocks.loggerErrorMock).toHaveBeenCalled();
+        expect(mocks.signXMLMock).not.toHaveBeenCalled();
     });
 });

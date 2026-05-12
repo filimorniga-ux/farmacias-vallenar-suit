@@ -3,29 +3,13 @@ import { NextResponse } from 'next/server';
 
 const {
     mockRequireApiRoles,
-    mockProcessImportBatch,
-    mockLogger,
 } = vi.hoisted(() => ({
     mockRequireApiRoles: vi.fn(),
-    mockProcessImportBatch: vi.fn(),
-    mockLogger: {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-    },
 }));
 
 vi.mock('@/lib/api-auth', () => ({
     OPERATIONS_API_ROLES: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
     requireApiRoles: mockRequireApiRoles,
-}));
-
-vi.mock('@/services/inventory-matcher', () => ({
-    processImportBatch: mockProcessImportBatch,
-}));
-
-vi.mock('@/lib/logger', () => ({
-    logger: mockLogger,
 }));
 
 import { POST } from '@/app/api/inventory/process/route';
@@ -58,64 +42,32 @@ describe('POST /api/inventory/process', () => {
         }));
 
         expect(response.status).toBe(401);
-        expect(mockProcessImportBatch).not.toHaveBeenCalled();
     });
 
-    it('rechaza batchSize inválido', async () => {
+    it('retorna 410 después de RBAC sin parsear payload legacy', async () => {
         const response = await POST(new Request('http://localhost/api/inventory/process', {
             method: 'POST',
-            body: JSON.stringify({ batchSize: 0 }),
+            body: '{payload-invalido',
         }));
         const payload = await response.json();
 
-        expect(response.status).toBe(400);
+        expect(response.status).toBe(410);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload).toEqual({
             success: false,
-            error: 'Invalid batchSize',
-            code: 'INVALID_BATCH_SIZE',
+            error: 'Procesamiento legacy de inventario deshabilitado. Use flujos canónicos de importación y diagnóstico.',
+            code: 'INVENTORY_PROCESS_LEGACY_DISABLED',
         });
-        expect(mockProcessImportBatch).not.toHaveBeenCalled();
     });
 
-    it('procesa lote con sesión válida y registra actor real', async () => {
-        mockProcessImportBatch.mockResolvedValueOnce({
-            processed: 7,
-            message: 'ok',
-        });
-
+    it('mantiene 410 aunque llegue batchSize antiguo válido', async () => {
         const response = await POST(new Request('http://localhost/api/inventory/process', {
             method: 'POST',
             body: JSON.stringify({ batchSize: 25 }),
         }));
         const payload = await response.json();
 
-        expect(response.status).toBe(200);
-        expect(payload).toEqual({
-            success: true,
-            processed: 7,
-            message: 'ok',
-        });
-        expect(mockProcessImportBatch).toHaveBeenCalledWith(25);
-        expect(mockLogger.info).toHaveBeenCalledWith(
-            expect.objectContaining({ actorUserId: 'manager-1', batchSize: 25, processed: 7 }),
-            '[InventoryProcessRoute] Batch processed'
-        );
-    });
-
-    it('redacta errores internos del procesador', async () => {
-        mockProcessImportBatch.mockRejectedValueOnce(new Error('timeout talking to matcher backend'));
-
-        const response = await POST(new Request('http://localhost/api/inventory/process', {
-            method: 'POST',
-            body: JSON.stringify({ batchSize: 20 }),
-        }));
-        const payload = await response.json();
-
-        expect(response.status).toBe(500);
-        expect(payload).toEqual({
-            success: false,
-            error: 'No fue posible procesar el lote de inventario',
-            code: 'INVENTORY_PROCESS_FAILED',
-        });
+        expect(response.status).toBe(410);
+        expect(payload.code).toBe('INVENTORY_PROCESS_LEGACY_DISABLED');
     });
 });

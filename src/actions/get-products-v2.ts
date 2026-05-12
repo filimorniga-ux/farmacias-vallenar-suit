@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { checkRateLimit } from '@/lib/rate-limiter';
 import { getValidatedSession } from '@/lib/server-session';
+import { normalizeSaleCondition, type CanonicalSaleCondition } from '@/lib/sale-condition';
 
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'];
 
@@ -27,6 +28,7 @@ interface ProductResult {
     name: string;
     description: string;
     price: number;
+    condition: CanonicalSaleCondition;
     stock?: number; // Solo visible para managers
     location_name: string;
     format: string;
@@ -72,6 +74,7 @@ export async function getProductsSecure(
             SELECT
                 p.id, p.sku, p.name, '' as description,
                 COALESCE(p.format, 'Unidad') as format, l.name as location_name,
+                COALESCE(MAX(NULLIF(to_jsonb(p)->>'condicion_venta', '')), 'VD') as condition,
                 ${canSeeStock ? 'COALESCE(SUM(ib.quantity_real), 0) as stock,' : ''}
                 COALESCE(MAX(ib.sale_price), MAX(p.price), 0) as price
             FROM products p
@@ -91,6 +94,7 @@ export async function getProductsSecure(
             description: row.description,
             format: row.format,
             price: Number(row.price),
+            condition: normalizeSaleCondition(row.condition),
             stock: canSeeStock ? Number(row.stock) : undefined,
             location_name: row.location_name || 'Sucursal',
         }));

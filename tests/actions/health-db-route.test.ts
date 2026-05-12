@@ -67,6 +67,7 @@ describe('GET /api/health/db', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(401);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(false);
         expect(payload.code).toBe('HEALTH_UNAUTHORIZED');
     });
@@ -75,8 +76,6 @@ describe('GET /api/health/db', () => {
         vi.mocked(dbModule.query).mockResolvedValueOnce({
             rows: [{
                 server_time: new Date('2026-02-21T10:00:00.000Z').toISOString(),
-                database_name: 'farmacias',
-                db_user: 'postgres'
             }],
             rowCount: 1
         } as any);
@@ -85,11 +84,14 @@ describe('GET /api/health/db', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(true);
         expect(payload.status).toBe('ok');
         expect(payload.dbLatencyMs).toBeTypeOf('number');
-        expect(payload.pool).toEqual({ total: 5, idle: 3, waiting: 1 });
-        expect(payload.database).toBe('farmacias');
+        expect(payload.database).toBeUndefined();
+        expect(payload.dbUser).toBeUndefined();
+        expect(payload.pool).toBeUndefined();
+        expect(payload.env).toBeUndefined();
     });
 
     it('retorna 503 degradado cuando falla la DB y usa clasificación tipada', async () => {
@@ -101,15 +103,27 @@ describe('GET /api/health/db', () => {
             userMessage: 'Servicio temporalmente no disponible. Intente nuevamente en unos minutos.',
         });
 
-        const response = await GET(createRequest({ tokenQuery: 'test-health-token' }));
+        const response = await GET(createRequest({ tokenHeader: 'test-health-token' }));
         const payload = await response.json();
 
         expect(response.status).toBe(503);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
         expect(payload.success).toBe(false);
         expect(payload.status).toBe('degraded');
         expect(payload.code).toBe('DB_TIMEOUT');
         expect(payload.retryable).toBe(true);
         expect(payload.correlationId).toBe('corr-health-test');
+        expect(payload.userMessage).toBe('Servicio temporalmente no disponible. Intente nuevamente en unos minutos.');
+        expect(payload.technicalMessage).toBeUndefined();
+    });
+
+    it('rechaza token por query aunque coincida con el secreto configurado', async () => {
+        const response = await GET(createRequest({ tokenQuery: 'test-health-token' }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(401);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+        expect(payload.code).toBe('HEALTH_UNAUTHORIZED');
     });
 
     afterAll(() => {

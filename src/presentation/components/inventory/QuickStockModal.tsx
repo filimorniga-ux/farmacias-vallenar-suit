@@ -21,7 +21,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
     const [pin, setPin] = useState<string>('');
     const [mode, setMode] = useState<'ADD' | 'REMOVE'>('ADD');
     const [isLoading, setIsLoading] = useState(false);
-    const { user, updateStock } = usePharmaStore();
+    const { user } = usePharmaStore();
 
     useEffect(() => {
         if (isOpen) {
@@ -78,9 +78,7 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
                 throw new Error('Offline Mode Trigger');
             }
 
-        } catch (error) {
-            console.error('Moving to Offline Fallback', error);
-
+        } catch {
             // OFFLINE FALLBACK
             if (user?.id) {
                 import('../../../lib/store/outboxStore').then(({ useOutboxStore }) => {
@@ -96,12 +94,10 @@ const QuickStockModal: React.FC<QuickStockModalProps> = ({ isOpen, onClose, prod
                     );
                 });
 
-                // Optimistic Local Update
-                updateStock(product.id, finalAdjustment);
-
                 toast.warning('Ajuste guardado localmente', {
-                    description: 'Se sincronizará cuando recupere conexión.'
+                    description: 'Se sincronizará cuando recupere conexión. El stock visible se actualizará al revalidar desde el servidor.'
                 });
+                await queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.root });
                 onClose();
             } else {
                 toast.error('Error de conexión y sin sesión local.');

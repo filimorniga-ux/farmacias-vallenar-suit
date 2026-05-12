@@ -139,5 +139,6 @@ describe('manager-dashboard-v2', () => {
         expect(result.data?.branches).toEqual([]);
         expect(query).toHaveBeenCalledTimes(6);
         expect(vi.mocked(query).mock.calls[0]?.[1]).toEqual(['loc-1']);
+        expect(String(vi.mocked(query).mock.calls[5]?.[0])).toContain('JOIN users u ON ll.user_id::text = u.id::text');
     });
 });

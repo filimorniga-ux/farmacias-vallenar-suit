@@ -44,6 +44,7 @@ import {
 } from '@/lib/store/persistenceScope';
 import { useOfflineSales } from '@/lib/store/offlineSales';
 import { useOutboxStore } from '@/lib/store/outboxStore';
+import { sanitizePersistedPosTerminals } from '@/presentation/lib/pos-runtime-state';
 // Mocks removed
 // Mocks removed
 
@@ -1876,8 +1877,8 @@ export const usePharmaStore = create<PharmaState>()(
                     return;
                 }
 
-                // 🔧 FIX: Usar sessionId pasado directamente, fallback a localStorage solo si no se pasa
-                const effectiveSessionId = sessionId || localStorage.getItem('pos_session_id') || `shift_${Date.now()}`;
+                // El runtime POS no debe depender del storage general para decidir la sesión operativa.
+                const effectiveSessionId = sessionId || `shift_${Date.now()}`;
                 const newShift: Shift = {
                     id: effectiveSessionId,
                     terminal_id: effectiveTerminalId,
@@ -2507,6 +2508,11 @@ export const usePharmaStore = create<PharmaState>()(
                             // We don't use set() here because we are in the rehydration callback directly on the state
                             state.currentLocationId = '';
                         }
+
+                        // Runtime POS sensible se rehidrata desde la sesión dedicada + confirmación server-side.
+                        state.currentShift = null;
+                        state.currentTerminalId = '';
+                        state.terminals = sanitizePersistedPosTerminals(state.terminals || []);
                     }
                 };
             },
@@ -2530,9 +2536,8 @@ export const usePharmaStore = create<PharmaState>()(
                 salesHistory: state.salesHistory,
                 cashMovements: state.cashMovements,
                 expenses: state.expenses,
-                currentShift: state.currentShift,
                 dailyShifts: state.dailyShifts,
-                terminals: state.terminals,
+                terminals: sanitizePersistedPosTerminals(state.terminals),
                 cart: state.cart,
                 currentCustomer: state.currentCustomer,
                 tickets: state.tickets,
@@ -2557,8 +2562,7 @@ export const usePharmaStore = create<PharmaState>()(
                 loyaltyConfig: state.loyaltyConfig,
                 // Contexto de ubicación
                 currentLocationId: state.currentLocationId,
-                currentWarehouseId: state.currentWarehouseId,
-                currentTerminalId: state.currentTerminalId
+                currentWarehouseId: state.currentWarehouseId
             }),
         }
     )

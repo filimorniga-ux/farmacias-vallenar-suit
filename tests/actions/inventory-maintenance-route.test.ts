@@ -3,11 +3,13 @@ import { NextResponse } from 'next/server';
 
 const {
     mockRequireApiRoles,
+    mockValidatePinForRoles,
     mockClient,
     mockPool,
     mockLogger,
 } = vi.hoisted(() => ({
     mockRequireApiRoles: vi.fn(),
+    mockValidatePinForRoles: vi.fn(),
     mockClient: {
         query: vi.fn(),
         release: vi.fn(),
@@ -27,6 +29,13 @@ vi.mock('@/lib/api-auth', () => ({
     requireApiRoles: mockRequireApiRoles,
 }));
 
+vi.mock('@/lib/pin-rbac', () => ({
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+    },
+    validatePinForRoles: mockValidatePinForRoles,
+}));
+
 vi.mock('@/lib/db', () => ({
     pool: mockPool,
 }));
@@ -41,13 +50,18 @@ describe('POST /api/inventory/maintenance', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockPool.connect.mockResolvedValue(mockClient);
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: { id: 'admin-1', name: 'Admin', role: 'ADMIN' },
+            matchedBy: 'hash',
+        });
         mockRequireApiRoles.mockResolvedValue({
             ok: true,
             session: {
-                userId: 'manager-1',
-                role: 'MANAGER',
+                userId: 'admin-1',
+                role: 'ADMIN',
                 locationId: 'loc-1',
-                userName: 'Gerente',
+                userName: 'Admin',
                 tokenVersion: 1,
                 sessionToken: 'token',
             },
@@ -62,24 +76,53 @@ describe('POST /api/inventory/maintenance', () => {
 
         const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
             method: 'POST',
-            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR' }),
+            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR', adminPin: '1234' }),
         }));
 
         expect(response.status).toBe(401);
         expect(mockPool.connect).not.toHaveBeenCalled();
     });
 
-    it('vacía inventario con sesión válida y audita actor desde sesión', async () => {
+    it('rechaza body declarado demasiado grande antes de parsear o abrir DB', async () => {
+        const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
+            method: 'POST',
+            headers: {
+                'content-length': String((16 * 1024) + 1),
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify({ action: 'ANALYZE_DUPLICATES' }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(413);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'Payload de mantenimiento demasiado grande',
+            code: 'MAINTENANCE_BODY_TOO_LARGE',
+        });
+        expect(mockPool.connect).not.toHaveBeenCalled();
+        expect(mockClient.query).not.toHaveBeenCalled();
+    });
+
+    it('vacía inventario con sesión admin válida y audita actor desde sesión', async () => {
         mockClient.query.mockResolvedValue(undefined);
 
         const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
             method: 'POST',
-            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR' }),
+            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR', adminPin: '1234' }),
         }));
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload.success).toBe(true);
+        expect(mockValidatePinForRoles).toHaveBeenCalledWith(
+            mockClient,
+            '1234',
+            ['ADMIN', 'GERENTE_GENERAL'],
+            expect.objectContaining({ allowLegacyPlaintext: true, useRateLimiter: true }),
+        );
         expect(mockClient.query).toHaveBeenNthCalledWith(1, 'BEGIN');
         expect(mockClient.query).toHaveBeenCalledWith('DELETE FROM inventory_batches');
         expect(mockClient.query).toHaveBeenCalledWith(
@@ -87,10 +130,46 @@ describe('POST /api/inventory/maintenance', () => {
         );
         expect(mockClient.query).toHaveBeenLastCalledWith('COMMIT');
         expect(mockLogger.warn).toHaveBeenCalledWith(
-            expect.objectContaining({ actorUserId: 'manager-1', actorRole: 'MANAGER' }),
+            expect.objectContaining({ actorUserId: 'admin-1', actorRole: 'ADMIN' }),
             '[MaintenanceRoute] Canonical inventory truncate completed'
         );
         expect(mockClient.release).toHaveBeenCalled();
+    });
+
+    it.each([
+        ['TRUNCATE', { confirmation: 'BORRAR' }],
+        ['UNDO_IMPORT', {}],
+    ])('rechaza %s para MANAGER antes de abrir conexión DB', async (action, extraPayload) => {
+        mockRequireApiRoles.mockResolvedValueOnce({
+            ok: true,
+            session: {
+                userId: 'manager-1',
+                role: 'MANAGER',
+                locationId: 'loc-1',
+                userName: 'Gerente',
+                tokenVersion: 1,
+                sessionToken: 'token',
+            },
+        });
+
+        const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
+            method: 'POST',
+            body: JSON.stringify({ action, ...extraPayload }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'Acción destructiva restringida a administradores',
+            code: 'MAINTENANCE_DESTRUCTIVE_FORBIDDEN',
+        });
+        expect(mockPool.connect).not.toHaveBeenCalled();
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+            expect.objectContaining({ action, actorUserId: 'manager-1', actorRole: 'MANAGER' }),
+            '[MaintenanceRoute] Destructive maintenance action denied'
+        );
     });
 
     it('rechaza código de confirmación inválido', async () => {
@@ -101,8 +180,83 @@ describe('POST /api/inventory/maintenance', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(403);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload.error).toBe('Invalid confirmation code');
+        expect(mockPool.connect).not.toHaveBeenCalled();
         expect(mockClient.query).not.toHaveBeenCalled();
+    });
+
+    it('rechaza acción destructiva sin PIN antes de abrir conexión DB', async () => {
+        const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR' }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'PIN administrador requerido',
+            code: 'MAINTENANCE_ADMIN_PIN_REQUIRED',
+        });
+        expect(mockPool.connect).not.toHaveBeenCalled();
+        expect(mockValidatePinForRoles).not.toHaveBeenCalled();
+    });
+
+    it('rechaza PIN admin inválido antes de ejecutar mutaciones destructivas', async () => {
+        mockValidatePinForRoles.mockResolvedValueOnce({
+            valid: false,
+            code: 'PIN_INVALID',
+            error: 'PIN inválido',
+        });
+
+        const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'UNDO_IMPORT', adminPin: '9999' }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'PIN inválido',
+            code: 'PIN_INVALID',
+        });
+        expect(mockValidatePinForRoles).toHaveBeenCalled();
+        expect(mockClient.query).not.toHaveBeenCalledWith('BEGIN');
+        expect(mockClient.release).toHaveBeenCalled();
+    });
+
+    it('permite análisis de duplicados para MANAGER porque es read-only', async () => {
+        mockRequireApiRoles.mockResolvedValueOnce({
+            ok: true,
+            session: {
+                userId: 'manager-1',
+                role: 'MANAGER',
+                locationId: 'loc-1',
+                userName: 'Gerente',
+                tokenVersion: 1,
+                sessionToken: 'token',
+            },
+        });
+        mockClient.query.mockResolvedValueOnce({
+            rows: [{ sku: 'SKU-1', count: '2', ids: ['prod-1', 'prod-2'] }],
+        });
+
+        const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'ANALYZE_DUPLICATES' }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload.success).toBe(true);
+        expect(payload.duplicates).toEqual([{ sku: 'SKU-1', count: '2', ids: ['prod-1', 'prod-2'] }]);
+        expect(mockPool.connect).toHaveBeenCalledTimes(1);
+        expect(mockClient.release).toHaveBeenCalled();
     });
 
     it('redacta detalles internos cuando la mutación falla', async () => {
@@ -113,11 +267,12 @@ describe('POST /api/inventory/maintenance', () => {
 
         const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
             method: 'POST',
-            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR' }),
+            body: JSON.stringify({ action: 'TRUNCATE', confirmation: 'BORRAR', adminPin: '1234' }),
         }));
         const payload = await response.json();
 
         expect(response.status).toBe(500);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload).toEqual({
             error: 'Maintenance action failed',
             code: 'MAINTENANCE_ACTION_FAILED',

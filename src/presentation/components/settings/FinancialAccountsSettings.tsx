@@ -8,6 +8,7 @@ import {
 import { getOrganizationStructureSecure } from '../../../actions/network-v2';
 import { Plus, Edit2, Archive, CheckCircle, Wallet, Building, CircleDollarSign, Coins } from 'lucide-react';
 import { toast } from 'sonner';
+import { OPERATIONAL_CONTEXT_ORIGIN_LABELS } from '@/lib/operational-message-catalog';
 
 interface FinancialAccount {
     id: string;
@@ -256,7 +257,9 @@ export const FinancialAccountsSettings: React.FC = () => {
                                         <option key={loc.id} value={loc.id}>{loc.name}</option>
                                     ))}
                                 </select>
-                                <p className="text-xs text-slate-400 mt-1">Si seleccionas una sucursal, esta cuenta será vista principalmente en ese contexto.</p>
+                                <p className="text-xs text-slate-400 mt-1">
+                                    {OPERATIONAL_CONTEXT_ORIGIN_LABELS.manualSelection}: si eliges una sucursal, esta cuenta se mostrará principalmente ahí.
+                                </p>
                             </div>
 
                             <div className="flex gap-2 pt-4 justify-end">

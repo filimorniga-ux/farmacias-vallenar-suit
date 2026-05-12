@@ -34,6 +34,12 @@ import {
     validatePinForRoles,
     validatePinForUser,
 } from '@/lib/pin-rbac';
+import {
+    ensureTerminalInPosScope,
+    POS_ALLOWED_ROLES,
+    requirePosActor,
+    resolvePosContextScope,
+} from './pos-scope';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -98,6 +104,7 @@ const CashHistorySchema = z.object({
 // ============================================================================
 
 const CASHIER_ALLOWED_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
+const CASH_READ_ALLOWED_ROLES = POS_ALLOWED_ROLES;
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -215,6 +222,38 @@ async function getCashManagementActor(options?: {
 
         throw error;
     }
+}
+
+async function resolveCashReadScope(params: {
+    action: string;
+    terminalId?: string | null;
+    sessionId?: string | null;
+    locationId?: string | null;
+}) {
+    const auth = await requirePosActor(CASH_READ_ALLOWED_ROLES, params.action);
+    if (!auth.success) {
+        return {
+            success: false as const,
+            error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+        };
+    }
+
+    const { query } = await import('@/lib/db');
+    const scoped = await resolvePosContextScope(auth.actor, {
+        terminalId: params.terminalId,
+        sessionId: params.sessionId,
+        locationId: params.locationId,
+    }, { query });
+
+    if (!scoped.success) {
+        return { success: false as const, error: scoped.error };
+    }
+
+    return {
+        success: true as const,
+        actor: auth.actor,
+        locationId: scoped.locationId,
+    };
 }
 
 async function validateCashierPin(
@@ -1070,6 +1109,19 @@ export async function getCashDrawerStatus(
     }
 
     try {
+        const auth = await requirePosActor(CASH_READ_ALLOWED_ROLES, 'getCashDrawerStatus');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const terminalScope = await ensureTerminalInPosScope(terminalId, auth.actor);
+        if (!terminalScope.success) {
+            return { success: false, error: terminalScope.error };
+        }
+
         const { query } = await import('@/lib/db');
 
         // Get terminal and session
@@ -1178,7 +1230,18 @@ export async function getCashMovementHistory(
     const offset = (page - 1) * pageSize;
 
     try {
+        const scoped = await resolveCashReadScope({
+            action: 'getCashMovementHistory',
+            terminalId,
+            sessionId,
+            locationId,
+        });
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         const { query } = await import('@/lib/db');
+        const effectiveLocationId = scoped.locationId;
 
         // Parameter handling
         const params: (string | number | Date)[] = [];
@@ -1189,11 +1252,11 @@ export async function getCashMovementHistory(
         let saleFilters = "s.status != 'VOIDED'"; // Base sales filter
         let refundFilters = "r.status = 'COMPLETED'";
 
-        if (locationId) {
+        if (effectiveLocationId) {
             moveFilters += ` AND cm.location_id = $${paramIndex}::uuid`;
             saleFilters += ` AND s.location_id = $${paramIndex}::uuid`;
             refundFilters += ` AND r.location_id = $${paramIndex}::uuid`;
-            params.push(locationId);
+            params.push(effectiveLocationId);
             paramIndex++;
         }
 
@@ -1539,8 +1602,18 @@ export async function getShiftMetricsSecure(
     }
 
     try {
-        // NOTE: Authentication optional for read-only metrics
-        // Authorization is implicit via terminal access
+        const auth = await requirePosActor(CASH_READ_ALLOWED_ROLES, 'getShiftMetricsSecure');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const terminalScope = await ensureTerminalInPosScope(terminalId, auth.actor);
+        if (!terminalScope.success) {
+            return { success: false, error: terminalScope.error };
+        }
 
         const { query } = await import('@/lib/db');
 
@@ -1726,10 +1799,21 @@ export async function exportCashMovementHistory(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, sessionId, startDate, endDate, paymentMethod, term } = validated.data;
+    const { terminalId, sessionId, locationId, startDate, endDate, paymentMethod, term } = validated.data;
 
     try {
+        const scoped = await resolveCashReadScope({
+            action: 'exportCashMovementHistory',
+            terminalId,
+            sessionId,
+            locationId,
+        });
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         const { query } = await import('@/lib/db');
+        const effectiveLocationId = scoped.locationId;
 
         // Parameter handling
         const params: (string | number | Date)[] = [];
@@ -1738,6 +1822,13 @@ export async function exportCashMovementHistory(
         // Base filters for both queries
         let moveFilters = '1=1';
         let saleFilters = "s.status != 'VOIDED'";
+
+        if (effectiveLocationId) {
+            moveFilters += ` AND cm.location_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.location_id = $${paramIndex}::uuid`;
+            params.push(effectiveLocationId);
+            paramIndex++;
+        }
 
         if (terminalId) {
             moveFilters += ` AND cm.terminal_id = $${paramIndex}::uuid`;

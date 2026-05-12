@@ -49,7 +49,7 @@ export const SyncStatusBadge = () => {
 
     if (isLoading) {
         return (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-full text-xs font-medium border border-blue-100 cursor-wait animate-pulse">
+            <div className="flex min-h-11 items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-xs font-medium border border-blue-100 cursor-wait animate-pulse">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 <span>Sincronizando...</span>
             </div>
@@ -58,7 +58,7 @@ export const SyncStatusBadge = () => {
 
     if (!isOnline) {
         return (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-full text-xs font-medium border border-red-100">
+            <div className="flex min-h-11 items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-full text-xs font-medium border border-red-100">
                 <WifiOff className="w-3.5 h-3.5" />
                 <span>Desconectado</span>
             </div>
@@ -68,8 +68,9 @@ export const SyncStatusBadge = () => {
     return (
         <button
             onClick={handleManualSync}
-            className="group flex items-center gap-2 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-full text-xs font-medium border border-emerald-100 transition-colors"
+            className="group flex min-h-11 items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-600 rounded-full text-xs font-medium border border-emerald-100 transition-colors"
             title="Clic para sincronizar ahora"
+            aria-label="Sincronizar datos ahora"
         >
             <Wifi className="w-3.5 h-3.5" />
             <span>Conectado</span>

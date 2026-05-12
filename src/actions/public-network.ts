@@ -1,7 +1,7 @@
 
 'use server';
 
-import { query } from '../lib/db';
+import { getPublicLocationsSecure } from './public-network-v2';
 
 export interface PublicLocation {
     id: string;
@@ -16,17 +16,11 @@ export interface PublicLocation {
  * Returns only non-sensitive data.
  */
 export async function getPublicLocations(): Promise<{ success: boolean; data?: PublicLocation[]; error?: string }> {
-    try {
-        const res = await query(`
-            SELECT id, name, address, type 
-            FROM locations 
-            WHERE (is_active = true OR is_active IS NULL)
-            ORDER BY name ASC
-        `);
+    const result = await getPublicLocationsSecure();
 
-        return { success: true, data: res.rows };
-    } catch (error) {
-        console.error('Failed to fetch public locations:', error);
-        return { success: false, error: 'Error al cargar sucursales.' };
+    if (result.success) {
+        return result;
     }
+
+    return { success: false, error: result.userMessage || result.error };
 }

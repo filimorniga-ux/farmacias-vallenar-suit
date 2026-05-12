@@ -95,7 +95,7 @@ export default function ManagerDashboard({ initialData }: ManagerDashboardProps)
                         onClick={() => void refetch()}
                         disabled={isRefetching}
                         aria-label="Actualizar tablero gerencial"
-                        className={`p-2 bg-white rounded-full shadow-sm border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all ${isRefetching ? 'animate-spin text-blue-600' : ''}`}
+                        className={`flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:bg-slate-50 ${isRefetching ? 'animate-spin text-blue-600' : ''}`}
                     >
                         <RefreshCw size={18} />
                     </button>

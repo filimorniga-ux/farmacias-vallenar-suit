@@ -20,6 +20,7 @@ describe('api-auth session validation', () => {
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.response.status).toBe(401);
+        expect(result.response.headers.get('cache-control')).toContain('no-store');
     });
 
     it('rechaza si el rol validado no tiene permisos', async () => {
@@ -37,6 +38,7 @@ describe('api-auth session validation', () => {
         expect(result.ok).toBe(false);
         if (result.ok) return;
         expect(result.response.status).toBe(403);
+        expect(result.response.headers.get('cache-control')).toContain('no-store');
     });
 
     it('acepta solo la sesión validada server-side', async () => {

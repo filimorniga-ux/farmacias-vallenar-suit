@@ -211,15 +211,15 @@ async function resolveCanonicalProductBySku(
             p.id,
             p.name,
             COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
         FROM products p
-        WHERE p.id ~* $2
+        WHERE p.id::text ~* $2
           AND (
             p.sku = $1
             OR $1 = ANY(
               array_remove(
                 regexp_split_to_array(
-                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  regexp_replace(COALESCE(to_jsonb(p)->>'barcode', ''), '\\s+', '', 'g'),
                   ','
                 ),
                 ''
@@ -229,7 +229,7 @@ async function resolveCanonicalProductBySku(
         ORDER BY
             (p.sku = $1) DESC,
             (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
-            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            (COALESCE(p.cost_price, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0) > 0) DESC,
             p.id DESC
         LIMIT 1
     `, [normalizedSku, UUID_TEXT_REGEX]);
@@ -1163,6 +1163,14 @@ export async function updatePurchaseOrderSecure(
         const previousStatus = String(scopedOrder.order.status || 'DRAFT').toUpperCase();
         const previousNotes = typeof scopedOrder.order.notes === 'string' ? scopedOrder.order.notes : '';
         const effectiveNotes = typeof notes === 'string' && notes.trim().length > 0 ? notes : previousNotes;
+
+        if (supplierId) {
+            const supplierRes = await client.query('SELECT id FROM suppliers WHERE id = $1', [supplierId]);
+            if (supplierRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Proveedor no encontrado' };
+            }
+        }
 
         const isTransitionToSent =
             status === 'SENT' &&

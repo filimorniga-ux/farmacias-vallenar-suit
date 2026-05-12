@@ -10,19 +10,21 @@ El sistema muestra una postura mixta:
 
 - `HECHO`: existe una migración reciente que habilita RLS sobre muchas tablas sensibles en [migrations/enable_rls_all_tables.sql](/Users/miguelperdomoserrato/farmacias-vallenar-suit/migrations/enable_rls_all_tables.sql)
 - `HECHO`: la operación real de tablas críticas ocurre hoy casi completamente vía backend privilegiado (`query()/pg`, server actions y API routes internas)
-- `PENDIENTE`: no existe un baseline consistente de policies explícitas para las tablas críticas revisadas
+- `HECHO`: [src/db/migrations/019_supabase_rls_baseline_policies.sql](/Users/miguelperdomoserrato/farmacias-vallenar-suit/src/db/migrations/019_supabase_rls_baseline_policies.sql) crea policies explícitas de denegación para tablas `public` con RLS habilitado y sin policies
 - `PENDIENTE`: no aparece `FORCE ROW LEVEL SECURITY` en el barrido de migrations
 
 Conclusión operativa:
 
 - **`ENABLE RLS` sin policies no se considera defensa suficiente por sí solo**
-- para las tablas críticas revisadas, la postura real hoy es mayormente **backend-only documentada**, no “RLS operativa”
+- el baseline 019 mejora auditabilidad y evita ambigüedad de `rls_enabled_no_policy`, pero no convierte por sí solo las tablas críticas en “RLS operativa”
+- para las tablas críticas revisadas, la postura real hoy sigue siendo mayormente **backend-only documentada**
 
 ## 2. Evidencia base
 
 Fuentes principales usadas para esta normalización:
 
 - [migrations/enable_rls_all_tables.sql](/Users/miguelperdomoserrato/farmacias-vallenar-suit/migrations/enable_rls_all_tables.sql)
+- [src/db/migrations/019_supabase_rls_baseline_policies.sql](/Users/miguelperdomoserrato/farmacias-vallenar-suit/src/db/migrations/019_supabase_rls_baseline_policies.sql)
 - [db/migrations/018_add_rls_to_price_research_results.sql](/Users/miguelperdomoserrato/farmacias-vallenar-suit/db/migrations/018_add_rls_to_price_research_results.sql)
 - [db/DB_SCHEMA_SNAPSHOT.txt](/Users/miguelperdomoserrato/farmacias-vallenar-suit/db/DB_SCHEMA_SNAPSHOT.txt)
 - uso server-side visible en:
@@ -39,19 +41,19 @@ Observación relevante:
 
 | Tabla | RLS enabled | Policies explícitas | FORCE RLS | Postura actual | Control primario | Acción |
 | --- | --- | --- | --- | --- | --- | --- |
-| `terminals` | sí | no encontradas | no | backend-only documentada | server actions + API internas + sesión/RBAC | documentar |
-| `cash_register_sessions` | sí | no encontradas | no | backend-only documentada | `cash-management-v2` + flows POS server-side | documentar |
-| `financial_accounts` | sí | no encontradas | no | backend-only documentada | `treasury-v2` + exports/closing server-side | documentar |
-| `treasury_remittances` | sí | no encontradas | no | backend-only documentada | `treasury-v2` + handover/cierre server-side | documentar |
-| `treasury_transactions` | sí | no encontradas | no | backend-only documentada | `treasury-v2` + reportes/export server-side | documentar |
-| `users` | sí | no encontradas para operación crítica | no | backend-only documentada | sesión server-side + PIN/RBAC + actions de usuarios | documentar |
-| `inventory` | sí | no encontradas | no | mixta / revisar | tabla habilitada, pero el flujo activo parece apoyarse más en `inventory_batches`/`products` | follow-up |
-| `inventory_batches` | no evidenciada en migrations específicas, pero sí tabla activa en snapshot | no encontradas | no | backend-only documentada | `inventory-v2` + WMS + reportes server-side | documentar |
-| `sales` | sí | no encontradas | no | backend-only documentada | legado/histórico; control real hoy parece estar en backend | documentar |
-| `sales_headers` | sí | no encontradas | no | backend-only documentada | `sales-v2`, analytics y conciliación server-side | documentar |
-| `sales_items` | sí | no encontradas | no | backend-only documentada | `sales-v2`, analytics, procurement server-side | documentar |
-| `employee_shifts` | sí | no encontradas | no | backend-only documentada | asistencia/turnos vía actions y SQL server-side | documentar |
-| `shift_logs` | sí | no encontradas | no | backend-only documentada | handover/turnos server-side | documentar |
+| `terminals` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | server actions + API internas + sesión/RBAC | mantener backend-only |
+| `cash_register_sessions` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | `cash-management-v2` + flows POS server-side | mantener backend-only |
+| `financial_accounts` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | `treasury-v2` + exports/closing server-side | mantener backend-only |
+| `treasury_remittances` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | `treasury-v2` + handover/cierre server-side | mantener backend-only |
+| `treasury_transactions` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | `treasury-v2` + reportes/export server-side | mantener backend-only |
+| `users` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | sesión server-side + PIN/RBAC + actions de usuarios | mantener backend-only |
+| `inventory` | sí | deny baseline 019 si no hay policy específica | no | mixta / revisar | tabla habilitada, pero el flujo activo parece apoyarse más en `inventory_batches`/`products` | follow-up |
+| `inventory_batches` | no evidenciada en migrations específicas, pero sí tabla activa en snapshot | deny baseline 019 solo si RLS está habilitado | no | backend-only documentada | `inventory-v2` + WMS + reportes server-side | mantener backend-only |
+| `sales` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | legado/histórico; control real hoy parece estar en backend | mantener backend-only |
+| `sales_headers` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | `sales-v2`, analytics y conciliación server-side | mantener backend-only |
+| `sales_items` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | `sales-v2`, analytics, procurement server-side | mantener backend-only |
+| `employee_shifts` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | asistencia/turnos vía actions y SQL server-side | mantener backend-only |
+| `shift_logs` | sí | deny baseline 019 si no hay policy específica | no | backend-only documentada | handover/turnos server-side | mantener backend-only |
 | `price_research_results` | sí | sí | no | RLS operativa existente | service role para writes + `authenticated` read | mantener como excepción de referencia |
 
 ## 4. Decisiones explícitas
@@ -76,7 +78,7 @@ Para esta fase se consideran **backend-only documentadas**:
 Eso significa:
 
 - el control primario esperado hoy está en server actions, API routes internas y helpers de sesión/RBAC
-- no debe asumirse que RLS provee defensa operativa suficiente para estas tablas solo por estar habilitada
+- no debe asumirse que RLS provee defensa operativa suficiente para estas tablas solo por estar habilitada o por tener deny baseline
 - cualquier acceso nuevo desde cliente Supabase/PostgREST a estas tablas debe tratarse como cambio de postura y requerirá diseño explícito de policies
 
 ### 4.2 Tabla con RLS operativa existente
@@ -143,4 +145,5 @@ Si en el futuro alguna tabla crítica pasa a exponerse vía cliente Supabase/Pos
 Hasta nuevo aviso:
 
 - **no asumir que una tabla está protegida por RLS solo porque aparece en `enable_rls_all_tables.sql`**
+- **no asumir que una tabla tiene RLS operativa solo porque recibió la policy deny baseline 019**
 - tratar las tablas críticas listadas aquí como **backend-only** salvo que exista una migration con policies explícitas y una decisión de postura que diga lo contrario

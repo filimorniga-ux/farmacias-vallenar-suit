@@ -21,6 +21,7 @@ import { FileDown } from 'lucide-react';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useBootstrapSupplyProcurement } from '@/presentation/hooks/useBootstrapSupplyProcurement';
 import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { resolveProcurementVisibleContext } from '@/presentation/lib/procurement-visible-context';
 
 const CameraScanner = dynamic(() => import('../components/ui/CameraScanner'), { ssr: false });
 
@@ -95,8 +96,10 @@ interface ExtendedSuggestion extends AutoOrderSuggestion {
 const SupplyChainPage: React.FC = () => {
     // ... (store hooks remain same)
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
     const user = usePharmaStore((state) => state.user);
     const locations = useLocationStore((state) => state.locations);
+    const currentLocation = useLocationStore((state) => state.currentLocation);
     const queryClient = useQueryClient();
 
     const [isReceptionModalOpen, setIsReceptionModalOpen] = useState(false);
@@ -129,8 +132,23 @@ const SupplyChainPage: React.FC = () => {
     const { isMobile, isDesktopLike, isLandscape, viewportWidth } = usePlatform();
     const [showAdvancedMobileFilters, setShowAdvancedMobileFilters] = useState(false);
     const showSplitPanels = isDesktopLike || (isLandscape && viewportWidth >= 900);
+    const procurementContext = useMemo(() => resolveProcurementVisibleContext({
+        requestedLocationId: selectedLocation,
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent: currentLocation,
+        locations,
+    }), [
+        currentLocation,
+        currentLocationId,
+        currentWarehouseId,
+        locations,
+        selectedLocation,
+        user,
+    ]);
     const { suppliers } = useBootstrapSupplyProcurement({
-        activeLocationId: currentLocationId,
+        activeLocationId: procurementContext.locationId || currentLocationId,
         enableKanbanBootstrap: showSplitPanels,
         loadSuppliers: true,
         loadLocations: true,
@@ -157,10 +175,10 @@ const SupplyChainPage: React.FC = () => {
     });
 
     useEffect(() => {
-        if (currentLocationId && !selectedLocation) {
-            setSelectedLocation(currentLocationId);
+        if (!selectedLocation && procurementContext.locationId) {
+            setSelectedLocation(procurementContext.locationId);
         }
-    }, [currentLocationId, selectedLocation]);
+    }, [procurementContext.locationId, selectedLocation]);
 
     // Intelligent ordering analysis is now manual to allow users to configure filters first.
     // The analysis only runs when the "Analizar" button is clicked or "Enter" is pressed in the search box.
@@ -216,7 +234,7 @@ const SupplyChainPage: React.FC = () => {
                     dateTo,
                     daysToCover,
                     selectedSupplier || undefined,
-                    selectedLocation || undefined,
+                    procurementContext.locationId || undefined,
                     searchQuery || undefined,
                     topLimit,
                     true
@@ -227,7 +245,7 @@ const SupplyChainPage: React.FC = () => {
                     selectedSupplier || undefined,
                     daysToCover,
                     analysisWindow,
-                    selectedLocation || undefined,
+                    procurementContext.locationId || undefined,
                     stockFilter || undefined,
                     searchQuery || undefined,
                     topLimit,
@@ -283,11 +301,11 @@ const SupplyChainPage: React.FC = () => {
                     title: '⚠️ Stock Crítico Detectado',
                     message: `${criticalCount} producto${criticalCount > 1 ? 's' : ''} sin stock suficiente. Revisa el módulo de pedido sugerido.`,
                     actionUrl: '/supply-chain',
-                    locationId: selectedLocation || undefined,
+                    locationId: procurementContext.locationId || undefined,
                     // Dedup: 1 notificación por sucursal por día
-                    dedupKey: `supply_critical:${selectedLocation || 'all'}:${today}`,
+                    dedupKey: `supply_critical:${procurementContext.locationId || 'all'}:${today}`,
                     dedupWindowHours: 24,
-                    metadata: { criticalCount, locationId: selectedLocation }
+                    metadata: { criticalCount, locationId: procurementContext.locationId || null }
                 });
             }
 
@@ -317,7 +335,7 @@ const SupplyChainPage: React.FC = () => {
                 entry.supplier_id || undefined,
                 entry.days_to_cover,
                 entry.analysis_window,
-                entry.location_id || undefined,
+                entry.location_id || procurementContext.locationId || undefined,
                 entry.stock_threshold ?? undefined,
                 entry.search_query || undefined,
                 entry.limit,
@@ -353,7 +371,7 @@ const SupplyChainPage: React.FC = () => {
     };
 
     const refreshSupplyPurchaseOrders = async () => {
-        await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(selectedLocation || currentLocationId || undefined) });
+        await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(procurementContext.locationId || undefined) });
         await queryClient.invalidateQueries({ queryKey: ['inventory'] });
     };
 
@@ -486,6 +504,10 @@ const SupplyChainPage: React.FC = () => {
             toast.error('Seleccione al menos un producto');
             return;
         }
+        if (!procurementContext.locationId || !procurementContext.warehouseId) {
+            toast.error('No hay contexto válido de sucursal y bodega para generar la orden');
+            return;
+        }
 
         // Group items by supplier_id
         const groupedBySupplier = new Map<string, typeof selectedItems>();
@@ -517,8 +539,8 @@ const SupplyChainPage: React.FC = () => {
             created_at: Date.now(),
             is_auto_generated: true,
             generation_reason: 'LOW_STOCK' as const,
-            destination_location_id: selectedLocation || currentLocationId || '',
-            target_warehouse_id: '',
+            destination_location_id: procurementContext.locationId,
+            target_warehouse_id: procurementContext.warehouseId,
             items: firstGroupItems.map(s => ({
                 sku: s.sku,
                 name: s.product_name,
@@ -559,7 +581,7 @@ const SupplyChainPage: React.FC = () => {
                 supplierId: selectedSupplier || undefined,
                 daysToCover,
                 analysisWindow,
-                locationId: selectedLocation || undefined,
+                locationId: procurementContext.locationId || undefined,
                 stockThreshold: stockFilter || undefined,
                 searchQuery: searchQuery || undefined,
                 limit: topLimit
@@ -743,7 +765,7 @@ const SupplyChainPage: React.FC = () => {
                                         <input
                                             type="text"
                                             placeholder="Buscar producto..."
-                                            className="w-full pl-9 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all font-medium"
+                                            className="w-full pl-9 pr-14 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:bg-white transition-all font-medium"
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                             onKeyDown={(e) => e.key === 'Enter' && runIntelligentAnalysis()}
@@ -751,7 +773,7 @@ const SupplyChainPage: React.FC = () => {
                                         <button
                                             onClick={() => setIsScannerOpen(true)}
                                             aria-label="Abrir scanner de abastecimiento"
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 hover:bg-slate-200 rounded-lg text-slate-400 hover:text-purple-600 transition-colors"
+                                            className="absolute right-1 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-xl text-slate-400 transition-colors hover:bg-slate-200 hover:text-purple-600"
                                             title="Escanear código de barras"
                                         >
                                             <ScanBarcode size={18} />
@@ -898,7 +920,7 @@ const SupplyChainPage: React.FC = () => {
                                                         value={selectedLocation}
                                                         onChange={(e) => setSelectedLocation(e.target.value)}
                                                     >
-                                                        <option value="">Todas las ubicaciones</option>
+                                                        <option value="">Contexto activo</option>
                                                         {locations.map((location) => (
                                                             <option key={location.id} value={location.id}>
                                                                 {location.name}
@@ -1001,7 +1023,7 @@ const SupplyChainPage: React.FC = () => {
                                             data-testid="analyze-stock-btn"
                                             onClick={runIntelligentAnalysis}
                                             disabled={isAnalyzing}
-                                            className="flex-shrink-0 px-4 py-2.5 md:px-6 md:py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50 shadow-md shadow-purple-200 flex items-center justify-center gap-2 whitespace-nowrap text-sm"
+                                            className="flex min-h-11 flex-shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-purple-200 transition hover:bg-purple-700 disabled:opacity-50 md:px-6 md:py-3"
                                         >
                                             {isAnalyzing ? <RefreshCw className="animate-spin" size={16} /> : <Zap size={16} />}
                                             {isAnalyzing ? 'Analizando...' : 'Analizar'}
@@ -1342,9 +1364,9 @@ const SupplyChainPage: React.FC = () => {
                     {activeTab === 'transfers' && (
                         <TransferSuggestionsPanel
                             suggestions={transferSuggestions}
-                            targetLocationId={selectedLocation || currentLocationId || ''}
-                            targetLocationName={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.name || 'Sucursal Actual'}
-                            defaultWarehouseId={locations?.find(l => l.id === (selectedLocation || currentLocationId))?.default_warehouse_id}
+                            targetLocationId={procurementContext.locationId}
+                            targetLocationName={procurementContext.locationName}
+                            defaultWarehouseId={procurementContext.warehouseId || procurementContext.location?.default_warehouse_id}
                             onTransferComplete={() => runIntelligentAnalysis()}
                             onGoBack={() => setActiveTab('suggestions')}
                         />
@@ -1354,7 +1376,7 @@ const SupplyChainPage: React.FC = () => {
                     {activeTab === 'history' && (
                         <div className="flex-1 overflow-y-auto flex flex-col">
                             <SuggestionAnalysisHistoryPanel
-                                locationId={selectedLocation || undefined}
+                                locationId={procurementContext.locationId || undefined}
                                 isActive={activeTab === 'history'}
                                 refreshKey={analysisHistoryRefreshKey}
                                 onRestore={(entry) => {
@@ -1369,6 +1391,7 @@ const SupplyChainPage: React.FC = () => {
                 {/* Right: Kanban Status */}
                 <div className={`${showSplitPanels ? 'flex' : 'hidden'} flex-1 flex-col overflow-hidden max-w-sm`}>
                     <SupplyKanban
+                        locationId={procurementContext.locationId || undefined}
                         bootstrapOnMount={false}
                         onEditOrder={(po) => {
                             setSelectedOrder(po);

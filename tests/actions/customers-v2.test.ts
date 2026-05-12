@@ -99,4 +99,50 @@ describe('Customers V2 hardening', () => {
         expect(result.error).toContain('Acceso denegado');
         expect(mockPoolQuery).not.toHaveBeenCalled();
     });
+
+    it('no escribe PII del cliente en logs de creación', async () => {
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        mockConnectQuery
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({ rows: [] })
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({})
+            .mockResolvedValueOnce({});
+
+        try {
+            const result = await customersV2.createCustomerSecure({
+                rut: '12.345.678-5',
+                fullName: 'Paciente Reservado',
+                phone: '+56912345678',
+                email: 'paciente@example.com',
+                address: 'Av. Prueba 123',
+                tags: ['preferente'],
+                healthTags: ['hipertension'],
+                notes: 'Dato clínico sensible',
+                registrationSource: 'POS',
+            });
+            await Promise.resolve();
+
+            const logOutput = [
+                ...infoSpy.mock.calls,
+                ...logSpy.mock.calls,
+                ...errorSpy.mock.calls,
+            ].flat().map(String).join('\n');
+
+            expect(result.success).toBe(true);
+            expect(logOutput).not.toContain('12.345.678-5');
+            expect(logOutput).not.toContain('12345678-5');
+            expect(logOutput).not.toContain('paciente@example.com');
+            expect(logOutput).not.toContain('+56912345678');
+            expect(logOutput).not.toContain('Av. Prueba 123');
+            expect(logOutput).not.toContain('Dato clínico sensible');
+        } finally {
+            infoSpy.mockRestore();
+            logSpy.mockRestore();
+            errorSpy.mockRestore();
+        }
+    });
 });

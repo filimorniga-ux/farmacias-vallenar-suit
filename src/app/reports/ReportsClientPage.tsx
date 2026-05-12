@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import RouteGuard from '@/components/auth/RouteGuard';
 import ReportsPage from '@/presentation/pages/ReportsPage';
 
@@ -17,7 +18,9 @@ const REPORTS_ALLOWED_ROLES = [
 export default function ReportsClientPage() {
     return (
         <RouteGuard allowedRoles={[...REPORTS_ALLOWED_ROLES]}>
-            <ReportsPage />
+            <Suspense fallback={<div className="p-6 text-sm text-slate-500">Cargando reportes...</div>}>
+                <ReportsPage />
+            </Suspense>
         </RouteGuard>
     );
 }

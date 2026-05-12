@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => {
     return {
         pharmaState,
         usePharmaStoreMock,
-        getUsersForLogin: vi.fn(async () => ({ success: true, data: [] })),
+        findUserForLogin: vi.fn(async () => ({ success: false, error: 'not found', userMessage: 'not found' })),
     };
 });
 
@@ -32,7 +32,7 @@ vi.mock('@/presentation/store/useStore', () => ({
 }));
 
 vi.mock('@/presentation/actions/login', () => ({
-    getUsersForLogin: mocks.getUsersForLogin,
+    findUserForLogin: mocks.findUserForLogin,
 }));
 
 vi.mock('@/actions/pin-recovery-v2', () => ({
@@ -79,6 +79,15 @@ vi.mock('framer-motion', () => ({
             exit: _exit,
             ...props
         }: React.HTMLAttributes<HTMLDivElement> & Record<string, unknown>) => <div {...props}>{children}</div>,
+        button: ({
+            children,
+            whileHover: _whileHover,
+            whileTap: _whileTap,
+            initial: _initial,
+            animate: _animate,
+            exit: _exit,
+            ...props
+        }: React.ButtonHTMLAttributes<HTMLButtonElement> & Record<string, unknown>) => <button {...props}>{children}</button>,
     },
     AnimatePresence: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -141,9 +150,93 @@ describe('LandingPageContent', () => {
         render(<LandingPageContent navigateTo={vi.fn()} />);
 
         await screen.findByText('Consultor');
-        fireEvent.click(screen.getByText('Consultor'));
+        fireEvent.click(screen.getByRole('button', { name: /Consultor/i }));
 
         expect(screen.getByTestId('price-checker-modal')).toBeTruthy();
         expect(screen.queryByText('Seguridad Admin')).toBeNull();
+    });
+
+    it('expone los módulos públicos principales como botones semánticos', async () => {
+        localStorage.setItem('preferred_location_id', 'loc-1');
+        localStorage.setItem('preferred_location_name', 'Sucursal Centro');
+        localStorage.setItem('preferred_location_type', 'STORE');
+
+        const { container } = render(<LandingPageContent navigateTo={vi.fn()} />);
+
+        expect(await screen.findByRole('button', { name: /Administración/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Punto de Venta/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Reloj Control/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Fila Virtual/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Logística/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Consultor/i })).toBeTruthy();
+
+        const root = container.firstElementChild;
+        expect(root?.className).toContain('min-h-dvh');
+        expect(root?.className).toContain('pt-safe');
+        expect(root?.className).toContain('pb-safe');
+        expect(root?.className).toContain('overflow-x-hidden');
+        expect(root?.className).toContain('overflow-y-auto');
+    });
+
+    it('no consulta directorio público de usuarios al montar la landing', async () => {
+        localStorage.setItem('preferred_location_id', 'loc-1');
+        localStorage.setItem('preferred_location_name', 'Sucursal Centro');
+        localStorage.setItem('preferred_location_type', 'STORE');
+
+        render(<LandingPageContent navigateTo={vi.fn()} />);
+
+        await screen.findByText('Administración');
+        expect(mocks.findUserForLogin).not.toHaveBeenCalled();
+    });
+
+    it('mantiene el modal de login scrolleable para viewport móvil landscape', async () => {
+        localStorage.setItem('preferred_location_id', 'loc-1');
+        localStorage.setItem('preferred_location_name', 'Sucursal Centro');
+        localStorage.setItem('preferred_location_type', 'STORE');
+
+        render(<LandingPageContent navigateTo={vi.fn()} />);
+
+        fireEvent.click(await screen.findByRole('button', { name: /Administración/i }));
+
+        const title = await screen.findByRole('heading', { name: /Iniciar Sesión/i });
+        const modal = title.closest('.max-w-md');
+        expect(modal?.className).toContain('max-h-[calc(100dvh-1.5rem)]');
+        expect(modal?.className).toContain('overflow-y-auto');
+        expect(modal?.className).toContain('p-5');
+        expect(modal?.parentElement?.className).toContain('items-start');
+        expect(modal?.parentElement?.className).toContain('overflow-y-auto');
+    });
+
+    it('abre la pantalla de fila sin persistir una sucursal operativa en localStorage', async () => {
+        localStorage.setItem('preferred_location_id', 'loc-1');
+        localStorage.setItem('preferred_location_name', 'Sucursal Centro');
+        localStorage.setItem('preferred_location_type', 'STORE');
+
+        const locationAssignMock = vi.fn();
+        Object.defineProperty(window, 'location', {
+            configurable: true,
+            value: {
+                href: '',
+                assign: locationAssignMock,
+            },
+        });
+
+        render(<LandingPageContent navigateTo={vi.fn()} />);
+
+        await screen.findByText('Fila Virtual');
+        fireEvent.click(screen.getByText('Fila Virtual'));
+
+        const title = await screen.findByRole('heading', { name: /Sistema de Filas/i });
+        const modal = title.closest('.max-w-md');
+
+        expect(modal?.className).toContain('max-h-[calc(100dvh-1.5rem)]');
+        expect(modal?.className).toContain('overflow-y-auto');
+        expect(modal?.parentElement?.className).toContain('items-start');
+        expect(modal?.parentElement?.className).toContain('overflow-y-auto');
+
+        fireEvent.click(screen.getByText('Activar Pantalla'));
+
+        expect(localStorage.getItem('queue_display_location_id')).toBeNull();
+        expect(String(window.location.href)).toBe('/display/queue');
     });
 });

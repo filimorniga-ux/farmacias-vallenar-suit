@@ -37,7 +37,7 @@ export default function GlobalError({
                     <div className="text-center">
                         <h2 className="mb-4 text-3xl font-bold text-red-500">¡Ups! Algo salió mal</h2>
                         <p className="mb-8 text-slate-300">
-                            Ha ocurrido un error crítico en la aplicación via Farmacias Vallenar Suit.
+                            Ha ocurrido un error crítico en Farmacias Vallenar Suite.
                         </p>
                         <button
                             className="rounded-xl bg-cyan-600 px-6 py-3 font-bold text-white transition-colors hover:bg-cyan-700 shadow-lg shadow-cyan-900/40"

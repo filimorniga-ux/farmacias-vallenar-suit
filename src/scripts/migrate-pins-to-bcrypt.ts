@@ -52,8 +52,10 @@ config({ path: resolve(process.cwd(), '.env') });
 
 import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
+import { assertScriptDbWriteTargetAllowed } from './script-db-target-policy';
 
 const BCRYPT_ROUNDS = 10;
+const MIGRATE_PINS_ALLOW_NON_LOCAL_ENV = 'MIGRATE_PINS_ALLOW_NON_LOCAL';
 
 interface MigrationResult {
     total: number;
@@ -76,6 +78,32 @@ const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run') || args.includes('-d');
 const VERBOSE = args.includes('--verbose') || args.includes('-v');
 
+function isLocalConnectionString(value: string) {
+    try {
+        const parsed = new URL(value);
+        return parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+    } catch {
+        return value.includes('localhost') || value.includes('127.0.0.1');
+    }
+}
+
+function resolveMigrationConnectionString() {
+    const connectionString = process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL || process.env.POSTGRES_URL;
+    if (!connectionString) {
+        throw new Error('POSTGRES_URL_NON_POOLING, DATABASE_URL o POSTGRES_URL requerido para migrate:pins');
+    }
+
+    if (!DRY_RUN) {
+        assertScriptDbWriteTargetAllowed({
+            scriptName: 'migrate:pins',
+            connectionString,
+            allowNonLocalEnv: MIGRATE_PINS_ALLOW_NON_LOCAL_ENV,
+        });
+    }
+
+    return connectionString;
+}
+
 async function migratePins(): Promise<MigrationResult> {
     const result: MigrationResult = {
         total: 0,
@@ -87,9 +115,10 @@ async function migratePins(): Promise<MigrationResult> {
     };
 
     // Initialize database connection
+    const connectionString = resolveMigrationConnectionString();
     const pool = new Pool({
-        connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+        connectionString,
+        ssl: isLocalConnectionString(connectionString) ? false : { rejectUnauthorized: false }
     });
 
     const client = await pool.connect();

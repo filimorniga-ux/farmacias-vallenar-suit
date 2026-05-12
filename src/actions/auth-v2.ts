@@ -13,6 +13,7 @@ import {
 import {
     type PinQueryClient,
     ROLE_GROUPS,
+    normalizeRole,
     validatePinForRoles,
     validatePinForUser,
 } from '@/lib/pin-rbac';
@@ -51,6 +52,22 @@ const pinQueryClient: PinQueryClient = {
     query: (sql, params) =>
         query(sql, params as AuthPinQueryParam[] | undefined) as Promise<Awaited<ReturnType<PinQueryClient['query']>>>,
 };
+
+const supervisorPinBaseRoles =
+    (ROLE_GROUPS as { OVERRIDE?: readonly string[] }).OVERRIDE ?? ROLE_GROUPS.MANAGER;
+
+const SUPERVISOR_PIN_ROLE_ALLOWLIST = new Set<string>(
+    supervisorPinBaseRoles.map((role) => normalizeRole(role))
+);
+
+function resolveSupervisorPinRoles(requiredRoles: string[]) {
+    const requestedRoles = requiredRoles.length > 0 ? requiredRoles : [...ROLE_GROUPS.MANAGER];
+    return Array.from(new Set(
+        requestedRoles
+            .map((role) => normalizeRole(role))
+            .filter((role) => SUPERVISOR_PIN_ROLE_ALLOWLIST.has(role))
+    ));
+}
 
 export async function getSessionSecure() {
     return getValidatedSession();
@@ -102,12 +119,24 @@ export async function validateSupervisorPin(
     requiredRoles: string[] = [...ROLE_GROUPS.MANAGER]
 ) {
     try {
-        const result = await validatePinForRoles(pinQueryClient, pin, requiredRoles, {
+        const session = await getValidatedSession();
+        if (!session) {
+            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+        }
+
+        const allowedRoles = resolveSupervisorPinRoles(requiredRoles);
+        if (allowedRoles.length === 0) {
+            logger.warn({ requestedRoles: requiredRoles }, 'Validate Supervisor PIN rejected invalid role set');
+            return { success: false, error: 'Rol de autorización no permitido' };
+        }
+
+        const result = await validatePinForRoles(pinQueryClient, pin, allowedRoles, {
             allowLegacyPlaintext: true,
+            useRateLimiter: true,
         });
 
         if (!result.valid) {
-            return { success: false, error: 'PIN inválido o sin permisos' };
+            return { success: false, error: result.code === 'PIN_RATE_LIMITED' ? result.error : 'PIN inválido o sin permisos' };
         }
 
         return {

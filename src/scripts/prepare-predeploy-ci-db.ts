@@ -2,16 +2,8 @@
 
 import { Pool } from 'pg';
 import { ensureMinimalRuntimeSchema } from './runtime-schema-contract';
-
-const REQUIRED_MIGRATIONS = [
-    ['001', 'Bootstrap base schema'],
-    ['002', 'Terminal integrity baseline'],
-    ['003', 'UUID standardization'],
-    ['004', 'Audit system'],
-    ['005', 'Security pin hash'],
-    ['006', 'Reconciliation module'],
-    ['007', 'Accounts payable baseline'],
-] as const;
+import { PREDEPLOY_REQUIRED_MIGRATIONS } from './predeploy-required-migrations';
+import { assertScriptDbWriteTargetAllowed } from './script-db-target-policy';
 
 const DEV_TEST_ACCOUNT = {
     name: '[DEV] Gerente General 1',
@@ -24,6 +16,12 @@ function getConnectionString() {
     if (!databaseUrl) {
         throw new Error('DATABASE_URL no está configurada');
     }
+
+    assertScriptDbWriteTargetAllowed({
+        scriptName: 'prepare-predeploy-ci-db',
+        connectionString: databaseUrl,
+        allowNonLocalEnv: 'PREDEPLOY_CI_DB_ALLOW_NON_LOCAL',
+    });
 
     return databaseUrl;
 }
@@ -61,7 +59,7 @@ async function main() {
             )
         `);
 
-        for (const [version, description] of REQUIRED_MIGRATIONS) {
+        for (const [version, description] of PREDEPLOY_REQUIRED_MIGRATIONS) {
             await client.query(
                 `
                 INSERT INTO schema_migrations(version, description, checksum)

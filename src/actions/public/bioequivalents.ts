@@ -2,7 +2,14 @@
 
 import ispData from '@/data/isp-data.json';
 import { query } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { ProductResult, buildPublicProductResult } from './public-product-result';
+import {
+    enforcePublicSearchGuard,
+    normalizePublicSearchLimit,
+    normalizePublicSearchPage,
+    normalizePublicSearchTerm,
+} from './public-search-guard';
 
 // Type definition based on the JSON structure
 interface ISPJsonRecord {
@@ -32,15 +39,19 @@ const records: ISPJsonRecord[] = ispData as ISPJsonRecord[];
  * No file reading required at runtime.
  */
 export async function searchBioequivalentsAction(term: string, page: number = 1, limit: number = 50): Promise<BioequivalentResult[]> {
+    if (!await enforcePublicSearchGuard('bioequivalent-search')) return [];
+
     try {
-        console.log(`📊 [ISP] Searching in ${records.length} bundled records`);
+        const normalizedTerm = normalizePublicSearchTerm(term);
+        const safePage = normalizePublicSearchPage(page);
+        const safeLimit = normalizePublicSearchLimit(limit);
 
         let filtered = records;
 
         // Only filter if there is a term
-        if (term && term.trim() !== '') {
-            const normalizedTerm = term.toLowerCase().trim();
-            const isLetterFilter = normalizedTerm.length === 1 && /^[a-z]$/i.test(normalizedTerm);
+        if (normalizedTerm) {
+            const lowerTerm = normalizedTerm.toLowerCase();
+            const isLetterFilter = lowerTerm.length === 1 && /^[a-z]$/i.test(lowerTerm);
 
             filtered = records.filter((record) => {
                 const producto = record.product;
@@ -51,21 +62,21 @@ export async function searchBioequivalentsAction(term: string, page: number = 1,
 
                 if (isLetterFilter) {
                     // Strict Starts With for A-Z Index Navigation
-                    return producto.toLowerCase().startsWith(normalizedTerm);
+                    return producto.toLowerCase().startsWith(lowerTerm);
                 }
 
                 // General Search (Includes)
                 return (
-                    producto.toLowerCase().includes(normalizedTerm) ||
-                    principio.toLowerCase().includes(normalizedTerm) ||
-                    registro.toLowerCase().includes(normalizedTerm)
+                    producto.toLowerCase().includes(lowerTerm) ||
+                    principio.toLowerCase().includes(lowerTerm) ||
+                    registro.toLowerCase().includes(lowerTerm)
                 );
             });
         }
 
         // Pagination Logic
-        const startIndex = (page - 1) * limit;
-        const endIndex = startIndex + limit;
+        const startIndex = (safePage - 1) * safeLimit;
+        const endIndex = startIndex + safeLimit;
 
         return filtered.slice(startIndex, endIndex).map((r) => ({
             registry_number: r.registry,
@@ -78,7 +89,7 @@ export async function searchBioequivalentsAction(term: string, page: number = 1,
         }));
 
     } catch (error) {
-        console.error('❌ Error searching ISP Data:', error);
+        logger.error({ error }, '[PublicSearch] ISP search failed');
         return [];
     }
 }
@@ -92,12 +103,13 @@ export async function searchBioequivalentsAction(term: string, page: number = 1,
  * Searches in: (1) dci column, (2) name column, (3) inventory_batches name column.
  */
 export async function findInventoryMatchesAction(dci: string, ispProductName: string = ''): Promise<ProductResult[]> {
-    if (!dci && !ispProductName) return [];
+    if (!await enforcePublicSearchGuard('inventory-match')) return [];
+
+    const cleanDci = normalizePublicSearchTerm(dci);
+    const cleanIspName = normalizePublicSearchTerm(ispProductName);
+    if (!cleanDci && !cleanIspName) return [];
 
     try {
-        const cleanDci = dci ? dci.trim().replace(/[^\w\sáéíóúñ]/gi, '') : '';
-        const cleanIspName = ispProductName ? ispProductName.trim().replace(/[^\w\sáéíóúñ]/gi, '') : '';
-
         // Extract first word of ISP name for brand matching (e.g., "ORALNE" from "ORALNE CÁPSULAS")
         const ispWords = cleanIspName.split(/\s+/).filter(w => w.length > 3);
         const brandWord = ispWords.length > 0 ? ispWords[0] : '';
@@ -173,7 +185,7 @@ export async function findInventoryMatchesAction(dci: string, ispProductName: st
 
         const result = await query(sql, [dciPattern, brandPattern]);
 
-        console.log('Ejecutando query', { dciPattern, brandPattern, rows: result.rows.length });
+        logger.info({ rows: result.rows.length, hasDci: Boolean(dciPattern), hasBrand: Boolean(brandPattern) }, '[PublicSearch] Inventory matches completed');
 
         return result.rows.map((row) => buildPublicProductResult({
             id: row.id,
@@ -189,7 +201,7 @@ export async function findInventoryMatchesAction(dci: string, ispProductName: st
         }));
 
     } catch (error) {
-        console.error('❌ Error finding inventory matches:', error);
+        logger.error({ error }, '[PublicSearch] Inventory match failed');
         return [];
     }
 }
@@ -199,7 +211,13 @@ export async function findInventoryMatchesAction(dci: string, ispProductName: st
  * Sorted alphabetically and paginated.
  */
 export async function getUniqueActiveIngredientsAction(term: string, page: number = 1, limit: number = 50): Promise<string[]> {
+    if (!await enforcePublicSearchGuard('active-ingredient-list')) return [];
+
     try {
+        const normalizedTerm = normalizePublicSearchTerm(term);
+        const safePage = normalizePublicSearchPage(page);
+        const safeLimit = normalizePublicSearchLimit(limit);
+
         // Extract unique active ingredients
         const uniqueIngredients = new Set<string>();
 
@@ -210,29 +228,27 @@ export async function getUniqueActiveIngredientsAction(term: string, page: numbe
             }
         });
 
-        console.log(`🔍 [ActiveIngredients] Unique ingredients found: ${uniqueIngredients.size}`);
-
         let sortedList = Array.from(uniqueIngredients).sort();
 
         // Filter if term exists
-        if (term && term.trim() !== '') {
-            const normalizedTerm = term.toUpperCase().trim();
+        if (normalizedTerm) {
+            const upperTerm = normalizedTerm.toUpperCase();
             // If term is a single letter, assume "Starts With" filter
-            if (normalizedTerm.length === 1 && /^[A-Z]$/.test(normalizedTerm)) {
-                sortedList = sortedList.filter(item => item.startsWith(normalizedTerm));
+            if (upperTerm.length === 1 && /^[A-Z]$/.test(upperTerm)) {
+                sortedList = sortedList.filter(item => item.startsWith(upperTerm));
             } else {
-                sortedList = sortedList.filter(item => item.includes(normalizedTerm));
+                sortedList = sortedList.filter(item => item.includes(upperTerm));
             }
         }
 
         // Pagination
-        const startIndex = (page - 1) * limit;
-        const endIndex = startIndex + limit;
+        const startIndex = (safePage - 1) * safeLimit;
+        const endIndex = startIndex + safeLimit;
 
         return sortedList.slice(startIndex, endIndex);
 
     } catch (error) {
-        console.error('❌ Error getting active ingredients:', error);
+        logger.error({ error }, '[PublicSearch] Active ingredient list failed');
         return [];
     }
 }

@@ -2,16 +2,38 @@ import AddPurchaseButton from '@/components/logistica/AddPurchaseButton';
 import UnifiedPriceConsultant from '@/components/procurement/UnifiedPriceConsultant';
 import RouteGuard from '@/components/auth/RouteGuard';
 import { InventoryExportForm } from '@/presentation/components/reports/InventoryExportForm';
-
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
+import { requireScopedActor } from '@/actions/admin-scope';
+import { getValidatedSession } from '@/lib/server-session';
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
+const LOGISTICA_PAGE_ROLES = ['ADMIN', 'QF', 'WAREHOUSE', 'MANAGER', 'GERENTE_GENERAL'] as const;
+const INTERNAL_PRICING_ROLES = new Set([
+    'WAREHOUSE',
+    'WAREHOUSE_CHIEF',
+    'MANAGER',
+    'QF',
+    'ADMIN',
+    'GERENTE_GENERAL',
+]);
+
 export default async function LogisticaPage() {
-    // const logisticsData = await getLogisticsData(); // Removed unused data fetch
+    const session = await getValidatedSession();
+    if (!session) {
+        redirect('/login');
+    }
+
+    const auth = await requireScopedActor(LOGISTICA_PAGE_ROLES);
+    if (!auth.success) {
+        redirect('/');
+    }
+
+    const canViewInternalPricing = INTERNAL_PRICING_ROLES.has(auth.actor.role);
 
     return (
-        <RouteGuard allowedRoles={['ADMIN', 'QF', 'WAREHOUSE', 'MANAGER', 'GERENTE_GENERAL']}>
+        <RouteGuard allowedRoles={[...LOGISTICA_PAGE_ROLES]}>
             <div className="min-h-screen bg-gray-100 py-8">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="md:flex md:items-center md:justify-between mb-8">
@@ -37,7 +59,7 @@ export default async function LogisticaPage() {
 
                     <div className="bg-white shadow-sm ring-1 ring-gray-900/5 sm:rounded-xl md:col-span-2">
                         {/* Replaced DataTable with UnifiedPriceConsultant for consistency */}
-                        <UnifiedPriceConsultant allowToggle={true} />
+                        <UnifiedPriceConsultant allowToggle={canViewInternalPricing} canViewInternalPricing={canViewInternalPricing} />
                     </div>
                 </div>
             </div>

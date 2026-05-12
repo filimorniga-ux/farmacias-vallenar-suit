@@ -298,10 +298,10 @@ async function resolveCanonicalProductForMovement(
                 p.id,
                 p.name,
                 COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-                COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+                COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
             FROM products p
             WHERE p.id::text = $1
-              AND p.id ~* $2
+              AND p.id::text ~* $2
             LIMIT 1
         `, [preferredProductId, UUID_TEXT_REGEX]);
 
@@ -322,15 +322,15 @@ async function resolveCanonicalProductForMovement(
             p.id,
             p.name,
             COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
         FROM products p
-        WHERE p.id ~* $2
+        WHERE p.id::text ~* $2
           AND (
             p.sku = $1
             OR $1 = ANY(
               array_remove(
                 regexp_split_to_array(
-                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  regexp_replace(COALESCE(to_jsonb(p)->>'barcode', ''), '\\s+', '', 'g'),
                   ','
                 ),
                 ''
@@ -340,7 +340,7 @@ async function resolveCanonicalProductForMovement(
         ORDER BY
             (p.sku = $1) DESC,
             (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
-            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            (COALESCE(p.cost_price, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0) > 0) DESC,
             p.id DESC
         LIMIT 1
     `, [sku, UUID_TEXT_REGEX]);
@@ -969,6 +969,7 @@ export async function getStockHistorySecure(filters: {
     startDate?: Date;
     endDate?: Date;
     movementType?: string;
+    invoiceNumber?: string;
     page?: number;
     pageSize?: number;
 }): Promise<{
@@ -990,6 +991,9 @@ export async function getStockHistorySecure(filters: {
         const actor = actorResult.actor;
         const page = filters.page || 1;
         const pageSize = Math.min(filters.pageSize || 50, 100);
+        const invoiceNumber = typeof filters.invoiceNumber === 'string'
+            ? filters.invoiceNumber.trim()
+            : '';
         const requestedScopeId = hasGlobalInventoryScope(actor.role)
             ? filters.warehouseId
             : undefined;
@@ -1026,6 +1030,11 @@ export async function getStockHistorySecure(filters: {
         if (filters.movementType) {
             conditions.push(`sm.movement_type = $${paramIndex++}`);
             params.push(filters.movementType);
+        }
+
+        if (invoiceNumber) {
+            conditions.push(`COALESCE(sm.notes, '') ILIKE $${paramIndex++}`);
+            params.push(`%${invoiceNumber}%`);
         }
 
         const whereClause = conditions.length > 0
@@ -2068,8 +2077,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
                                 'quantity', COALESCE(poi.quantity_ordered, 0),
                                 'quantity_ordered', COALESCE(poi.quantity_ordered, 0),
                                 'cost', COALESCE(poi.cost_price, 0),
-                                'cost_price', COALESCE(poi.cost_price, 0),
-                                'product_id', poi.product_id
+                                'cost_price', COALESCE(poi.cost_price, 0)
                             )
                             ORDER BY poi.sku
                         ) FILTER (WHERE poi.id IS NOT NULL),

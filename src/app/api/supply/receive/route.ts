@@ -1,59 +1,38 @@
 import { NextResponse } from 'next/server';
-import { receiveProduct } from '@/lib/data/supply';
+
 import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 import { logger } from '@/lib/logger';
 
-export async function POST(request: Request) {
+const LEGACY_RECEIVE_DISABLED_RESPONSE = {
+    error: 'Recepción legacy deshabilitada. Use el flujo WMS/abastecimiento vigente.',
+    code: 'SUPPLY_RECEIVE_LEGACY_DISABLED',
+} as const;
+
+export async function POST(_request: Request) {
     try {
         const auth = await requireApiRoles(INVENTORY_API_ROLES);
         if (!auth.ok) {
             return auth.response;
         }
 
-        const body = await request.json();
-        const { producto_id, numero_lote, fecha_vencimiento, cantidad, proveedor_id } = body;
-
-        if (
-            !producto_id
-            || !numero_lote
-            || !fecha_vencimiento
-            || cantidad === undefined
-            || cantidad === null
-            || cantidad === ''
-        ) {
-            return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
-        }
-
-        const parsedCantidad = Number(cantidad);
-        if (!Number.isFinite(parsedCantidad) || parsedCantidad <= 0) {
-            return NextResponse.json({ error: 'Invalid cantidad', code: 'INVALID_CANTIDAD' }, { status: 400 });
-        }
-
-        await receiveProduct({
-            producto_id,
-            numero_lote,
-            fecha_vencimiento,
-            cantidad: parsedCantidad,
-            ubicacion_fisica: 'Bodega Central' // Default
-        });
-
-        logger.info(
+        logger.warn(
             {
                 actorUserId: auth.session.userId,
                 actorRole: auth.session.role,
-                productoId: producto_id,
-                proveedorId: proveedor_id ?? null,
-                cantidad: parsedCantidad,
             },
-            '[SupplyReceiveRoute] Product received'
+            '[SupplyReceiveRoute] Legacy endpoint disabled',
         );
 
-        return NextResponse.json({ success: true });
-    } catch (error: any) {
+        return NextResponse.json(
+            LEGACY_RECEIVE_DISABLED_RESPONSE,
+            { status: 410, headers: API_NO_STORE_HEADERS },
+        );
+    } catch (error: unknown) {
         logger.error({ error }, '[SupplyReceiveRoute] Receive failed');
         return NextResponse.json(
             { error: 'No fue posible registrar la recepción del producto', code: 'SUPPLY_RECEIVE_FAILED' },
-            { status: 500 }
+            { status: 500, headers: API_NO_STORE_HEADERS },
         );
     }
 }

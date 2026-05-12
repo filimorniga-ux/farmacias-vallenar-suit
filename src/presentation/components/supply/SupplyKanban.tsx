@@ -11,6 +11,7 @@ import {
     SupplyKanbanColumnKey,
     SupplyKanbanEntry,
 } from './supplyKanbanUtils';
+import { resolveProcurementVisibleContext } from '@/presentation/lib/procurement-visible-context';
 
 function isUuid(value: string | undefined): boolean {
     if (!value) return false;
@@ -18,6 +19,7 @@ function isUuid(value: string | undefined): boolean {
 }
 
 interface SupplyKanbanProps {
+    locationId?: string;
     onEditOrder: (order: any) => void;
     onReceiveOrder: (order: any) => void;
     onViewOrder?: (order: any) => void;
@@ -425,6 +427,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
 };
 
 const SupplyKanban: React.FC<SupplyKanbanProps> = ({
+    locationId,
     onEditOrder,
     onReceiveOrder,
     onViewOrder,
@@ -439,20 +442,22 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [lastError, setLastError] = useState<string | null>(null);
     const locationStoreCurrentId = useLocationStore((state) => state.currentLocation?.id);
-    const [localStorageLocationId, setLocalStorageLocationId] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            const contextId = localStorage.getItem('context_location_id');
-            const preferredId = localStorage.getItem('preferred_location_id');
-            setLocalStorageLocationId(contextId || preferredId || null);
-        } catch {
-            setLocalStorageLocationId(null);
-        }
-    }, []);
-
-    const effectiveLocationId = currentLocationId || locationStoreCurrentId || localStorageLocationId || undefined;
+    const locationStoreCurrent = useLocationStore((state) => state.currentLocation);
+    const locations = useLocationStore((state) => state.locations);
+    const procurementContext = useMemo(() => resolveProcurementVisibleContext({
+        requestedLocationId: locationId,
+        currentLocationId,
+        user,
+        locationStoreCurrent,
+        locations,
+    }), [
+        currentLocationId,
+        locationId,
+        locationStoreCurrent,
+        locations,
+        user,
+    ]);
+    const effectiveLocationId = procurementContext.locationId || currentLocationId || locationStoreCurrentId || undefined;
     const scopedLocationId = isUuid(effectiveLocationId) ? effectiveLocationId : undefined;
     const shouldEnableDomainQuery = bootstrapOnMount || !!scopedLocationId;
     const {

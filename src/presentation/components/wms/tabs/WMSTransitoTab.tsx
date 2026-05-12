@@ -6,6 +6,11 @@ import { toast } from 'sonner';
 import * as Sentry from '@sentry/nextjs';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { PurchaseOrder, Shipment } from '@/domain/types';
+import {
+    compareWmsPendingPriority,
+    getWmsPendingPriority,
+    type WmsPendingPriority,
+} from '@/presentation/lib/wms-pending-priority';
 
 type DirectionFilter = 'BOTH' | 'INCOMING' | 'OUTGOING';
 
@@ -28,6 +33,7 @@ interface ShipmentCard {
         quantity: number;
     }>;
     payload?: Record<string, unknown>;
+    priority: WmsPendingPriority;
 }
 
 interface WMSTransitoTabProps {
@@ -44,6 +50,12 @@ const DIRECTION_META: Record<DirectionFilter, { label: string; badge: string }> 
     BOTH: { label: 'Ambos sentidos', badge: 'bg-slate-100 text-slate-700 border-slate-200' },
     INCOMING: { label: 'Entrante', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     OUTGOING: { label: 'Saliente', badge: 'bg-sky-50 text-sky-700 border-sky-200' },
+};
+
+const PRIORITY_META: Record<WmsPendingPriority['level'], { label: string; badge: string }> = {
+    high: { label: 'Prioridad alta', badge: 'bg-rose-50 text-rose-700 border-rose-200' },
+    medium: { label: 'Prioridad media', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+    low: { label: 'Prioridad baja', badge: 'bg-slate-50 text-slate-600 border-slate-200' },
 };
 
 const getTypeLabel = (type: string) => {
@@ -151,6 +163,17 @@ const toShipmentCardsFromPurchaseOrders = (
                 };
             }),
             payload: order,
+            priority: getWmsPendingPriority({
+                id: String(order.id || ''),
+                createdAt: typeof order.created_at === 'number' ? order.created_at : Date.now(),
+                direction,
+                status: normalizedStatus || 'SENT',
+                itemCount: rawItems.length,
+                totalQuantity: rawItems.reduce((sum, item) => {
+                    const row = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {};
+                    return sum + Number(row.quantity_ordered ?? row.quantity ?? 0);
+                }, 0),
+            }),
         }];
     });
 };
@@ -242,6 +265,19 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                         })
                         : [],
                     payload: row,
+                    priority: getWmsPendingPriority({
+                        id: String(row.id || ''),
+                        createdAt: typeof row.created_at === 'number' ? row.created_at : Date.now(),
+                        direction: rowDirection,
+                        status: normalizeStatus(row.status),
+                        itemCount: Array.isArray(row.items) ? row.items.length : 0,
+                        totalQuantity: Array.isArray(row.items)
+                            ? row.items.reduce((sum, item) => {
+                                const itemRow = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                                return sum + Number(itemRow.quantity ?? 0);
+                            }, 0)
+                            : 0,
+                    }),
                 } satisfies ShipmentCard;
             })
             .filter((row) => row.status === 'IN_TRANSIT');
@@ -253,7 +289,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
 
         return [...shipmentRows, ...purchaseOrderRows]
             .filter((row) => direction === 'BOTH' || row.direction === direction)
-            .sort((a, b) => b.created_at - a.created_at);
+            .sort(compareWmsPendingPriority);
     }, [currentLocationId, direction, purchaseOrders, shipments]);
 
     const summary = useMemo(() => {
@@ -326,6 +362,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                     {transitRows.map((shipment) => (
                         <div
                             key={`${shipment.source}-${shipment.id}`}
+                            data-testid="wms-transit-row"
                             className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-indigo-200 transition-colors"
                         >
                             <div className="flex items-start justify-between gap-3">
@@ -336,6 +373,9 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                                         </span>
                                         <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${DIRECTION_META[shipment.direction].badge}`}>
                                             {DIRECTION_META[shipment.direction].label}
+                                        </span>
+                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${PRIORITY_META[shipment.priority.level].badge}`}>
+                                            {PRIORITY_META[shipment.priority.level].label}
                                         </span>
                                         <span className="text-xs text-slate-400 font-mono">
                                             #{shipment.id.slice(0, 8)}
@@ -369,6 +409,10 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                                                 Autorizó: {shipment.authorized_by_name}
                                             </span>
                                         )}
+                                        <span className="flex items-center gap-1 font-semibold text-indigo-600">
+                                            <Clock3 size={12} />
+                                            {shipment.priority.reasonLabel}: {shipment.priority.evidenceLabel}
+                                        </span>
                                     </div>
                                 </div>
 

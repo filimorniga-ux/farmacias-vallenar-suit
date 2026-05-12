@@ -37,8 +37,12 @@ vi.mock('@/lib/logger', () => ({
 
 import {
     unlockAttendanceKioskSecure,
+    unlockQueueDisplaySecure,
+    unlockQueueKioskSecure,
     validateAttendanceKioskExitPinSecure,
     validatePublicKioskAdminPinSecure,
+    validateQueueDisplayExitPinSecure,
+    validateQueueKioskExitPinSecure,
 } from '@/actions/kiosk-auth-v2';
 
 const LOCATION_ID = '550e8400-e29b-41d4-a716-446655440001';
@@ -139,5 +143,77 @@ describe('kiosk-auth-v2', () => {
         });
 
         expect(result.success).toBe(true);
+    });
+
+    it('emite token de kiosko de fila para manager en su sucursal', async () => {
+        const result = await unlockQueueKioskSecure({
+            locationId: LOCATION_ID,
+            pin: '9999',
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockIssueKioskSessionToken).toHaveBeenCalledWith({
+            mode: 'QUEUE',
+            locationId: LOCATION_ID,
+            authorizedBy: MANAGER_ID,
+        });
+    });
+
+    it('emite token de display de fila para manager en su sucursal', async () => {
+        const result = await unlockQueueDisplaySecure({
+            locationId: LOCATION_ID,
+            pin: '9999',
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockIssueKioskSessionToken).toHaveBeenCalledWith({
+            mode: 'QUEUE_DISPLAY',
+            locationId: LOCATION_ID,
+            authorizedBy: MANAGER_ID,
+        });
+    });
+
+    it('valida salida del totem de fila con el token pareado', async () => {
+        mockVerifyKioskSessionToken.mockReturnValueOnce({
+            valid: true,
+            payload: {
+                version: 1,
+                mode: 'QUEUE',
+                locationId: LOCATION_ID,
+                authorizedBy: MANAGER_ID,
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + 60_000,
+            },
+        });
+
+        const result = await validateQueueKioskExitPinSecure({
+            pin: '9999',
+            kioskToken: 'signed-kiosk-token',
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockVerifyKioskSessionToken).toHaveBeenCalledWith('signed-kiosk-token', 'QUEUE');
+    });
+
+    it('valida salida del display de fila con el token pareado', async () => {
+        mockVerifyKioskSessionToken.mockReturnValueOnce({
+            valid: true,
+            payload: {
+                version: 1,
+                mode: 'QUEUE_DISPLAY',
+                locationId: LOCATION_ID,
+                authorizedBy: MANAGER_ID,
+                issuedAt: Date.now(),
+                expiresAt: Date.now() + 60_000,
+            },
+        });
+
+        const result = await validateQueueDisplayExitPinSecure({
+            pin: '9999',
+            kioskToken: 'signed-kiosk-token',
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockVerifyKioskSessionToken).toHaveBeenCalledWith('signed-kiosk-token', 'QUEUE_DISPLAY');
     });
 });

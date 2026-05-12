@@ -5,6 +5,7 @@ export interface LoginOptions {
     branch?: string;
     module?: string;
     user?: string;
+    rut?: string;
     pin?: string;
     strictBranchMatch?: boolean;
     strictUserMatch?: boolean;
@@ -14,6 +15,7 @@ const DEFAULT_OPTIONS: Required<LoginOptions> = {
     branch: 'Farmacia Vallenar santiago',
     module: 'Administración',
     user: DEV_TEST_LOGIN.user,
+    rut: DEV_TEST_LOGIN.rut,
     pin: DEV_TEST_LOGIN.pin,
     strictBranchMatch: false,
     strictUserMatch: false,
@@ -49,12 +51,10 @@ async function selectBranchIfPresent(page: Page, branch: string, strictBranchMat
     const noBranchesMessage = page.getByText(/No hay sucursales configuradas/i).first();
     const branchCards = page.getByTestId('public-context-card');
 
-    await Promise.race([
-        branchCards.first().waitFor({ state: 'visible', timeout: 15000 }),
-        noBranchesMessage.waitFor({ state: 'visible', timeout: 15000 }),
-    ]).catch(() => undefined);
+    await branchCards.first().waitFor({ state: 'visible', timeout: 45000 }).catch(() => undefined);
 
-    if (await noBranchesMessage.isVisible().catch(() => false)) {
+    const firstBranchVisible = await branchCards.first().isVisible().catch(() => false);
+    if ((await noBranchesMessage.isVisible().catch(() => false)) && !firstBranchVisible) {
         throw new Error('LOGIN_NO_BRANCHES_CONFIGURED');
     }
 
@@ -146,7 +146,39 @@ async function waitLoginModal(page: Page): Promise<void> {
     ]);
 }
 
-async function chooseUser(page: Page, user: string, strictUserMatch: boolean): Promise<void> {
+async function lookupUserByRutIfPresent(page: Page, rut: string): Promise<void> {
+    const rutInput = page.getByPlaceholder(/Ingrese su RUT/i).first();
+    if (!(await rutInput.isVisible().catch(() => false))) {
+        return;
+    }
+
+    await rutInput.fill(rut);
+
+    const searchButton = page.getByRole('button', { name: /Buscar por RUT/i }).first();
+    await searchButton.waitFor({ state: 'visible', timeout: 15000 });
+    await searchButton.click();
+
+    const userButtons = page
+        .locator('button')
+        .filter({ hasText: /ADMIN|GERENTE|CAJERO|BODEGA|SUPERVISOR|DEV_TEST_ACCOUNT/i });
+    const lookupError = page
+        .getByText(/No se encontr[oó]|Usuario no disponible|Ingrese un RUT v[aá]lido|No fue posible/i)
+        .first();
+
+    await page.getByRole('button', { name: /Buscando/i }).first()
+        .waitFor({ state: 'hidden', timeout: 15000 })
+        .catch(() => undefined);
+    await userButtons.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
+
+    if (!(await userButtons.first().isVisible().catch(() => false))) {
+        const errorText = (await lookupError.innerText().catch(() => '')).trim();
+        throw new Error(errorText ? `LOGIN_RUT_LOOKUP_FAILED:${errorText}` : `LOGIN_RUT_LOOKUP_FAILED:${rut}`);
+    }
+}
+
+async function chooseUser(page: Page, user: string, rut: string, strictUserMatch: boolean): Promise<void> {
+    await lookupUserByRutIfPresent(page, rut);
+
     const noUsersVisible = () => page.getByText(/No se encontraron usuarios/i).first().isVisible().catch(() => false);
     const retryButton = page.getByRole('button', { name: /Reintentar carga|Reintentando/i }).first();
 
@@ -198,12 +230,18 @@ async function fillPinAndSubmit(page: Page, pin: string): Promise<void> {
     await pinInput.waitFor({ state: 'visible', timeout: 15000 });
     await pinInput.fill(pin);
 
-    const submit = page.getByRole('button', { name: /Entrar|Ingresar|Acceder/i }).first();
+    const modal = page.locator('.fixed.inset-0').filter({ has: pinInput }).last();
+    const submitScope = await modal.isVisible().catch(() => false) ? modal : page;
+    const submit = submitScope.getByRole('button', { name: /^Entrar$|Ingresar/i }).last();
     if (await submit.isVisible().catch(() => false)) {
+        const submitHandle = await submit.elementHandle().catch(() => null);
+        if (submitHandle) {
+            await page.waitForFunction((button) => !(button as HTMLButtonElement).disabled, submitHandle, { timeout: 5000 }).catch(() => undefined);
+        }
         await submit.click();
     } else {
         // Algunos modales usan botón genérico ("..."), por eso usamos fallback de botón habilitado.
-        const enabledFallback = page
+        const enabledFallback = submitScope
             .locator('button:not([disabled])')
             .filter({ hasNotText: /Atrás|Volver|Cerrar/i })
             .last();
@@ -220,12 +258,12 @@ async function submitLoginWithRetry(page: Page, pin: string, maxAttempts = 3): P
         await fillPinAndSubmit(page, pin);
 
         const successPromise = Promise.race([
-            page.waitForURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 12000 }),
-            page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 12000 }),
+            page.waitForURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 30000 }),
+            page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 30000 }),
         ]).then(() => 'success').catch(() => null);
 
         const errorLocator = page.locator('p.text-red-500, .text-red-500').first();
-        const errorPromise = errorLocator.waitFor({ state: 'visible', timeout: 12000 })
+        const errorPromise = errorLocator.waitFor({ state: 'visible', timeout: 30000 })
             .then(async () => (await errorLocator.innerText().catch(() => '')).trim())
             .catch(() => '');
 
@@ -234,6 +272,11 @@ async function submitLoginWithRetry(page: Page, pin: string, maxAttempts = 3): P
 
         const normalized = (errorText || '').toLowerCase();
         const transient = /timeout|temporalmente|no disponible|conexi[oó]n|servidor|reintento/.test(normalized);
+
+        if (!errorText && attempt < maxAttempts) {
+            await page.waitForTimeout(2000 * attempt);
+            continue;
+        }
 
         if (!transient) {
             throw new Error(errorText || 'LOGIN_FAILED_NO_RETRY');
@@ -269,7 +312,7 @@ export async function loginAsManager(page: Page, options?: LoginOptions): Promis
     await page.waitForLoadState('networkidle');
     await openModuleForLogin(page, cfg.module);
     await waitLoginModal(page);
-    await chooseUser(page, cfg.user, cfg.strictUserMatch);
+    await chooseUser(page, cfg.user, cfg.rut, cfg.strictUserMatch);
     await submitLoginWithRetry(page, cfg.pin);
 
     await page.waitForLoadState('networkidle').catch(() => undefined);

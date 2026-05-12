@@ -82,6 +82,26 @@ describe('StockEntryModal', () => {
         vi.clearAllMocks();
     });
 
+    it('mantiene shell y grillas móviles sin columnas implícitas', () => {
+        renderModal();
+
+        const modal = screen.getByRole('dialog', { name: /Ingreso Rápido de Stock/i });
+        expect(modal).toBe(screen.getByTestId('stock-entry-modal'));
+        expect(modal.className).toContain('h-[calc(100dvh-1rem)]');
+        expect(modal.className).toContain('max-h-[calc(100dvh-1rem)]');
+        expect(modal.parentElement?.className).toContain('safe-area-inset-top');
+        expect(modal.parentElement?.className).toContain('safe-area-inset-bottom');
+        expect(screen.getByTestId('stock-entry-modal-content').className).toContain('flex-1');
+        expect(screen.getByRole('button', { name: /Buscar producto escaneado/i }).className).toContain('min-h-11');
+
+        fireEvent.click(screen.getByRole('button', { name: /Crear Producto Maestro/i }));
+
+        const identificationGrid = screen.getByTestId('stock-entry-new-product-identification-grid');
+        expect(identificationGrid.className).toContain('grid-cols-1');
+        expect(identificationGrid.className).toContain('sm:grid-cols-12');
+        expect(screen.getByRole('button', { name: /Crear Ficha e Ingresar Stock/i }).className).toContain('min-h-11');
+    });
+
     it('carga la cámara solo cuando el usuario abre el flujo explícito', async () => {
         renderModal();
 
@@ -91,5 +111,49 @@ describe('StockEntryModal', () => {
 
         expect(await screen.findByTestId('camera-scanner')).not.toBeNull();
     });
-});
 
+    it('usa el snapshot de inventario recibido por props para resolver el SKU escaneado', async () => {
+        const queryClient = new QueryClient({
+            defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+
+        const inventoryItems = [{
+            id: 'batch-1',
+            sku: 'SKU-123',
+            name: 'Paracetamol',
+            location_id: 'loc-1',
+            stock_actual: 10,
+            stock_min: 1,
+            stock_max: 50,
+            expiry_date: Date.now(),
+            cost_net: 100,
+            tax_percent: 19,
+            price_sell_box: 200,
+            price_sell_unit: 20,
+            price: 200,
+            cost_price: 100,
+            category: 'MEDICAMENTO',
+            allows_commission: false,
+            active_ingredients: [],
+            concentration: '',
+            unit_count: 1,
+            is_generic: false,
+            bioequivalent_status: 'NO_BIOEQUIVALENTE' as const,
+            condition: 'VD' as const,
+        }];
+
+        const { container } = render(
+            <QueryClientProvider client={queryClient}>
+                <StockEntryModal isOpen={true} onClose={vi.fn()} inventoryItems={inventoryItems as any} />
+            </QueryClientProvider>
+        );
+
+        fireEvent.change(screen.getByPlaceholderText(/ean \/ sku/i), {
+            target: { value: 'SKU-123' },
+        });
+
+        fireEvent.submit(container.querySelector('form')!);
+
+        expect(await screen.findByText('Paracetamol')).not.toBeNull();
+    });
+});

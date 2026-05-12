@@ -7,11 +7,87 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const INIT_DB_ALLOW_NON_LOCAL_ENV = 'INIT_DB_ALLOW_NON_LOCAL';
+const INIT_DB_CONFIRM_ENV = 'INIT_DB_CONFIRM';
+const INIT_DB_CONFIRMATION = 'DROP_AND_RECREATE_LEGACY_TABLES';
+const SCRIPT_DB_NON_LOCAL_CONFIRMATION = 'APLICAR';
+
+function redactConnectionString(connectionString) {
+    try {
+        const parsed = new URL(connectionString);
+        if (parsed.password) parsed.password = '****';
+        return parsed.toString();
+    } catch {
+        return connectionString;
+    }
+}
+
+function isLocalDbTarget(connectionString) {
+    try {
+        const parsed = new URL(connectionString);
+        return parsed.hostname === 'localhost' ||
+            parsed.hostname === '127.0.0.1' ||
+            parsed.hostname === '::1';
+    } catch {
+        return connectionString.includes('localhost') || connectionString.includes('127.0.0.1');
+    }
+}
+
+function getPoolerSignals(connectionString) {
+    try {
+        const parsed = new URL(connectionString);
+        return [
+            parsed.hostname.includes('pooler.supabase.com') ? 'host pooler.supabase.com' : null,
+            parsed.searchParams.get('pgbouncer') === 'true' ? 'pgbouncer=true' : null,
+            parsed.searchParams.get('connection_limit') === '1' ? 'connection_limit=1' : null,
+        ].filter(Boolean);
+    } catch {
+        return [];
+    }
+}
+
+function assertInitDbTargetAllowed(connectionString) {
+    const poolerSignals = getPoolerSignals(connectionString);
+    if (poolerSignals.length > 0) {
+        throw new Error(
+            `init-db cannot run against a pooler-style URL. ` +
+            `Signals: ${poolerSignals.join(', ')}. Target: ${redactConnectionString(connectionString)}.`
+        );
+    }
+
+    if (isLocalDbTarget(connectionString)) return;
+
+    if (process.env[INIT_DB_ALLOW_NON_LOCAL_ENV] !== SCRIPT_DB_NON_LOCAL_CONFIRMATION) {
+        throw new Error(
+            `init-db writes destructive legacy tables and only allows local targets by default. ` +
+            `Target: ${redactConnectionString(connectionString)}. ` +
+            `For a non-local direct DB, set ${INIT_DB_ALLOW_NON_LOCAL_ENV}=${SCRIPT_DB_NON_LOCAL_CONFIRMATION}.`
+        );
+    }
+}
+
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+    console.error('❌ DATABASE_URL is required');
+    process.exit(1);
+}
+
+if (process.env[INIT_DB_CONFIRM_ENV] !== INIT_DB_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to drop and recreate legacy tables without explicit confirmation. ` +
+        `Set ${INIT_DB_CONFIRM_ENV}=${INIT_DB_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertInitDbTargetAllowed(databaseUrl);
+console.log('🎯 DB target:', redactConnectionString(databaseUrl));
 
 async function initDatabase() {
     const pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl: process.env.DATABASE_URL?.includes('localhost') ? false : {
+        connectionString: databaseUrl,
+        ssl: databaseUrl.includes('localhost') ? false : {
             rejectUnauthorized: false
         },
     });

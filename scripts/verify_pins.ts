@@ -1,7 +1,27 @@
 import * as dotenv from 'dotenv';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import {
+    SCRIPT_DB_NON_LOCAL_CONFIRMATION,
+    assertScriptDbWriteTargetAllowed,
+} from '../src/scripts/script-db-target-policy';
+
 dotenv.config({ path: '.env.local' });
-console.log('DEBUG: DATABASE_URL is:', process.env.DATABASE_URL ? 'SET' : 'UNSET');
-console.log('DEBUG: Connection String:', process.env.DATABASE_URL); // Temporarily log full string to debug format
+
+const VERIFY_PINS_ALLOW_NON_LOCAL_ENV = 'VERIFY_PINS_ALLOW_NON_LOCAL';
+const VERIFY_PINS_RESET_CONFIRM_ENV = 'VERIFY_PINS_RESET_CONFIRM';
+const VERIFY_PINS_RESET_CONFIRMATION = 'RESET_PIN_1213';
+const databaseUrl = process.env.DATABASE_URL;
+
+type PinAuditUser = {
+    name: string;
+    role: string;
+    access_pin: string | null;
+};
+
+console.log('DEBUG: DATABASE_URL is:', databaseUrl ? 'SET' : 'UNSET');
+if (databaseUrl) {
+    console.log('DEBUG: DB target:', redactConnectionString(databaseUrl));
+}
 // import { pool } from '../src/lib/db'; // Removed static import
 
 async function checkPins() {
@@ -11,11 +31,34 @@ async function checkPins() {
     try {
         console.log('🔍 Checking users in DB...');
         const res = await pool.query('SELECT name, role, access_pin FROM users');
-        console.table(res.rows);
+        const users = res.rows as PinAuditUser[];
 
-        const needsUpdate = res.rows.some(u => u.access_pin !== '1213');
+        console.table(users.map(user => ({
+            name: user.name,
+            role: user.role,
+            pin_status: user.access_pin === '1213' ? 'EXPECTED_DEV_PIN' : 'DIFFERENT_OR_EMPTY',
+        })));
+
+        const needsUpdate = users.some(user => user.access_pin !== '1213');
         if (needsUpdate) {
-            console.log('⚠️ Some users do NOT have PIN 1213. Updating...');
+            if (process.env[VERIFY_PINS_RESET_CONFIRM_ENV] !== VERIFY_PINS_RESET_CONFIRMATION) {
+                console.warn(
+                    `⚠️ Some users do NOT have the controlled dev PIN. ` +
+                    `No changes were made. To reset, define ${VERIFY_PINS_RESET_CONFIRM_ENV}=${VERIFY_PINS_RESET_CONFIRMATION}.`
+                );
+                return;
+            }
+
+            assertScriptDbWriteTargetAllowed({
+                scriptName: 'verify_pins',
+                connectionString: databaseUrl,
+                allowNonLocalEnv: VERIFY_PINS_ALLOW_NON_LOCAL_ENV,
+            });
+
+            console.log(
+                `⚠️ Resetting user PINs to the controlled dev value. ` +
+                `Non-local targets require ${VERIFY_PINS_ALLOW_NON_LOCAL_ENV}=${SCRIPT_DB_NON_LOCAL_CONFIRMATION}.`
+            );
             await pool.query("UPDATE users SET access_pin = '1213'");
             console.log('✅ All users updated to PIN 1213');
         } else {

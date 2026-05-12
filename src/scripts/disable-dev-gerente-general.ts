@@ -7,7 +7,10 @@ config({ path: resolve(process.cwd(), '.env.local'), override: false });
 config({ path: resolve(process.cwd(), '.env'), override: false });
 
 import bcrypt from 'bcryptjs';
-import { getClient } from '../lib/db';
+import { Pool } from 'pg';
+import { assertScriptDbWriteTargetAllowed } from './script-db-target-policy';
+
+const DEV_ACCOUNT_ALLOW_NON_LOCAL_ENV = 'DEV_ACCOUNT_ALLOW_NON_LOCAL';
 
 const DEV_ACCOUNT = {
     name: '[DEV] Gerente General 1',
@@ -31,6 +34,27 @@ function validateRotatePin(pin?: string) {
     return { valid: true };
 }
 
+function createScriptPool() {
+    const dbUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
+    if (!dbUrl) {
+        throw new Error('DATABASE_URL o POSTGRES_URL_NON_POOLING requerido para administrar la cuenta DEV');
+    }
+
+    assertScriptDbWriteTargetAllowed({
+        scriptName: 'dev-account:disable',
+        connectionString: dbUrl,
+        allowNonLocalEnv: DEV_ACCOUNT_ALLOW_NON_LOCAL_ENV,
+    });
+
+    const isLocalhost = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
+
+    return new Pool({
+        connectionString: dbUrl,
+        ssl: isLocalhost ? undefined : { rejectUnauthorized: false },
+        max: 1,
+    });
+}
+
 async function main() {
     if (rotatePinIndex >= 0) {
         const validation = validateRotatePin(rotatePin);
@@ -40,7 +64,8 @@ async function main() {
         }
     }
 
-    const client = await getClient();
+    const pool = createScriptPool();
+    const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
@@ -127,6 +152,7 @@ async function main() {
         process.exitCode = 1;
     } finally {
         client.release();
+        await pool.end();
     }
 }
 

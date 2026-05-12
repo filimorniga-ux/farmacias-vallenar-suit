@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
         fetchLocationsMock,
         getReportMock,
         locationState,
+        searchParams: new URLSearchParams(),
     };
 });
 
@@ -38,6 +39,7 @@ vi.mock('next/navigation', () => ({
     useRouter: () => ({
         push: mocks.pushMock,
     }),
+    useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock('@/presentation/store/useStore', () => ({
@@ -71,6 +73,7 @@ vi.mock('sonner', () => ({
 describe('ProductSalesReportPage - filtro de sucursales', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.searchParams = new URLSearchParams();
     });
 
     it('solo lista sucursales activas cuando hay flag is_active', async () => {
@@ -100,5 +103,20 @@ describe('ProductSalesReportPage - filtro de sucursales', () => {
         backButton.click();
 
         expect(mocks.pushMock).toHaveBeenCalledWith('/reports');
+    });
+
+    it('hereda filtros canónicos desde analytics al consultar ventas por producto', async () => {
+        mocks.searchParams = new URLSearchParams('startDate=2026-04-01&endDate=2026-04-19&locationId=loc-active');
+
+        render(<ProductSalesReportPage />);
+
+        await waitFor(() => {
+            expect(mocks.getReportMock).toHaveBeenCalledWith(expect.objectContaining({
+                period: 'CUSTOM',
+                startDate: '2026-04-01',
+                endDate: '2026-04-19',
+                locationId: 'loc-active',
+            }));
+        });
     });
 });

@@ -154,6 +154,64 @@ export async function unlockAttendanceKioskSecure(input: {
     }
 }
 
+export async function unlockQueueKioskSecure(input: {
+    locationId: string;
+    pin: string;
+}): Promise<{ success: boolean; token?: string; error?: string }> {
+    try {
+        const authorization = await authorizeKioskAdmin({
+            mode: 'QUEUE',
+            locationId: input.locationId,
+            pin: input.pin,
+        });
+
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
+
+        return {
+            success: true,
+            token: issueKioskSessionToken({
+                mode: 'QUEUE',
+                locationId: input.locationId,
+                authorizedBy: authorization.user.id,
+            }),
+        };
+    } catch (error) {
+        logger.error({ error, locationId: input.locationId }, '[Kiosk] Queue unlock failed');
+        return { success: false, error: 'No fue posible activar el totem' };
+    }
+}
+
+export async function unlockQueueDisplaySecure(input: {
+    locationId: string;
+    pin: string;
+}): Promise<{ success: boolean; token?: string; error?: string }> {
+    try {
+        const authorization = await authorizeKioskAdmin({
+            mode: 'QUEUE_DISPLAY',
+            locationId: input.locationId,
+            pin: input.pin,
+        });
+
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
+
+        return {
+            success: true,
+            token: issueKioskSessionToken({
+                mode: 'QUEUE_DISPLAY',
+                locationId: input.locationId,
+                authorizedBy: authorization.user.id,
+            }),
+        };
+    } catch (error) {
+        logger.error({ error, locationId: input.locationId }, '[Kiosk] Queue display unlock failed');
+        return { success: false, error: 'No fue posible activar la pantalla' };
+    }
+}
+
 export async function validateAttendanceKioskExitPinSecure(input: {
     pin: string;
     kioskToken: string;
@@ -178,6 +236,60 @@ export async function validateAttendanceKioskExitPinSecure(input: {
     } catch (error) {
         logger.error({ error }, '[Kiosk] Attendance exit validation failed');
         return { success: false, error: 'No fue posible validar la salida del kiosko' };
+    }
+}
+
+export async function validateQueueKioskExitPinSecure(input: {
+    pin: string;
+    kioskToken: string;
+}): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tokenResult = verifyKioskSessionToken(input.kioskToken, 'QUEUE');
+        if (!tokenResult.valid) {
+            return { success: false, error: tokenResult.error };
+        }
+
+        const authorization = await authorizeKioskAdmin({
+            mode: 'QUEUE',
+            locationId: tokenResult.payload.locationId,
+            pin: input.pin,
+        });
+
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
+
+        return { success: true };
+    } catch (error) {
+        logger.error({ error }, '[Kiosk] Queue exit validation failed');
+        return { success: false, error: 'No fue posible validar la salida del totem' };
+    }
+}
+
+export async function validateQueueDisplayExitPinSecure(input: {
+    pin: string;
+    kioskToken: string;
+}): Promise<{ success: boolean; error?: string }> {
+    try {
+        const tokenResult = verifyKioskSessionToken(input.kioskToken, 'QUEUE_DISPLAY');
+        if (!tokenResult.valid) {
+            return { success: false, error: tokenResult.error };
+        }
+
+        const authorization = await authorizeKioskAdmin({
+            mode: 'QUEUE_DISPLAY',
+            locationId: tokenResult.payload.locationId,
+            pin: input.pin,
+        });
+
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
+
+        return { success: true };
+    } catch (error) {
+        logger.error({ error }, '[Kiosk] Queue display exit validation failed');
+        return { success: false, error: 'No fue posible validar la salida de la pantalla' };
     }
 }
 

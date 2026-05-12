@@ -56,4 +56,26 @@ describe('Get Products V2 - Stock Visibility', () => {
         // CASHIER should not see stock
         expect(result.data?.[0].stock).toBeUndefined();
     });
+
+    it('normaliza condicion_venta legacy al contrato corto read-side', async () => {
+        const mockDb = await import('@/lib/db');
+        vi.mocked(mockDb.query).mockResolvedValue({
+            rows: [{
+                id: VALID_UUID,
+                sku: 'SKU-RR',
+                name: 'Producto retenido',
+                price: 100,
+                format: 'Unidad',
+                location_name: 'Centro',
+                condition: 'RECETA_RETENIDA',
+            }]
+        } as any);
+
+        const result = await getProductsV2.getProductsSecure('retenido', VALID_UUID);
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0].condition).toBe('RR');
+        expect(vi.mocked(mockDb.query).mock.calls[0]?.[0]).toContain("to_jsonb(p)->>'condicion_venta'");
+        expect(vi.mocked(mockDb.query).mock.calls[0]?.[0]).not.toContain('p.condicion_venta');
+    });
 });

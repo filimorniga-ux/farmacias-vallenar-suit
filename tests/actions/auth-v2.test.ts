@@ -37,9 +37,44 @@ function getDefaultBcryptCompareMock() {
     return vi.mocked(bcryptModule.default.compare);
 }
 
+function mockValidatedSessionCookies() {
+    const values: Record<string, string> = {
+        user_id: 'actor-1',
+        user_name: 'Caja',
+        user_location: 'loc-1',
+        session_token: 'session-token',
+        user_token_version: '1',
+    };
+
+    mockCookieStore.get.mockImplementation((name: string) => {
+        const value = values[name];
+        return value ? { value } : undefined;
+    });
+}
+
+function validatedSessionDbRow() {
+    return {
+        rows: [{
+            id: 'actor-1',
+            name: 'Caja',
+            role: 'CASHIER',
+            assigned_location_id: 'loc-1',
+            token_version: 1,
+            session_token: 'session-token',
+            is_active: true,
+        }],
+        rowCount: 1,
+        command: '',
+        oid: 0,
+        fields: []
+    };
+}
+
 describe('Auth V2 - Typed error mapping', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mockCookieStore.get.mockReset();
+        mockCookieStore.set.mockReset();
     });
 
     it('returns DB_TIMEOUT metadata when database times out', async () => {
@@ -240,19 +275,22 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('validateSupervisorPin acepta PIN hash', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'sup-1',
-                name: 'Supervisor',
-                role: 'MANAGER',
-                access_pin_hash: 'hashed_1234',
-                access_pin: null,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        mockValidatedSessionCookies();
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce(validatedSessionDbRow())
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'sup-1',
+                    name: 'Supervisor',
+                    role: 'MANAGER',
+                    access_pin_hash: 'hashed_1234',
+                    access_pin: null,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.validateSupervisorPin('1234');
 
@@ -263,19 +301,22 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('validateSupervisorPin acepta fallback legacy plaintext', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'sup-legacy',
-                name: 'Supervisor Legacy',
-                role: 'ADMIN',
-                access_pin_hash: null,
-                access_pin: '1213',
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        mockValidatedSessionCookies();
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce(validatedSessionDbRow())
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'sup-legacy',
+                    name: 'Supervisor Legacy',
+                    role: 'ADMIN',
+                    access_pin_hash: null,
+                    access_pin: '1213',
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.validateSupervisorPin('1213');
 
@@ -285,19 +326,22 @@ describe('Auth V2 - Typed error mapping', () => {
     });
 
     it('validateSupervisorPin rechaza PIN inválido', async () => {
-        vi.mocked(dbModule.query).mockResolvedValueOnce({
-            rows: [{
-                id: 'sup-1',
-                name: 'Supervisor',
-                role: 'MANAGER',
-                access_pin_hash: 'hashed_9999',
-                access_pin: null,
-            }],
-            rowCount: 1,
-            command: '',
-            oid: 0,
-            fields: []
-        });
+        mockValidatedSessionCookies();
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce(validatedSessionDbRow())
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'sup-1',
+                    name: 'Supervisor',
+                    role: 'MANAGER',
+                    access_pin_hash: 'hashed_9999',
+                    access_pin: null,
+                }],
+                rowCount: 1,
+                command: '',
+                oid: 0,
+                fields: []
+            });
 
         const result = await authV2.validateSupervisorPin('1234');
 

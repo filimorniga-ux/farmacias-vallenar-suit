@@ -298,6 +298,10 @@ describe('Finance Closing V2', () => {
         expect(result.success).toBe(true);
         expect(result.data?.totals.expenses.total).toBe(32500);
         expect(result.data?.totals.netResult).toBe(67500);
+        const entriesQuery = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('FROM monthly_closing_entries e'),
+        )?.[0] as string | undefined;
+        expect(entriesQuery).toContain('u.id::text = e.created_by::text');
     });
 
     it('should include persisted social_security_cost in closing report totals', async () => {

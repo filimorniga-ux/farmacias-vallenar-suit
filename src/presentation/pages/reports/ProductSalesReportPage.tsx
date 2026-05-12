@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     Calendar, MapPin, Monitor, User, Search, Filter,
     Download, TrendingUp, Package, DollarSign, FileText, ArrowLeft
@@ -9,18 +9,34 @@ import { useLocationStore } from '../../store/useLocationStore';
 import { getProductSalesReportSecure, type ProductSalesRow, type ReportSummary } from '../../../actions/reports-v2';
 import { exportProductSalesSecure } from '../../../actions/reports-export-v2';
 import { toast } from 'sonner';
+import { buildAnalyticsDrilldownHref } from '@/presentation/lib/analytics-report-drilldown';
+
+function parseDateParam(value: string | null) {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+    const parsed = new Date(`${value}T00:00:00.000`);
+    return Number.isNaN(parsed.getTime()) ? '' : value;
+}
+
+function normalizeFilterParam(value: string | null) {
+    const normalized = value?.trim();
+    return normalized && normalized !== 'ALL' ? normalized : '';
+}
 
 export const ProductSalesReportPage: React.FC = () => {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const initialStartDate = parseDateParam(searchParams.get('startDate'));
+    const initialEndDate = parseDateParam(searchParams.get('endDate'));
+    const initialLocationId = normalizeFilterParam(searchParams.get('locationId'));
     // Stores
     const { employees } = usePharmaStore();
     const { locations, fetchLocations } = useLocationStore();
 
     // Filters State
-    const [period, setPeriod] = useState('TODAY');
-    const [startDate, setStartDate] = useState('');
-    const [endDate, setEndDate] = useState('');
-    const [selectedLocation, setSelectedLocation] = useState('ALL');
+    const [period, setPeriod] = useState(() => initialStartDate && initialEndDate ? 'CUSTOM' : 'TODAY');
+    const [startDate, setStartDate] = useState(initialStartDate);
+    const [endDate, setEndDate] = useState(initialEndDate);
+    const [selectedLocation, setSelectedLocation] = useState(initialLocationId || 'ALL');
     const [selectedTerminal, setSelectedTerminal] = useState('ALL');
     const [selectedEmployee, setSelectedEmployee] = useState('ALL');
     const [searchQuery, setSearchQuery] = useState('');
@@ -157,7 +173,11 @@ export const ProductSalesReportPage: React.FC = () => {
                         <div className="flex items-center gap-3 mb-1">
                             <button
                                 aria-label="Volver a reportes"
-                                onClick={() => router.push('/reports')}
+                                onClick={() => router.push(buildAnalyticsDrilldownHref('reports-overview', {
+                                    startDate: period === 'CUSTOM' ? startDate : undefined,
+                                    endDate: period === 'CUSTOM' ? endDate : undefined,
+                                    locationId: selectedLocation !== 'ALL' ? selectedLocation : undefined,
+                                }))}
                                 className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition-colors"
                             >
                                 <ArrowLeft size={24} />

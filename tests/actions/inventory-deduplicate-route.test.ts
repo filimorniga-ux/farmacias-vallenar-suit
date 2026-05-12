@@ -69,6 +69,27 @@ describe('POST /api/inventory/deduplicate', () => {
         expect(mockPool.connect).not.toHaveBeenCalled();
     });
 
+    it('rechaza body declarado demasiado grande antes de parsear o abrir DB', async () => {
+        const response = await POST(new Request('http://localhost/api/inventory/deduplicate', {
+            method: 'POST',
+            headers: {
+                'content-length': String((8 * 1024) + 1),
+                'content-type': 'application/json',
+            },
+            body: JSON.stringify({ action: 'ANALYZE_DUPLICATES' }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(413);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            error: 'Payload de análisis demasiado grande',
+            code: 'DEDUPLICATE_BODY_TOO_LARGE',
+        });
+        expect(mockPool.connect).not.toHaveBeenCalled();
+        expect(mockClient.query).not.toHaveBeenCalled();
+    });
+
     it('analiza duplicados sin mutar estado', async () => {
         mockClient.query.mockResolvedValueOnce({
             rows: [{ sku: 'SKU-1', count: '2', ids: ['a', 'b'] }],
@@ -81,62 +102,43 @@ describe('POST /api/inventory/deduplicate', () => {
         const payload = await response.json();
 
         expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload.success).toBe(true);
         expect(payload.duplicates).toEqual([{ sku: 'SKU-1', count: '2', name: 'Producto Duplicado' }]);
         expect(mockClient.release).toHaveBeenCalled();
     });
 
-    it('fusiona duplicados con actor auditado desde sesión', async () => {
-        mockClient.query
-            .mockResolvedValueOnce({ rows: [{ sku: 'SKU-1', count: '2', ids: ['a', 'b'] }] })
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce({
-                rows: [
-                    { id: 'master', stock_actual: 10, created_at: '2026-03-27T10:00:00Z' },
-                    { id: 'dup-1', stock_actual: 4, created_at: '2026-03-26T10:00:00Z' },
-                ],
-            })
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce(undefined)
-            .mockResolvedValueOnce(undefined);
-
+    it('rechaza merge destructivo legacy antes de consultar DB', async () => {
         const response = await POST(new Request('http://localhost/api/inventory/deduplicate', {
             method: 'POST',
             body: JSON.stringify({ action: 'MERGE_DUPLICATES' }),
         }));
         const payload = await response.json();
 
-        expect(response.status).toBe(200);
+        expect(response.status).toBe(410);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload).toEqual({
-            success: true,
-            mergedCount: 1,
-            message: 'Se fusionaron 1 productos correctamente.',
+            error: 'Fusión automática de duplicados deshabilitada. Revise los duplicados en modo solo lectura.',
+            code: 'DEDUPLICATE_MERGE_LEGACY_DISABLED',
         });
-        expect(mockLogger.warn).toHaveBeenCalledWith(
-            expect.objectContaining({ actorUserId: 'admin-1', actorRole: 'ADMIN', mergedCount: 1 }),
-            '[InventoryDeduplicateRoute] Duplicates merged'
-        );
+        expect(mockPool.connect).not.toHaveBeenCalled();
     });
 
-    it('redacta detalles internos si el merge falla', async () => {
-        mockClient.query
-            .mockResolvedValueOnce({ rows: [{ sku: 'SKU-1', count: '2', ids: ['a', 'b'] }] })
-            .mockResolvedValueOnce(undefined)
-            .mockRejectedValueOnce(new Error('deadlock detected while deleting duplicates'))
-            .mockResolvedValueOnce(undefined);
+    it('redacta detalles internos si el análisis falla', async () => {
+        mockClient.query.mockRejectedValueOnce(new Error('permission denied for table products'));
 
         const response = await POST(new Request('http://localhost/api/inventory/deduplicate', {
             method: 'POST',
-            body: JSON.stringify({ action: 'MERGE_DUPLICATES' }),
+            body: JSON.stringify({ action: 'ANALYZE_DUPLICATES' }),
         }));
         const payload = await response.json();
 
         expect(response.status).toBe(500);
+        expect(response.headers.get('cache-control')).toContain('no-store');
         expect(payload).toEqual({
             error: 'Error al procesar duplicados',
             code: 'DEDUPLICATE_FAILED',
         });
-        expect(mockClient.query).toHaveBeenCalledWith('ROLLBACK');
         expect(mockLogger.error).toHaveBeenCalled();
     });
 });

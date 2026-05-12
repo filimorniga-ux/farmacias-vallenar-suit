@@ -102,7 +102,7 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
         // This matches the pattern in get-products-v2.ts and inventory-v2.ts
         let sql = `
             SELECT
-                p.id, p.name, p.sku, p.barcode,
+                p.id, p.name, p.sku, NULLIF(to_jsonb(p)->>'barcode', '') as barcode,
                 COALESCE(MAX(ib.sale_price), MAX(ib.price_sell_box), p.price, 0) as sale_price,
                 COALESCE(p.cost_price, MAX(ib.unit_cost), MAX(ib.cost_net), 0) as cost_price
             FROM products p
@@ -120,10 +120,10 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
 
         if (params.categoryId) {
             sqlParams.push(params.categoryId);
-            sql += ` AND p.category_id = $${sqlParams.length}`;
+            sql += ` AND NULLIF(to_jsonb(p)->>'category_id', '') = $${sqlParams.length}`;
         }
 
-        sql += ` GROUP BY p.id, p.name, p.sku, p.barcode, p.price, p.cost_price`;
+        sql += ` GROUP BY p.id, p.name, p.sku, NULLIF(to_jsonb(p)->>'barcode', ''), p.price, p.cost_price`;
         sql += ` ORDER BY p.name`;
 
         const limit = params.limit || 500;

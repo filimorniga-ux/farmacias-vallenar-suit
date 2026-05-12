@@ -43,7 +43,7 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'REPORTS', color: 'sky' as AppThemeColor },
         { icon: Truck, label: 'Abastecimiento (IA)', path: '/procurement/smart-invoice', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'PROCUREMENT', color: 'teal' as AppThemeColor },
         { icon: Sparkles, label: 'Pedido Sugerido (IA)', path: '/supply-chain', roles: ['MANAGER', 'QF', 'ADMIN', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'GERENTE_GENERAL'], moduleId: 'SUGGESTED_ORDER', color: 'teal' as AppThemeColor },
-        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'CRM', color: 'slate' as AppThemeColor },
+        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['ADMIN', 'GERENTE_GENERAL'], moduleId: 'CRM', color: 'slate' as AppThemeColor },
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], moduleId: 'HR', color: 'slate' as AppThemeColor },
         { icon: Clock, label: 'Gestor Horario', path: '/rrhh/horarios', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], moduleId: 'SCHEDULING', color: 'rose' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'NETWORK', color: 'slate' as AppThemeColor },

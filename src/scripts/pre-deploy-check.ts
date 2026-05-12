@@ -30,6 +30,7 @@ import { join } from 'path';
 import { Pool } from 'pg';
 import { DEV_TEST_ACCOUNT } from './dev-account-support';
 import { evaluateEnvironmentPolicy } from './pre-deploy-env-policy';
+import { PREDEPLOY_REQUIRED_MIGRATIONS } from './predeploy-required-migrations';
 
 // =====================================================
 // COLORES PARA OUTPUT
@@ -329,19 +330,15 @@ async function checkMigrations(): Promise<boolean> {
             ORDER BY version
         `);
 
-        const requiredMigrations = [
-            '001', '002', '003', '004', '005', '006', '007'
-        ];
-
         const appliedVersions = migRes.rows.map((r: any) => r.version);
 
         let allApplied = true;
-        for (const req of requiredMigrations) {
-            if (appliedVersions.includes(req)) {
-                const migration = migRes.rows.find((r: any) => r.version === req);
-                printSuccess(`Migración ${req}: ${migration.description}`);
+        for (const [version, expectedDescription] of PREDEPLOY_REQUIRED_MIGRATIONS) {
+            if (appliedVersions.includes(version)) {
+                const migration = migRes.rows.find((r: any) => r.version === version);
+                printSuccess(`Migración ${version}: ${migration.description || expectedDescription}`);
             } else {
-                printError(`Migración ${req} NO aplicada`);
+                printError(`Migración ${version} NO aplicada: ${expectedDescription}`);
                 allApplied = false;
             }
         }

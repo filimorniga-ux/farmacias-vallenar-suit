@@ -6,12 +6,23 @@ import type { PoolClient } from 'pg';
 
 import { resolveWarehouseForInventoryActor } from '@/actions/inventory-scope';
 import { InventoryBatch } from '@/domain/types';
-import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { INVENTORY_BATCH_IMPORT_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 import { pool } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { normalizeRole } from '@/lib/pin-rbac';
 
 const UUIDSchema = z.string().uuid();
+const MAX_PRODUCTS_PER_REQUEST = 500;
+const MAX_BATCH_IMPORT_BODY_BYTES = 4 * 1024 * 1024;
+
+function getDeclaredContentLength(request: Request) {
+    const raw = request.headers.get('content-length');
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
 function toFiniteNumber(value: unknown, fallback = 0) {
     const numeric = Number(value);
@@ -20,6 +31,15 @@ function toFiniteNumber(value: unknown, fallback = 0) {
 
 function toPositiveInteger(value: unknown, fallback = 0) {
     return Math.max(0, Math.trunc(toFiniteNumber(value, fallback)));
+}
+
+function isNegativeFiniteNumber(value: unknown) {
+    if (value === undefined || value === null || value === '') {
+        return false;
+    }
+
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric < 0;
 }
 
 function normalizeOptionalText(value: unknown) {
@@ -81,7 +101,7 @@ async function syncProductStockSummary(
 }
 
 export async function POST(request: Request) {
-    const auth = await requireApiRoles(INVENTORY_API_ROLES);
+    const auth = await requireApiRoles(INVENTORY_BATCH_IMPORT_API_ROLES);
     if (!auth.ok) {
         return auth.response;
     }
@@ -89,11 +109,39 @@ export async function POST(request: Request) {
     let productCount = 0;
 
     try {
-        const body = await request.json();
+        const declaredContentLength = getDeclaredContentLength(request);
+        if (declaredContentLength !== null && declaredContentLength > MAX_BATCH_IMPORT_BODY_BYTES) {
+            return NextResponse.json(
+                {
+                    error: 'El archivo de importación supera el tamaño permitido',
+                    code: 'BATCH_IMPORT_BODY_TOO_LARGE',
+                },
+                { status: 413, headers: API_NO_STORE_HEADERS },
+            );
+        }
+
+        const body = await request.json().catch(() => null);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            return NextResponse.json(
+                { error: 'Payload inválido', code: 'BATCH_IMPORT_INVALID_PAYLOAD' },
+                { status: 400, headers: API_NO_STORE_HEADERS },
+            );
+        }
+
         const { products } = body as { products: InventoryBatch[] };
 
         if (!products || !Array.isArray(products) || products.length === 0) {
-            return NextResponse.json({ error: 'No products provided' }, { status: 400 });
+            return NextResponse.json({ error: 'No products provided' }, { status: 400, headers: API_NO_STORE_HEADERS });
+        }
+
+        if (products.length > MAX_PRODUCTS_PER_REQUEST) {
+            return NextResponse.json(
+                {
+                    error: `Máximo ${MAX_PRODUCTS_PER_REQUEST} productos por lote`,
+                    code: 'BATCH_IMPORT_TOO_LARGE',
+                },
+                { status: 413, headers: API_NO_STORE_HEADERS },
+            );
         }
 
         const actor = {
@@ -115,7 +163,25 @@ export async function POST(request: Request) {
                     await client.query('ROLLBACK');
                     return NextResponse.json(
                         { error: 'Cada fila debe incluir SKU y nombre', code: 'BATCH_IMPORT_VALIDATION' },
-                        { status: 400 },
+                        { status: 400, headers: API_NO_STORE_HEADERS },
+                    );
+                }
+
+                const numericFields = [
+                    rawProduct.stock_actual,
+                    rawProduct.cost_net,
+                    rawProduct.cost_price,
+                    rawProduct.price,
+                    rawProduct.price_sell_box,
+                    rawProduct.price_sell_unit,
+                    rawProduct.units_per_box,
+                ];
+
+                if (numericFields.some(isNegativeFiniteNumber)) {
+                    await client.query('ROLLBACK');
+                    return NextResponse.json(
+                        { error: 'Precio, costo, stock y unidades no pueden ser negativos', code: 'BATCH_IMPORT_VALIDATION' },
+                        { status: 400, headers: API_NO_STORE_HEADERS },
                     );
                 }
 
@@ -127,7 +193,7 @@ export async function POST(request: Request) {
                     await client.query('ROLLBACK');
                     return NextResponse.json(
                         { error: 'No se pudo resolver la ubicación del import', code: 'BATCH_IMPORT_SCOPE' },
-                        { status: 403 },
+                        { status: 403, headers: API_NO_STORE_HEADERS },
                     );
                 }
 
@@ -142,7 +208,7 @@ export async function POST(request: Request) {
                     await client.query('ROLLBACK');
                     return NextResponse.json(
                         { error: warehouseScope.success ? 'No se pudo resolver la bodega' : warehouseScope.error, code: 'BATCH_IMPORT_SCOPE' },
-                        { status: 403 },
+                        { status: 403, headers: API_NO_STORE_HEADERS },
                     );
                 }
 
@@ -318,7 +384,7 @@ export async function POST(request: Request) {
 
             await client.query('COMMIT');
             logger.info({ productCount }, '[InventoryBatchRoute] Canonical bulk import committed successfully');
-            return NextResponse.json({ success: true, count: products.length });
+            return NextResponse.json({ success: true, count: products.length }, { headers: API_NO_STORE_HEADERS });
         } catch (error) {
             await client.query('ROLLBACK');
             logger.error({ error, productCount }, '[InventoryBatchRoute] Canonical bulk import failed');
@@ -327,7 +393,7 @@ export async function POST(request: Request) {
                     error: 'Failed to import batch',
                     code: 'BATCH_IMPORT_FAILED',
                 },
-                { status: 500 },
+                { status: 500, headers: API_NO_STORE_HEADERS },
             );
         } finally {
             client.release();
@@ -339,7 +405,7 @@ export async function POST(request: Request) {
                 error: 'Failed to import batch',
                 code: 'BATCH_IMPORT_FAILED',
             },
-            { status: 500 },
+            { status: 500, headers: API_NO_STORE_HEADERS },
         );
     }
 }

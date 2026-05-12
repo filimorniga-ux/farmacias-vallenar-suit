@@ -456,7 +456,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                             <FileSpreadsheet className="text-green-600" />
                             Importación Masiva Inteligente
                         </h2>
-                        <p className="text-sm text-gray-500">Carga de inventario desde Excel (Oficial o Legacy)</p>
+                        <p className="text-sm text-gray-500">Carga de inventario desde Excel con plantilla oficial o formatos históricos</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
                         <X size={20} className="text-gray-500" />
@@ -488,7 +488,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                         }`}
                                 >
                                     <FileType size={18} />
-                                    Formato Histórico / Legacy
+                                    Formato histórico
                                 </button>
                             </div>
 
@@ -515,7 +515,7 @@ const BulkImportModal: React.FC<BulkImportModalProps> = ({ isOpen, onClose }) =>
                                         <div className="bg-orange-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-orange-600">
                                             <FileType size={32} />
                                         </div>
-                                        <h3 className="text-xl font-bold text-gray-800 mb-2">Importador Inteligente Legacy</h3>
+                                        <h3 className="text-xl font-bold text-gray-800 mb-2">Importador de formatos históricos</h3>
                                         <p className="text-gray-500 mb-4">
                                             Formatos antiguos o variables. El sistema intentará deducir columnas.
                                         </p>

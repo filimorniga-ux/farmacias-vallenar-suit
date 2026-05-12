@@ -2,10 +2,35 @@ import { NextResponse } from 'next/server';
 import type { PoolClient } from 'pg';
 
 import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 import { pool } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { ROLE_GROUPS, validatePinForRoles } from '@/lib/pin-rbac';
 
 const VALID_ACTIONS = new Set(['TRUNCATE', 'UNDO_IMPORT', 'ANALYZE_DUPLICATES']);
+const DESTRUCTIVE_ACTIONS = new Set(['TRUNCATE', 'UNDO_IMPORT']);
+const DESTRUCTIVE_MAINTENANCE_ROLES = new Set(['ADMIN', 'GERENTE_GENERAL']);
+const MAX_MAINTENANCE_BODY_BYTES = 16 * 1024;
+
+function getDeclaredContentLength(request: Request) {
+    const raw = request.headers.get('content-length');
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function canRunDestructiveMaintenance(role: string) {
+    return DESTRUCTIVE_MAINTENANCE_ROLES.has(role);
+}
+
+function isDestructiveMaintenanceAction(action: string) {
+    return DESTRUCTIVE_ACTIONS.has(action);
+}
+
+function isValidAdminPin(pin: unknown) {
+    return typeof pin === 'string' && /^\d{4,8}$/.test(pin);
+}
 
 async function resetProductsStockSummary(
     client: PoolClient,
@@ -84,27 +109,88 @@ export async function POST(request: Request) {
         return auth.response;
     }
 
+    const declaredContentLength = getDeclaredContentLength(request);
+    if (declaredContentLength !== null && declaredContentLength > MAX_MAINTENANCE_BODY_BYTES) {
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'Payload de mantenimiento demasiado grande',
+                code: 'MAINTENANCE_BODY_TOO_LARGE',
+            },
+            { status: 413, headers: API_NO_STORE_HEADERS },
+        );
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const { action, confirmation, adminPin } = body;
+
+    if (!action || !VALID_ACTIONS.has(action)) {
+        return NextResponse.json({ error: 'Action is required' }, { status: 400, headers: API_NO_STORE_HEADERS });
+    }
+
+    if (isDestructiveMaintenanceAction(action) && !canRunDestructiveMaintenance(auth.session.role)) {
+        logger.warn(
+            { action, actorUserId: auth.session.userId, actorRole: auth.session.role },
+            '[MaintenanceRoute] Destructive maintenance action denied'
+        );
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'Acción destructiva restringida a administradores',
+                code: 'MAINTENANCE_DESTRUCTIVE_FORBIDDEN',
+            },
+            { status: 403, headers: API_NO_STORE_HEADERS },
+        );
+    }
+
+    if (action === 'TRUNCATE' && confirmation !== 'BORRAR') {
+        return NextResponse.json({ error: 'Invalid confirmation code' }, { status: 403, headers: API_NO_STORE_HEADERS });
+    }
+
+    if (isDestructiveMaintenanceAction(action) && !isValidAdminPin(adminPin)) {
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'PIN administrador requerido',
+                code: 'MAINTENANCE_ADMIN_PIN_REQUIRED',
+            },
+            { status: 403, headers: API_NO_STORE_HEADERS },
+        );
+    }
+
     const client = await pool.connect();
     let transactionStarted = false;
 
     try {
-        const body = await request.json().catch(() => ({}));
-        const { action, confirmation } = body;
-
-        if (!action || !VALID_ACTIONS.has(action)) {
-            return NextResponse.json({ error: 'Action is required' }, { status: 400 });
-        }
-
         logger.info(
             { action, actorUserId: auth.session.userId, actorRole: auth.session.role },
             '[MaintenanceRoute] Executing maintenance action'
         );
 
-        if (action === 'TRUNCATE') {
-            if (confirmation !== 'BORRAR') {
-                return NextResponse.json({ error: 'Invalid confirmation code' }, { status: 403 });
-            }
+        if (isDestructiveMaintenanceAction(action)) {
+            const destructiveAdminPin = typeof adminPin === 'string' ? adminPin : '';
+            const pinCheck = await validatePinForRoles(client, destructiveAdminPin, ROLE_GROUPS.ADMIN, {
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            });
 
+            if (!pinCheck.valid) {
+                logger.warn(
+                    { action, actorUserId: auth.session.userId, actorRole: auth.session.role, code: pinCheck.code },
+                    '[MaintenanceRoute] Destructive maintenance PIN denied'
+                );
+                return NextResponse.json(
+                    {
+                        success: false,
+                        error: pinCheck.error,
+                        code: pinCheck.code,
+                    },
+                    { status: 403, headers: API_NO_STORE_HEADERS },
+                );
+            }
+        }
+
+        if (action === 'TRUNCATE') {
             await client.query('BEGIN');
             transactionStarted = true;
 
@@ -118,7 +204,10 @@ export async function POST(request: Request) {
                 { actorUserId: auth.session.userId, actorRole: auth.session.role },
                 '[MaintenanceRoute] Canonical inventory truncate completed'
             );
-            return NextResponse.json({ success: true, message: 'Inventario vaciado correctamente.' });
+            return NextResponse.json(
+                { success: true, message: 'Inventario vaciado correctamente.' },
+                { headers: API_NO_STORE_HEADERS },
+            );
         }
 
         if (action === 'UNDO_IMPORT') {
@@ -156,7 +245,7 @@ export async function POST(request: Request) {
             return NextResponse.json({
                 success: true,
                 message: `Se revirtieron ${deletedCount} lotes creados en los últimos 10 minutos.`,
-            });
+            }, { headers: API_NO_STORE_HEADERS });
         }
 
         const res = await client.query(
@@ -172,7 +261,7 @@ export async function POST(request: Request) {
         return NextResponse.json({
             success: true,
             duplicates: res.rows,
-        });
+        }, { headers: API_NO_STORE_HEADERS });
     } catch (error) {
         if (transactionStarted) {
             await client.query('ROLLBACK');
@@ -183,7 +272,7 @@ export async function POST(request: Request) {
         );
         return NextResponse.json(
             { error: 'Maintenance action failed', code: 'MAINTENANCE_ACTION_FAILED' },
-            { status: 500 },
+            { status: 500, headers: API_NO_STORE_HEADERS },
         );
     } finally {
         client.release();

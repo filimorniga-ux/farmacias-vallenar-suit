@@ -31,9 +31,9 @@ export default function ForgotPasswordPage() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-            <div className="bg-white max-w-md w-full rounded-2xl shadow-xl overflow-hidden">
-                <div className="p-8">
+        <div className="min-h-dvh bg-slate-50 flex items-center justify-center p-4 pt-safe pb-safe">
+            <div className="bg-white max-w-md w-full rounded-2xl shadow-xl overflow-hidden max-h-[calc(100dvh-1rem)] overflow-y-auto">
+                <div className="p-6 sm:p-8">
                     {/* Header */}
                     <div className="text-center mb-8">
                         <div className="w-16 h-16 bg-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -48,17 +48,20 @@ export default function ForgotPasswordPage() {
                     {!isSent ? (
                         <form onSubmit={handleSubmit} className="space-y-6">
                             <div>
-                                <label className="block text-sm font-bold text-slate-700 mb-2">
+                                <label htmlFor="recovery-email" className="block text-sm font-bold text-slate-700 mb-2">
                                     Correo Electrónico
                                 </label>
                                 <div className="relative">
                                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                                     <input
+                                        id="recovery-email"
+                                        name="email"
                                         type="email"
+                                        autoComplete="email"
                                         required
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
-                                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors"
+                                        className="w-full min-h-11 pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors"
                                         placeholder="ejemplo@farmaciasvallenar.cl"
                                     />
                                 </div>
@@ -67,7 +70,7 @@ export default function ForgotPasswordPage() {
                             <button
                                 type="submit"
                                 disabled={isLoading}
-                                className="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                                className="w-full min-h-11 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-cyan-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                             >
                                 {isLoading ? (
                                     <>
@@ -85,13 +88,13 @@ export default function ForgotPasswordPage() {
                                 Hemos enviado las instrucciones a <strong>{email}</strong>. Por favor revisa tu bandeja de entrada.
                             </p>
                             <p className="text-xs text-cyan-500 mt-4">
-                                (Si estás en modo desarrollo, revisa la consola del servidor)
+                                Si no lo ves en unos minutos, revisa spam o solicita apoyo a un administrador.
                             </p>
                         </div>
                     )}
 
                     <div className="mt-8 text-center">
-                        <Link href="/login" className="text-slate-400 hover:text-slate-600 text-sm font-bold flex items-center justify-center gap-2 transition-colors">
+                        <Link href="/" className="min-h-11 text-slate-400 hover:text-slate-600 text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors">
                             <ArrowLeft size={16} /> Volver al Inicio de Sesión
                         </Link>
                     </div>

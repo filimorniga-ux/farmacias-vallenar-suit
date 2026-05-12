@@ -53,8 +53,8 @@ function expireCookie(cookieStore: SessionCookieStore, name: SessionCookieName) 
     });
 }
 
-function getLocationId(cookieStore: SessionCookieStore, assignedLocationId?: string | null) {
-    return cookieStore.get('user_location')?.value || assignedLocationId || undefined;
+function getAuthoritativeLocationId(cookieStore: SessionCookieStore, assignedLocationId?: string | null) {
+    return assignedLocationId || cookieStore.get('user_location')?.value || undefined;
 }
 
 function parseTokenVersion(rawValue?: string) {
@@ -199,7 +199,7 @@ export async function getValidatedSession(): Promise<ValidatedSession | null> {
         return {
             userId: user.id,
             role: user.role,
-            locationId: getLocationId(cookieStore, user.assigned_location_id),
+            locationId: getAuthoritativeLocationId(cookieStore, user.assigned_location_id),
             userName: user.name || cookieStore.get('user_name')?.value || 'Usuario',
             tokenVersion: dbTokenVersion,
             sessionToken,

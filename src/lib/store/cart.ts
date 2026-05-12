@@ -8,6 +8,7 @@ export interface Product {
     price: number;
     stock: number;
     requiresPrescription: boolean;
+    condition?: string;   // Condición de venta derivada del catálogo/lote para señal visual.
     batchId?: string;     // UUID del lote de inventario (para ventas reales)
 }
 

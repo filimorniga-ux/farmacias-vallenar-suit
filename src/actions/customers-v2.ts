@@ -192,7 +192,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
     data?: { id: string };
     error?: string;
 }> {
-    console.log('[CUSTOMERS-V2] createCustomerSecure called with:', JSON.stringify(data));
+    console.info('[CUSTOMERS-V2] createCustomerSecure called');
 
     const auth = await requireCustomerActor(CUSTOMER_CREATE_ROLES, 'createCustomerSecure');
     if (!auth.success) {
@@ -209,7 +209,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
         };
     }
 
-    console.log('[CUSTOMERS-V2] Validation passed, normalized RUT:', validated.data.rut);
+    console.info('[CUSTOMERS-V2] Validation passed');
 
     const client = await pool.connect();
 
@@ -276,7 +276,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('[CUSTOMERS-V2] Create customer error:', error);
+        console.error('[CUSTOMERS-V2] Create customer error:', error instanceof Error ? error.name : 'UnknownError');
 
         if (error && typeof error === 'object' && 'code' in error && error.code === '23505') { // Unique violation
             return { success: false, error: 'Cliente ya existe' };
@@ -284,7 +284,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
 
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Error al crear cliente'
+            error: 'Error al crear cliente'
         };
     } finally {
         client.release();

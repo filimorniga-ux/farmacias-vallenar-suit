@@ -8,7 +8,10 @@ config({ path: resolve(process.cwd(), '.env'), override: false });
 
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
-import { getClient } from '../lib/db';
+import { Pool } from 'pg';
+import { assertScriptDbWriteTargetAllowed } from './script-db-target-policy';
+
+const DEV_ACCOUNT_ALLOW_NON_LOCAL_ENV = 'DEV_ACCOUNT_ALLOW_NON_LOCAL';
 
 const DEV_ACCOUNT = {
     rut: '22.222.222-2',
@@ -30,8 +33,30 @@ type DevAccountRow = {
     token_version: number | null;
 };
 
+function createScriptPool() {
+    const dbUrl = process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL;
+    if (!dbUrl) {
+        throw new Error('DATABASE_URL o POSTGRES_URL_NON_POOLING requerido para asegurar la cuenta DEV');
+    }
+
+    assertScriptDbWriteTargetAllowed({
+        scriptName: 'dev-account:ensure',
+        connectionString: dbUrl,
+        allowNonLocalEnv: DEV_ACCOUNT_ALLOW_NON_LOCAL_ENV,
+    });
+
+    const isLocalhost = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
+
+    return new Pool({
+        connectionString: dbUrl,
+        ssl: isLocalhost ? undefined : { rejectUnauthorized: false },
+        max: 1,
+    });
+}
+
 async function main() {
-    const client = await getClient();
+    const pool = createScriptPool();
+    const client = await pool.connect();
 
     try {
         await client.query('BEGIN');
@@ -137,13 +162,14 @@ async function main() {
 
         await client.query('COMMIT');
         console.log(`✅ Cuenta DEV creada: ${DEV_ACCOUNT.name} (${id})`);
-        console.log('ℹ️ PIN configurado: 1213');
+        console.log('ℹ️ PIN DEV configurado; usa la fuente controlada de credenciales de desarrollo.');
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('❌ No fue posible asegurar la cuenta DEV:', error);
         process.exitCode = 1;
     } finally {
         client.release();
+        await pool.end();
     }
 }
 

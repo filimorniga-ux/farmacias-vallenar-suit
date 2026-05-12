@@ -21,7 +21,7 @@ const NotificationBell: React.FC<NotificationBellProps> = ({ className }) => {
             variant="ghost"
             size="icon"
             onClick={toggleOpen}
-            className={`relative ${className ?? ''}`}
+            className={`relative min-h-11 min-w-11 touch-manipulation ${className ?? ''}`}
             aria-label={`Notificaciones${unreadCount > 0 ? ` (${unreadCount} sin leer)` : ''}`}
         >
             <Bell

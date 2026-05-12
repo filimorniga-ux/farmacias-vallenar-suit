@@ -66,6 +66,7 @@ import {
     deletePurchaseOrderSecure,
     generateRestockSuggestionSecure,
     getPurchaseOrderHistory,
+    getSmartOrderLowStockPrefillSecure,
     getSuggestionAnalysisHistorySecure,
     getTransferDetailHistorySecure,
     receivePurchaseOrderSecure,
@@ -140,6 +141,90 @@ describe('Procurement V2 Hardening', () => {
         expect(result.success).toBe(true);
         expect(result.data?.[0]?.suggested_order_qty).toBe(15);
         expect(mockPoolQuery.mock.calls[0]?.[1]).toContain(actorLocationId);
+    });
+
+    it('genera prefill de smart-order desde bajo stock validado en servidor sin elegir proveedor', async () => {
+        const warehouseId = '550e8400-e29b-41d4-a716-446655440556';
+        const productId = '550e8400-e29b-41d4-a716-446655440557';
+        const supplierId = '550e8400-e29b-41d4-a716-446655440558';
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
+        });
+        mockQuery
+            .mockResolvedValueOnce({
+                rows: [{
+                    warehouse_id: warehouseId,
+                    warehouse_name: 'Bodega Centro',
+                    location_id: actorLocationId,
+                    location_name: 'Sucursal Centro',
+                }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce({
+                rows: [{
+                    product_id: productId,
+                    sku: 'LOW-001',
+                    product_name: 'Producto Bajo Stock',
+                    current_stock: '1',
+                    stock_min: '5',
+                    suggested_quantity: '4',
+                    unit_cost: '900',
+                    suggested_supplier_id: supplierId,
+                    suggested_supplier_name: 'Proveedor sugerido',
+                    suggested_supplier_cost: '850',
+                }],
+                rowCount: 1,
+            });
+
+        const result = await getSmartOrderLowStockPrefillSecure({
+            alertId: 'inventory-critical-low-stock',
+            locationId: actorLocationId,
+            warehouseId,
+            limit: 8,
+        });
+
+        expect(result.success).toBe(true);
+        if (!result.success) return;
+        expect(result.data.providerSelection).toBe('manual');
+        expect(result.data.locationId).toBe(actorLocationId);
+        expect(result.data.warehouseId).toBe(warehouseId);
+        expect(result.data.items[0]).toEqual(expect.objectContaining({
+            productId,
+            suggestedQuantity: 4,
+            suggestedSupplierId: supplierId,
+            suggestedSupplierName: 'Proveedor sugerido',
+        }));
+        expect(mockQuery.mock.calls[0]?.[1]).toEqual([warehouseId]);
+        expect(mockQuery.mock.calls[1]?.[1]).toEqual([actorLocationId, warehouseId, 8]);
+        expect(vi.mocked(supplyActions.createPurchaseOrderSecure)).not.toHaveBeenCalled();
+    });
+
+    it('rechaza prefill de smart-order fuera de scope antes de sugerir canasta', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
+        });
+
+        const result = await getSmartOrderLowStockPrefillSecure({
+            alertId: 'inventory-critical-low-stock',
+            locationId: '550e8400-e29b-41d4-a716-446655440444',
+            limit: 8,
+        });
+
+        expect(result.success).toBe(false);
+        if (result.success) return;
+        expect(result.error).toContain('Acceso denegado');
+        expect(mockQuery).not.toHaveBeenCalled();
+        expect(vi.mocked(supplyActions.createPurchaseOrderSecure)).not.toHaveBeenCalled();
     });
 
     it('rechaza historial de análisis cross-location para actores no globales', async () => {

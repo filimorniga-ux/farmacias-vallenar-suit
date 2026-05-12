@@ -267,6 +267,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
         const { supplierId: sanitizedSupplierId, warehouseId: sanitizedWarehouseId } = resolveManualOrderIds({
             selectedSupplierId,
+            requestedWarehouseId: initialOrder?.target_warehouse_id || (initialOrder as { targetWarehouseId?: string } | null)?.targetWarehouseId,
             currentWarehouseId,
             fallbackWarehouseId: DEFAULT_WAREHOUSE_FALLBACK_ID
         });

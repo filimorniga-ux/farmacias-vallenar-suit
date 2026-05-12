@@ -1,17 +1,25 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { buildPublicProductResult } from './public-product-result';
+import {
+    enforcePublicSearchGuard,
+    normalizePublicSearchTerm,
+} from './public-search-guard';
 
 // Enhanced Search with Optimized Performance (Push-down Predicates)
 export async function searchProductsAction(
     term: string,
     filters?: { categoryId?: number, labId?: number, actionId?: number }
 ) {
-    if ((!term || term.length < 3) && (!filters || Object.keys(filters).length === 0)) return [];
+    if (!await enforcePublicSearchGuard('product-search')) return [];
+
+    const normalizedTerm = normalizePublicSearchTerm(term);
+    if ((!normalizedTerm || normalizedTerm.length < 3) && (!filters || Object.keys(filters).length === 0)) return [];
 
     try {
-        const searchTerm = term ? `%${term.trim()}%` : null;
+        const searchTerm = normalizedTerm ? `%${normalizedTerm}%` : null;
         const params: any[] = [];
         const paramCounter = 1;
 
@@ -101,7 +109,7 @@ export async function searchProductsAction(
 
         const result = await query(sql, params);
 
-        console.log(`✅ [Search AI] Optimizado: ${result.rows.length} encontrados.`);
+        logger.info({ count: result.rows.length }, '[PublicSearch] Product search completed');
 
         return result.rows.map((row) => buildPublicProductResult({
             id: row.id,
@@ -117,8 +125,8 @@ export async function searchProductsAction(
         }));
 
     } catch (error: any) {
-        console.error('❌ Error in search:', error);
+        logger.error({ error }, '[PublicSearch] Product search failed');
         // Re-throw the error so the UI handles it as a failure, not "0 results"
-        throw new Error(`Database Error: ${error.message || 'Unknown error'}`);
+        throw new Error('No fue posible buscar productos');
     }
 }

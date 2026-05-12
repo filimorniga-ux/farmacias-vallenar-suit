@@ -9,6 +9,7 @@ export interface LocalSession {
     terminalId: string;
     terminalName: string;
     userId: string;
+    locationId?: string;
     openedAt: number;
     openingAmount: number;
 }
@@ -20,6 +21,9 @@ export function useTerminalSession() {
             localStorage.setItem(SESSION_KEY, data.sessionId);
             // Save full metadata separately
             localStorage.setItem(SESSION_METADATA_KEY, JSON.stringify(data));
+            if (data.locationId) {
+                localStorage.setItem('current_location_id', data.locationId);
+            }
         }
     }, []);
 

@@ -2,7 +2,7 @@
  * WMSTransferenciaTab - Transferencia entre bodegas/sucursales
  * Scanner → Carrito → Origen↔Destino → PIN si necesario → Confirmar
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { ArrowLeftRight, Send, FileText, Loader2, ShieldCheck, KeyRound, ToggleLeft, ToggleRight } from 'lucide-react';
 import { WMSProductScanner } from '../WMSProductScanner';
 import { WMSProductCart, WMSCartItem } from '../WMSProductCart';
@@ -12,6 +12,7 @@ import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { executeTransferSecure } from '@/actions/wms-v2';
 import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -31,13 +32,19 @@ export const WMSTransferenciaTab: React.FC<WMSTransferenciaTabProps> = ({ invent
     const user = usePharmaStore(s => s.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
-    const currentLocationMetadata = locationStoreLocations.find((loc) => loc.id === currentLocationId);
-    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
-    const currentLocationWarehouseId = currentLocationMetadata?.default_warehouse_id || locationStoreCurrent?.default_warehouse_id || '';
-    const locName = currentLocationMetadata?.name || locationStoreCurrent?.name || 'Actual';
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
+    const effectiveLocationId = wmsContext.locationId;
+    const currentLocationWarehouseId = wmsContext.warehouseId;
+    const locName = wmsContext.locationName || 'Actual';
 
     const [cart, setCart] = useState<WMSCartItem[]>([]);
-    const [originId, setOriginId] = useState(currentWarehouseId || currentLocationWarehouseId);
+    const [originId, setOriginId] = useState(currentLocationWarehouseId);
     const [destId, setDestId] = useState('');
     const [notes, setNotes] = useState('');
     const [pin, setPin] = useState('');
@@ -56,10 +63,10 @@ export const WMSTransferenciaTab: React.FC<WMSTransferenciaTabProps> = ({ invent
     const needsPin = totalQty >= PIN_THRESHOLD;
 
     useEffect(() => {
-        if (!originId && (currentWarehouseId || currentLocationWarehouseId)) {
-            setOriginId(currentWarehouseId || currentLocationWarehouseId);
+        if (!originId && currentLocationWarehouseId) {
+            setOriginId(currentLocationWarehouseId);
         }
-    }, [originId, currentWarehouseId, currentLocationWarehouseId]);
+    }, [originId, currentLocationWarehouseId]);
 
     const addProduct = useCallback((p: InventoryBatch) => {
         setCart(prev => {

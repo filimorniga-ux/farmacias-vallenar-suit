@@ -88,20 +88,24 @@ function normalizeRole(role?: string | null) {
     return String(role || '').trim().toUpperCase();
 }
 
+interface ManagerDashboardActor {
+    userId: string;
+    userName: string;
+    role: string;
+    locationId?: string;
+    tokenVersion: number;
+    sessionToken: string;
+}
+
 // ==========================================
 // MAIN ACTION
 // ==========================================
 
-export async function getManagerRealTimeDataSecure(
+export async function getManagerRealTimeDataForActor(
+    actor: ManagerDashboardActor,
     selectedLocationId?: string
 ): Promise<{ success: boolean; data?: ManagerDashboardData; error?: string }> {
     try {
-        const actorResult = await requireScopedActor(ANALYTICS_PAGE_ROLES);
-        if (!actorResult.success) {
-            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
-        }
-
-        const actor = actorResult.actor;
         const normalizedRole = normalizeRole(actor.role);
         if (!AUTHORIZED_ROLES.has(normalizedRole)) {
             return { success: false, error: `Acceso denegado: Rol ${normalizedRole || 'desconocido'} no autorizado` };
@@ -331,7 +335,7 @@ export async function getManagerRealTimeDataSecure(
                    ELSE 'SALA' 
                 END as location_area
             FROM LastLogs ll
-            JOIN users u ON ll.user_id = u.id
+            JOIN users u ON ll.user_id::text = u.id::text
             WHERE ll.type IN ('CHECK_IN', 'BREAK_END', 'BREAK_START') 
               AND u.is_active = true
               AND (u.assigned_location_id = $1::uuid OR ll.location_id = $1::uuid) -- Match assigned or current location
@@ -370,4 +374,15 @@ export async function getManagerRealTimeDataSecure(
         Sentry.captureException(error);
         throw error;
     }
+}
+
+export async function getManagerRealTimeDataSecure(
+    selectedLocationId?: string
+): Promise<{ success: boolean; data?: ManagerDashboardData; error?: string }> {
+    const actorResult = await requireScopedActor(ANALYTICS_PAGE_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+
+    return getManagerRealTimeDataForActor(actorResult.actor, selectedLocationId);
 }

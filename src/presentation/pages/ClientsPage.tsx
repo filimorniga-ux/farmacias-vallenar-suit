@@ -129,6 +129,8 @@ const ClientsPage: React.FC = () => {
         );
     }, [customers, searchTerm]);
 
+    const formatLastVisit = (timestamp: number) => new Date(timestamp).toLocaleDateString('es-CL');
+
     const customerHistory = useMemo(() => {
         if (!viewingHistory) return [];
         return fetchedHistory; // Already sorted by backend
@@ -202,10 +204,10 @@ const ClientsPage: React.FC = () => {
     };
 
     return (
-        <div className="p-4 md:p-6 bg-slate-50 min-h-dvh pb-safe touch-pan-y">
+        <div className="p-3 md:p-6 bg-slate-50 min-h-dvh pb-safe touch-pan-y">
             <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-slate-900">Directorio de Clientes</h1>
+                    <h1 className="text-2xl md:text-3xl leading-tight font-extrabold text-slate-900">Directorio de Clientes</h1>
                     <p className="text-slate-500">CRM & Fidelización</p>
                 </div>
                 <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
@@ -248,22 +250,102 @@ const ClientsPage: React.FC = () => {
 
             </header >
 
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-                <div className="p-6 border-b border-slate-100">
+            <div className="bg-white rounded-2xl md:rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="p-4 md:p-6 border-b border-slate-100">
                     <div className="relative w-full md:max-w-md">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                         <input
                             type="text"
                             placeholder="Buscar por RUT, Nombre o Teléfono..."
-                            className="w-full pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors font-medium"
+                            className="w-full min-h-11 pl-12 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none transition-colors font-medium"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
                 </div>
 
-                <div className="overflow-x-auto touch-pan-x overscroll-contain">
-                    <table className="w-full text-left">
+                <div data-testid="clients-mobile-list" className="md:hidden divide-y divide-slate-100">
+                    {filteredCustomers.length === 0 ? (
+                        <div className="p-8 text-center text-sm font-medium text-slate-500">
+                            No hay clientes para mostrar.
+                        </div>
+                    ) : filteredCustomers.map(customer => (
+                        <article key={customer.id} className="p-4 space-y-4">
+                            <div className="flex items-start gap-3">
+                                <div className="h-11 w-11 shrink-0 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold">
+                                    {customer.fullName.charAt(0)}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <h3 className="truncate font-bold text-slate-900">{customer.fullName}</h3>
+                                    <p className="text-xs text-slate-500 font-mono">{customer.rut}</p>
+                                </div>
+                                <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-700">
+                                    ACTIVO
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                <div>
+                                    <p className="text-[11px] font-bold uppercase text-slate-400">Contacto</p>
+                                    <p className="truncate font-medium text-slate-700">{customer.phone || '-'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-[11px] font-bold uppercase text-slate-400">Puntos / LTV</p>
+                                    <p className="font-bold text-amber-600">{customer.totalPoints} pts</p>
+                                    <p className="text-xs text-slate-400">${customer.total_spent?.toLocaleString() || 0}</p>
+                                </div>
+                                <div className="col-span-2">
+                                    <p className="text-[11px] font-bold uppercase text-slate-400">Última visita</p>
+                                    <p className="text-slate-600">{formatLastVisit(customer.lastVisit)}</p>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1">
+                                {customer.tags?.map(tag => (
+                                    <span key={tag} className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                                        {tag}
+                                    </span>
+                                ))}
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setViewingHistory(customer)}
+                                    className="min-h-11 min-w-11 flex-1 rounded-xl border border-slate-200 text-slate-500 hover:bg-blue-50 hover:text-blue-600"
+                                    aria-label={`Ver historial de ${customer.fullName}`}
+                                >
+                                    <History className="mx-auto" size={20} />
+                                </button>
+                                <button
+                                    onClick={() => handleOpenEdit(customer)}
+                                    className="min-h-11 min-w-11 flex-1 rounded-xl border border-slate-200 text-slate-500 hover:bg-cyan-50 hover:text-cyan-600"
+                                    aria-label={`Editar ${customer.fullName}`}
+                                >
+                                    <Edit className="mx-auto" size={20} />
+                                </button>
+                                {customer.phone && (
+                                    <button
+                                        onClick={() => openWhatsApp(customer.phone)}
+                                        className="min-h-11 min-w-11 flex-1 rounded-xl border border-slate-200 text-slate-500 hover:bg-emerald-50 hover:text-emerald-600"
+                                        aria-label={`Abrir WhatsApp de ${customer.fullName}`}
+                                    >
+                                        <MessageCircle className="mx-auto" size={20} />
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setDeletingCustomer(customer)}
+                                    className="min-h-11 min-w-11 flex-1 rounded-xl border border-slate-200 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                                    aria-label={`Eliminar ${customer.fullName}`}
+                                >
+                                    <Trash2 className="mx-auto" size={20} />
+                                </button>
+                            </div>
+                        </article>
+                    ))}
+                </div>
+
+                <div data-testid="clients-desktop-table" className="hidden md:block overflow-x-auto touch-pan-x overscroll-contain">
+                    <table className="w-full min-w-[900px] text-left">
                         <thead className="bg-slate-50 text-slate-500 font-bold text-sm">
                             <tr>
                                 <th className="p-6">Cliente</th>
@@ -325,31 +407,35 @@ const ClientsPage: React.FC = () => {
                                         <div className="flex justify-end gap-2">
                                             <button
                                                 onClick={() => setViewingHistory(customer)}
-                                                className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                                className="h-11 w-11 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition inline-flex items-center justify-center"
                                                 title="Ver Historial"
+                                                aria-label={`Ver historial de ${customer.fullName}`}
                                             >
                                                 <History size={20} />
                                             </button>
                                             <button
                                                 onClick={() => handleOpenEdit(customer)}
-                                                className="p-2 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition"
+                                                className="h-11 w-11 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition inline-flex items-center justify-center"
                                                 title="Editar"
+                                                aria-label={`Editar ${customer.fullName}`}
                                             >
                                                 <Edit size={20} />
                                             </button>
                                             {customer.phone && (
                                                 <button
                                                     onClick={() => openWhatsApp(customer.phone)}
-                                                    className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                                                    className="h-11 w-11 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition inline-flex items-center justify-center"
                                                     title="WhatsApp"
+                                                    aria-label={`Abrir WhatsApp de ${customer.fullName}`}
                                                 >
                                                     <MessageCircle size={20} />
                                                 </button>
                                             )}
                                             <button
                                                 onClick={() => setDeletingCustomer(customer)}
-                                                className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                                                className="h-11 w-11 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition inline-flex items-center justify-center"
                                                 title="Eliminar"
+                                                aria-label={`Eliminar ${customer.fullName}`}
                                             >
                                                 <Trash2 size={20} />
                                             </button>
@@ -365,18 +451,22 @@ const ClientsPage: React.FC = () => {
             {/* Add/Edit Modal */}
             {
                 (isAddModalOpen || editingCustomer) && (
-                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-                            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                                <h2 className="text-xl font-bold text-slate-800">
-                                    {editingCustomer ? 'Editar Cliente' : 'Nuevo Cliente'}
-                                </h2>
-                                <button onClick={() => { setIsAddModalOpen(false); setEditingCustomer(null); }} className="text-slate-400 hover:text-slate-600">
-                                    <X size={24} />
-                                </button>
-                            </div>
-                            <form onSubmit={handleSave} className="p-6 space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-hidden animate-in fade-in zoom-in duration-200">
+                                <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                                    <h2 className="text-xl font-bold text-slate-800">
+                                        {editingCustomer ? 'Editar Cliente' : 'Nuevo Cliente'}
+                                    </h2>
+                                    <button
+                                        onClick={() => { setIsAddModalOpen(false); setEditingCustomer(null); }}
+                                        className="h-11 w-11 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                                        aria-label="Cerrar formulario de cliente"
+                                    >
+                                        <X size={24} />
+                                    </button>
+                                </div>
+                            <form onSubmit={handleSave} className="p-4 sm:p-6 space-y-4 overflow-y-auto max-h-[calc(100dvh-8rem)] touch-pan-y overscroll-contain">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-1">RUT *</label>
                                         <input

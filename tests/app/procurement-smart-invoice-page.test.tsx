@@ -37,6 +37,14 @@ vi.mock('@/presentation/store/useStore', () => ({
         selector(mocks.usePharmaStoreState),
 }));
 
+vi.mock('next/link', () => ({
+    default: ({ children, href, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => (
+        <a href={href} {...props}>
+            {children}
+        </a>
+    ),
+}));
+
 vi.mock('@/components/invoice', () => ({
     InvoiceUploader: () => <div data-testid="invoice-uploader" />,
     InvoiceViewer: () => <div data-testid="invoice-viewer" />,
@@ -52,14 +60,6 @@ vi.mock('@/app/procurement/smart-invoice/ConfirmAutoCreateModal', () => ({
 vi.mock('@/presentation/components/inventory/ProductFormModal', () => ({
     __esModule: true,
     default: () => null,
-}));
-
-vi.mock('react-router-dom', () => ({
-    Link: ({ children, to, ...props }: { children: React.ReactNode; to: string }) => (
-        <a href={to} {...props}>
-            {children}
-        </a>
-    ),
 }));
 
 vi.mock('sonner', () => ({
@@ -89,6 +89,8 @@ describe('/app/procurement/smart-invoice/page', () => {
         render(<SmartInvoicePage />);
 
         expect(screen.getByTestId('invoice-uploader')).toBeTruthy();
+        expect(screen.getByRole('link', { name: /Historial/i }).getAttribute('href')).toBe('/procurement/smart-invoice/list');
+        expect(screen.getByRole('link', { name: /Configurar IA/i }).getAttribute('href')).toBe('/settings?tab=ai');
 
         await waitFor(() => {
             expect(getSmartInvoiceLocationsSecure).toHaveBeenCalledTimes(1);

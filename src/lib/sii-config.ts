@@ -38,7 +38,7 @@ interface ConfigRow {
     is_encrypted: boolean;
 }
 
-export interface SiiCertificateState extends SiiConfiguration {}
+export type SiiCertificateState = SiiConfiguration;
 
 export interface SiiEmissionConfig {
     rutEmisor: string;

@@ -1,31 +1,99 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { generateRestockSuggestionSecure, createPurchaseOrderSecure, approvePurchaseOrderSecure } from '@/actions/procurement-v2';
+import React, { Suspense, useMemo, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import {
+    generateRestockSuggestionSecure,
+    createPurchaseOrderSecure,
+    approvePurchaseOrderSecure,
+    getSmartOrderLowStockPrefillSecure,
+    type SmartOrderLowStockPrefillPayload,
+} from '@/actions/procurement-v2';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useBootstrapSupplyProcurement } from '@/presentation/hooks/useBootstrapSupplyProcurement';
 import { PinModal } from '@/components/shared/PinModal';
 import { Calculator, ShoppingCart, Loader2, AlertTriangle, CheckCircle, TrendingUp, Shield, Lock } from 'lucide-react';
 import { toast } from 'sonner';
+import { resolveProcurementVisibleContext } from '@/presentation/lib/procurement-visible-context';
+import {
+    getOperationalQuickActionHint,
+    parseOperationalQuickActionParams,
+} from '@/lib/operational-quick-actions';
+import {
+    emitOperationalQuickActionUxEvent,
+    resolveOperationalQuickActionDestinationStatus,
+} from '@/lib/operational-quick-action-telemetry';
+import {
+    OPERATIONAL_AUTHORITY_LABELS,
+    OPERATIONAL_CONTEXT_ORIGIN_LABELS,
+    OPERATIONAL_CONTEXT_STATUS_LABELS,
+    OPERATIONAL_REJECTION_REASON_LABELS,
+} from '@/lib/operational-message-catalog';
 
 const MANAGER_THRESHOLD = 500000;
 const GERENTE_THRESHOLD = 1000000;
+const SMART_ORDER_FIELD_CLASS = 'w-full min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-base text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100';
+const SMART_ORDER_SELECT_CLASS = `${SMART_ORDER_FIELD_CLASS} bg-slate-50`;
 
 export default function SmartOrderPage() {
+    return (
+        <Suspense fallback={<div className="p-6 text-sm text-slate-500">Cargando pedido inteligente...</div>}>
+            <SmartOrderPageContent />
+        </Suspense>
+    );
+}
+
+function SmartOrderPageContent() {
+    const searchParams = useSearchParams();
     const user = usePharmaStore((state) => state.user);
     const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
     const locations = useLocationStore((state) => state.locations);
-    const { suppliers } = useBootstrapSupplyProcurement({
-        activeLocationId: currentLocationId,
-        enableKanbanBootstrap: false,
-        loadSuppliers: true,
-        loadLocations: true,
-    });
+    const currentLocation = useLocationStore((state) => state.currentLocation);
+    const quickActionContext = useMemo(() => parseOperationalQuickActionParams(searchParams), [searchParams]);
+    const quickActionHint = useMemo(() => getOperationalQuickActionHint(quickActionContext.alertId), [quickActionContext.alertId]);
+    const isLowStockQuickAction = quickActionContext.isOperationalSuggestion
+        && quickActionContext.alertId === 'inventory-critical-low-stock';
+    const quickActionLocationId = useMemo(() => {
+        const requestedLocationId = quickActionContext.locationId || '';
+        return locations.some((location) => location.id === requestedLocationId) ? requestedLocationId : '';
+    }, [locations, quickActionContext.locationId]);
+    const quickActionWarehouseId = useMemo(() => {
+        const requestedWarehouseId = quickActionContext.warehouseId || '';
+        if (!quickActionLocationId || !requestedWarehouseId) return '';
+        const requestedLocation = locations.find((location) => location.id === quickActionLocationId);
+        return requestedLocation?.default_warehouse_id === requestedWarehouseId ? requestedWarehouseId : '';
+    }, [locations, quickActionLocationId, quickActionContext.warehouseId]);
+    const isQuickActionPrefill = quickActionContext.isOperationalSuggestion && Boolean(quickActionLocationId);
+    const quickActionContextRejected = Boolean(quickActionContext.isOperationalSuggestion && !isQuickActionPrefill);
 
     // filters
     const [supplierId, setSupplierId] = useState('');
     const [locationId, setLocationId] = useState('');
+    const procurementContext = useMemo(() => resolveProcurementVisibleContext({
+        requestedLocationId: locationId,
+        requestedWarehouseId: quickActionWarehouseId,
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent: currentLocation,
+        locations,
+    }), [
+        currentLocation,
+        currentLocationId,
+        currentWarehouseId,
+        locationId,
+        locations,
+        quickActionWarehouseId,
+        user,
+    ]);
+    const { suppliers } = useBootstrapSupplyProcurement({
+        activeLocationId: procurementContext.locationId || currentLocationId,
+        enableKanbanBootstrap: false,
+        loadSuppliers: true,
+        loadLocations: true,
+    });
     const [daysToCover, setDaysToCover] = useState(15);
     const [analysisWindow, setAnalysisWindow] = useState(30);
 
@@ -33,6 +101,10 @@ export default function SmartOrderPage() {
     const [loading, setLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<any[]>([]);
     const [editableQuantities, setEditableQuantities] = useState<Record<string, number>>({});
+    const [lowStockPrefill, setLowStockPrefill] = useState<SmartOrderLowStockPrefillPayload | null>(null);
+    const [lowStockPrefillError, setLowStockPrefillError] = useState('');
+    const [loadingLowStockPrefill, setLoadingLowStockPrefill] = useState(false);
+    const [lowStockPrefillApplied, setLowStockPrefillApplied] = useState(false);
 
     // creating
     const [creatingOrder, setCreatingOrder] = useState(false);
@@ -40,10 +112,139 @@ export default function SmartOrderPage() {
     const [showPinModal, setShowPinModal] = useState(false);
 
     useEffect(() => {
-        if (currentLocationId) {
-            setLocationId(currentLocationId);
+        if (!quickActionContext.source) return;
+
+        const contextAccepted = Boolean(
+            isQuickActionPrefill
+            && (!quickActionContext.warehouseId || quickActionWarehouseId)
+        );
+        const destinationStatus = resolveOperationalQuickActionDestinationStatus({
+            source: quickActionContext.source,
+            isOperationalSuggestion: quickActionContext.isOperationalSuggestion,
+            contextAccepted,
+        });
+        const contextEvent = destinationStatus === 'contextAccepted'
+            ? 'destination_context_accepted'
+            : destinationStatus === 'contextRejected'
+                ? 'destination_context_rejected'
+                : 'destination_context_ignored';
+        const baseEvent = {
+            alertId: quickActionContext.alertId,
+            targetModule: 'procurement',
+            destination: '/procurement/smart-order',
+            destinationStatus,
+            hasDateRange: Boolean(quickActionContext.startDate && quickActionContext.endDate),
+            hasLocationId: Boolean(quickActionContext.locationId),
+            hasWarehouseId: Boolean(quickActionContext.warehouseId),
+        };
+
+        emitOperationalQuickActionUxEvent({
+            event: 'destination_opened',
+            ...baseEvent,
+        });
+        emitOperationalQuickActionUxEvent({
+            event: contextEvent,
+            reason: destinationStatus === 'contextAccepted'
+                ? 'prefill validado'
+                : 'locationId o warehouseId no corresponde al contexto visible',
+            ...baseEvent,
+        });
+    }, [
+        isQuickActionPrefill,
+        quickActionContext.alertId,
+        quickActionContext.endDate,
+        quickActionContext.isOperationalSuggestion,
+        quickActionContext.locationId,
+        quickActionContext.source,
+        quickActionContext.startDate,
+        quickActionContext.warehouseId,
+        quickActionWarehouseId,
+    ]);
+
+    useEffect(() => {
+        if (locationId) return;
+        if (quickActionLocationId) {
+            setLocationId(quickActionLocationId);
+            return;
         }
-    }, [currentLocationId]);
+        if (procurementContext.locationId) {
+            setLocationId(procurementContext.locationId);
+        }
+    }, [locationId, procurementContext.locationId, quickActionLocationId]);
+
+    useEffect(() => {
+        if (!isLowStockQuickAction) return;
+
+        let cancelled = false;
+        setLoadingLowStockPrefill(true);
+        setLowStockPrefill(null);
+        setLowStockPrefillError('');
+        setLowStockPrefillApplied(false);
+
+        getSmartOrderLowStockPrefillSecure({
+            alertId: 'inventory-critical-low-stock',
+            locationId: quickActionContext.locationId || undefined,
+            warehouseId: quickActionContext.warehouseId || undefined,
+            limit: 8,
+        }).then((result) => {
+            if (cancelled) return;
+            if (result.success) {
+                setLowStockPrefill(result.data);
+                setLowStockPrefillError('');
+                setLocationId((current) => current || result.data.locationId);
+            } else {
+                setLowStockPrefill(null);
+                setLowStockPrefillError(result.error);
+            }
+        }).catch((error: Error) => {
+            if (cancelled) return;
+            setLowStockPrefill(null);
+            setLowStockPrefillError(error.message || 'Error generando canasta sugerida');
+        }).finally(() => {
+            if (!cancelled) {
+                setLoadingLowStockPrefill(false);
+            }
+        });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        isLowStockQuickAction,
+        quickActionContext.locationId,
+        quickActionContext.warehouseId,
+    ]);
+
+    const handleApplyLowStockPrefill = () => {
+        if (!lowStockPrefill || lowStockPrefill.items.length === 0) return;
+
+        const basketSuggestions = lowStockPrefill.items.map((item) => ({
+            product_id: item.productId,
+            product_name: item.productName,
+            sku: item.sku,
+            unit_cost: item.suggestedSupplierCost || item.unitCost,
+            suggested_quantity: item.suggestedQuantity,
+            current_stock: item.currentStock,
+            daily_velocity: 0,
+            suppliers_data: item.suggestedSupplierId
+                ? [{
+                    id: item.suggestedSupplierId,
+                    name: item.suggestedSupplierName || 'Proveedor sugerido',
+                    cost_price: item.suggestedSupplierCost || item.unitCost,
+                    is_preferred: true,
+                }]
+                : null,
+            prefill_reason: item.reason,
+        }));
+        const quantities = lowStockPrefill.items.reduce<Record<string, number>>((acc, item) => {
+            acc[item.productId] = item.suggestedQuantity;
+            return acc;
+        }, {});
+
+        setSuggestions(basketSuggestions);
+        setEditableQuantities(quantities);
+        setLowStockPrefillApplied(true);
+    };
 
     const handleCalculate = async () => {
         if (!supplierId) return;
@@ -51,7 +252,12 @@ export default function SmartOrderPage() {
         setSuggestions([]);
 
         try {
-            const res = await generateRestockSuggestionSecure(supplierId, daysToCover, analysisWindow, locationId);
+            const res = await generateRestockSuggestionSecure(
+                supplierId,
+                daysToCover,
+                analysisWindow,
+                procurementContext.locationId || undefined,
+            );
             if (res.success && res.data) {
                 setSuggestions(res.data);
                 const initial: Record<string, number> = {};
@@ -89,14 +295,19 @@ export default function SmartOrderPage() {
             toast.error('No hay items con cantidad mayor a 0');
             return;
         }
+        if (!procurementContext.locationId || !procurementContext.warehouseId) {
+            toast.error('No hay contexto válido de sucursal y bodega para generar la orden');
+            return;
+        }
 
         setCreatingOrder(true);
         try {
             const res = await createPurchaseOrderSecure({
                 supplierId,
+                warehouseId: procurementContext.warehouseId,
                 items: itemsToOrder,
                 userId: user.id,
-                notes: `Generado automáticamente - ${daysToCover} días cobertura`
+                notes: `Generado automáticamente - ${daysToCover} días cobertura [LOC:${procurementContext.locationId}]`
             });
 
             if (res.success && res.data) {
@@ -148,6 +359,33 @@ export default function SmartOrderPage() {
     }, 0);
 
     const itemsCount = suggestions.filter(s => (editableQuantities[s.product_id] || 0) > 0).length;
+    const smartOrderNextStep = !procurementContext.locationId
+        ? 'Selecciona una sucursal válida para continuar.'
+        : !supplierId
+            ? lowStockPrefillApplied
+                ? 'Canasta sugerida cargada: selecciona proveedor manualmente antes de generar la orden.'
+                : isQuickActionPrefill
+                    ? 'Contexto listo: selecciona proveedor y calcula la propuesta.'
+                : 'Selecciona proveedor para calcular una propuesta.'
+            : suggestions.length === 0
+                ? 'Listo para calcular: revisa cobertura y ventana antes de continuar.'
+                : 'Propuesta lista: revisa cantidades antes de generar la orden.';
+    const smartOrderContextSource = isQuickActionPrefill
+        ? `Origen: ${OPERATIONAL_CONTEXT_ORIGIN_LABELS.inheritedContext}`
+        : quickActionContextRejected
+            ? `Origen: ${OPERATIONAL_AUTHORITY_LABELS.serverSourceOfTruth}`
+            : locationId
+                ? `Origen: ${OPERATIONAL_CONTEXT_ORIGIN_LABELS.manualSelection}`
+                : `Origen: ${OPERATIONAL_AUTHORITY_LABELS.serverSourceOfTruth}`;
+    const smartOrderContextExplanation = quickActionContextRejected
+        ? `Motivo: ${OPERATIONAL_REJECTION_REASON_LABELS.outOfScope}. La sucursal o bodega heredada no pertenece al contexto visible. No se aplicó prefill.`
+        : quickActionWarehouseId
+            ? `Origen del estado: ${OPERATIONAL_CONTEXT_ORIGIN_LABELS.inheritedContext}. Se usó la sucursal y se confirmó su bodega; el proveedor sigue manual.`
+            : `Origen del estado: ${OPERATIONAL_CONTEXT_ORIGIN_LABELS.inheritedContext}. Se usó la sucursal; el proveedor sigue manual.`;
+    const validatedWarehouseName = useMemo(() => {
+        if (!quickActionWarehouseId || !quickActionLocationId) return '';
+        return locations.find((location) => location.id === quickActionWarehouseId)?.name || quickActionWarehouseId;
+    }, [locations, quickActionLocationId, quickActionWarehouseId]);
 
     // Determine required role for approval
     const getRequiredRole = () => {
@@ -171,34 +409,155 @@ export default function SmartOrderPage() {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-100 px-3 py-2 rounded-lg">
                     <Shield size={14} className="text-emerald-600" />
-                    <span>Módulo V2 - Seguridad Mejorada</span>
+                    <span>Flujo protegido con revisión manual</span>
                 </div>
             </div>
+
+            {quickActionContext.isOperationalSuggestion && (
+                <div
+                    data-testid="smart-order-quick-action-context"
+                    className={`rounded-xl border px-4 py-3 text-sm ${quickActionContextRejected
+                        ? 'border-amber-100 bg-amber-50 text-amber-900'
+                        : 'border-emerald-100 bg-emerald-50 text-emerald-900'
+                        }`}
+                >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <p className="font-semibold">
+                                {quickActionContextRejected
+                                    ? OPERATIONAL_CONTEXT_STATUS_LABELS.rejected
+                                    : `${OPERATIONAL_CONTEXT_STATUS_LABELS.accepted}: contexto cargado desde la alerta operativa.`}
+                            </p>
+                            <p className="mt-1">
+                                {quickActionHint?.destinationCopy || 'El contexto heredado solo prellena la pantalla; la orden sigue requiriendo revisión manual.'}
+                            </p>
+                            {quickActionContextRejected && (
+                                <p className="mt-2 text-xs font-semibold text-amber-700">
+                                    La sucursal o bodega de la alerta no coincide con el contexto visible. Selecciona la sucursal manualmente.
+                                </p>
+                            )}
+                            <p
+                                data-testid="smart-order-context-explanation"
+                                className={`mt-2 text-xs ${quickActionContextRejected ? 'text-amber-700' : 'text-emerald-700'}`}
+                            >
+                                {smartOrderContextExplanation}
+                            </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                            <span className="rounded-full bg-white px-2.5 py-1">
+                                {quickActionContextRejected ? `${OPERATIONAL_AUTHORITY_LABELS.safePrefill} bloqueado` : OPERATIONAL_CONTEXT_STATUS_LABELS.accepted}
+                            </span>
+                            {!quickActionContextRejected && procurementContext.locationName && (
+                                <span className="rounded-full bg-white px-2.5 py-1">
+                                    Sucursal preseleccionada: {procurementContext.locationName}
+                                </span>
+                            )}
+                            {!quickActionContextRejected && quickActionWarehouseId && (
+                                <span className="rounded-full bg-white px-2.5 py-1">
+                                    Bodega validada: {validatedWarehouseName || quickActionWarehouseId}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isLowStockQuickAction && (
+                <div
+                    data-testid="smart-order-low-stock-prefill"
+                    className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-4 text-sm text-sky-950"
+                >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <p className="font-semibold">Canasta sugerida por alerta validada</p>
+                            <p className="mt-1 text-sky-800">
+                                La canasta se deriva en servidor desde bajo stock crítico. El proveedor y la confirmación siguen siendo decisiones manuales.
+                            </p>
+                            {loadingLowStockPrefill && (
+                                <p className="mt-2 text-xs font-semibold text-sky-700">Buscando productos bajo stock en el contexto validado...</p>
+                            )}
+                            {lowStockPrefillError && (
+                                <p className="mt-2 text-xs font-semibold text-amber-700">
+                                    No se aplicó canasta sugerida: {lowStockPrefillError}
+                                </p>
+                            )}
+                            {lowStockPrefill && (
+                                <div className="mt-3 space-y-2">
+                                    <p className="text-xs font-semibold text-sky-700">
+                                        Sucursal: {lowStockPrefill.locationName} · Bodega: {lowStockPrefill.warehouseName}
+                                    </p>
+                                    {lowStockPrefill.items.length === 0 ? (
+                                        <p className="text-xs text-sky-700">No hay productos bajo stock para sugerir en esta bodega.</p>
+                                    ) : (
+                                        <ul className="grid gap-2 md:grid-cols-2">
+                                            {lowStockPrefill.items.slice(0, 6).map((item) => (
+                                                <li key={item.productId} className="rounded-lg bg-white px-3 py-2">
+                                                    <div className="font-semibold text-slate-900">{item.productName}</div>
+                                                    <div className="text-xs text-slate-500">
+                                                        SKU {item.sku} · stock {item.currentStock}/{item.stockMin} · sugerido {item.suggestedQuantity}
+                                                    </div>
+                                                    {item.suggestedSupplierName && (
+                                                        <div className="mt-1 text-xs font-semibold text-sky-700">
+                                                            Proveedor sugerido: {item.suggestedSupplierName} · selección manual requerida
+                                                        </div>
+                                                    )}
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={handleApplyLowStockPrefill}
+                            disabled={!lowStockPrefill || lowStockPrefill.items.length === 0 || loadingLowStockPrefill}
+                            className="min-h-11 rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            Usar canasta sugerida
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Config Panel */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
                 <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Sucursal</label>
                     <select
-                        className="w-full p-2 border rounded-lg bg-slate-50"
+                        className={SMART_ORDER_SELECT_CLASS}
                         value={locationId}
                         onChange={(e) => setLocationId(e.target.value)}
                     >
-                        <option value="">-- Todas --</option>
+                        <option value="">-- Contexto activo --</option>
                         {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
+                    {procurementContext.locationId && (
+                        <p className="text-xs text-slate-400">
+                            Contexto efectivo: {procurementContext.locationName}
+                        </p>
+                    )}
+                    <p data-testid="smart-order-context-source" className="text-xs font-semibold text-slate-500">
+                        {smartOrderContextSource}
+                    </p>
                 </div>
 
                 <div className="space-y-2">
                     <label className="text-sm font-medium text-slate-700">Proveedor</label>
                     <select
-                        className="w-full p-2 border rounded-lg bg-slate-50"
+                        autoFocus={isQuickActionPrefill && !supplierId}
+                        className={SMART_ORDER_SELECT_CLASS}
                         value={supplierId}
                         onChange={(e) => setSupplierId(e.target.value)}
                     >
                         <option value="">-- Seleccionar --</option>
                         {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
+                    {lowStockPrefill?.items.some(item => item.suggestedSupplierName) && !supplierId && (
+                        <p className="text-xs font-semibold text-sky-700">
+                            Hay proveedor sugerido en la canasta, pero no se selecciona automáticamente.
+                        </p>
+                    )}
                 </div>
 
                 <div className="space-y-2">
@@ -206,11 +565,11 @@ export default function SmartOrderPage() {
                     <div className="relative">
                         <input
                             type="number"
-                            className="w-full p-2 pl-3 border rounded-lg"
+                            className={`${SMART_ORDER_FIELD_CLASS} pr-14`}
                             value={daysToCover}
                             onChange={(e) => setDaysToCover(Number(e.target.value))}
                         />
-                        <span className="absolute right-3 top-2 text-slate-400 text-sm">días</span>
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">días</span>
                     </div>
                 </div>
 
@@ -219,22 +578,30 @@ export default function SmartOrderPage() {
                     <div className="relative">
                         <input
                             type="number"
-                            className="w-full p-2 pl-3 border rounded-lg"
+                            className={`${SMART_ORDER_FIELD_CLASS} pr-24`}
                             value={analysisWindow}
                             onChange={(e) => setAnalysisWindow(Number(e.target.value))}
                         />
-                        <span className="absolute right-3 top-2 text-slate-400 text-sm">días atrás</span>
+                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">días atrás</span>
                     </div>
                 </div>
 
                 <button
                     onClick={handleCalculate}
                     disabled={!supplierId || loading}
-                    className="bg-purple-600 hover:bg-purple-700 text-white font-medium p-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+                    aria-describedby="smart-order-next-step"
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2 font-medium text-white transition-colors hover:bg-purple-700 disabled:opacity-50"
                 >
                     {loading ? <Loader2 className="animate-spin" size={20} /> : <TrendingUp size={20} />}
                     Calcular Propuesta
                 </button>
+                <div
+                    id="smart-order-next-step"
+                    data-testid="smart-order-next-step"
+                    className="md:col-span-5 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600"
+                >
+                    {smartOrderNextStep}
+                </div>
             </div>
 
             {/* Results Grid */}
@@ -313,7 +680,7 @@ export default function SmartOrderPage() {
                             </div>
                             <button
                                 onClick={handleCreateOrder}
-                                disabled={creatingOrder || itemsCount === 0}
+                                disabled={creatingOrder || itemsCount === 0 || !supplierId}
                                 className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg hover:shadow-xl transition-all disabled:opacity-50 disabled:shadow-none"
                             >
                                 {creatingOrder ? <Loader2 className="animate-spin" /> : <ShoppingCart size={20} />}

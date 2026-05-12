@@ -351,11 +351,11 @@ const AttendanceKioskPage: React.FC = () => {
     // --- Renders ---
     if (isLocked) {
         return (
-            <div className="min-h-dvh pt-safe pb-safe bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-hidden select-none touch-manipulation">
+            <div className="min-h-dvh pt-safe pb-safe bg-slate-50 flex flex-col items-center justify-center p-4 relative overflow-x-hidden select-none touch-manipulation">
                 {/* Background Ambience */}
                 <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-50">
-                    <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[100px]" />
-                    <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] bg-teal-100/30 rounded-full blur-[100px]" />
+                    <div className="absolute top-[10%] left-[15%] w-[70vw] max-w-[500px] h-[70vw] max-h-[500px] bg-sky-200/40 rounded-full blur-[100px]" />
+                    <div className="absolute bottom-[10%] right-[15%] w-[70vw] max-w-[500px] h-[70vw] max-h-[500px] bg-teal-100/30 rounded-full blur-[100px]" />
                 </div>
 
                 <motion.div
@@ -421,8 +421,9 @@ const AttendanceKioskPage: React.FC = () => {
 
                     <div className="mt-10 pt-6 border-t border-slate-100 flex flex-col items-center gap-4">
                         <button
+                            type="button"
                             onClick={handleExitClick}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-all"
+                            className="min-h-11 flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-500 hover:text-sky-600 hover:bg-sky-50 rounded-xl transition-colors"
                         >
                             <Home size={16} />
                             Volver al Inicio
@@ -457,6 +458,7 @@ const AttendanceKioskPage: React.FC = () => {
                     <div className="grid gap-4">
                         {employeeStatus === 'OUT' && (
                             <button
+                                type="button"
                                 onClick={() => processAction('CHECK_IN')}
                                 className="bg-emerald-500 hover:bg-emerald-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-emerald-500/20 active:scale-[0.98] group"
                             >
@@ -472,6 +474,7 @@ const AttendanceKioskPage: React.FC = () => {
                                 {employeeStatus === 'IN' && (
                                     <>
                                         <button
+                                            type="button"
                                             onClick={() => processAction('LUNCH_START')}
                                             className="bg-amber-500 hover:bg-amber-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-amber-500/20 active:scale-[0.98] group"
                                         >
@@ -482,6 +485,7 @@ const AttendanceKioskPage: React.FC = () => {
                                         </button>
 
                                         <button
+                                            type="button"
                                             onClick={() => setShowSpecialMenu(true)}
                                             className="bg-slate-700 hover:bg-slate-800 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-slate-500/20 active:scale-[0.98] group"
                                         >
@@ -495,6 +499,7 @@ const AttendanceKioskPage: React.FC = () => {
 
                                 {employeeStatus === 'LUNCH' && (
                                     <button
+                                        type="button"
                                         onClick={() => processAction('LUNCH_END')}
                                         className="bg-sky-500 hover:bg-sky-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-sky-500/20 active:scale-[0.98] group"
                                     >
@@ -507,6 +512,7 @@ const AttendanceKioskPage: React.FC = () => {
 
                                 {employeeStatus === 'IN' && (
                                     <button
+                                        type="button"
                                         onClick={() => processAction('CHECK_OUT')}
                                         className="bg-red-500 hover:bg-red-600 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-red-500/20 active:scale-[0.98] group"
                                     >
@@ -523,6 +529,7 @@ const AttendanceKioskPage: React.FC = () => {
                         {showSpecialMenu && (
                             <div className="grid gap-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
                                 <button
+                                    type="button"
                                     onClick={() => processAction('MEDICAL_LEAVE')}
                                     className="bg-indigo-500 hover:bg-indigo-600 text-white p-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all shadow-lg shadow-indigo-500/20 active:scale-[0.98]"
                                 >
@@ -530,6 +537,7 @@ const AttendanceKioskPage: React.FC = () => {
                                     <span>TRÁMITE MÉDICO</span>
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => processAction('PERMISSION_START')}
                                     className="bg-violet-500 hover:bg-violet-600 text-white p-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all shadow-lg shadow-violet-500/20 active:scale-[0.98]"
                                 >
@@ -537,6 +545,7 @@ const AttendanceKioskPage: React.FC = () => {
                                     <span>PERMISO PERSONAL</span>
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => processAction('EMERGENCY')}
                                     className="bg-rose-600 hover:bg-rose-700 text-white p-5 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 transition-all shadow-lg shadow-rose-600/20 active:scale-[0.98]"
                                 >
@@ -544,6 +553,7 @@ const AttendanceKioskPage: React.FC = () => {
                                     <span>EMERGENCIA</span>
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => setShowSpecialMenu(false)}
                                     className="bg-slate-100 hover:bg-slate-200 text-slate-600 p-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 mt-2 transition-colors"
                                 >
@@ -565,6 +575,7 @@ const AttendanceKioskPage: React.FC = () => {
                                 </div>
 
                                 <button
+                                    type="button"
                                     onClick={() => processAction('PERMISSION_END')}
                                     className="bg-emerald-600 hover:bg-emerald-700 text-white p-6 rounded-2xl font-bold text-xl flex items-center justify-center gap-4 transition-all shadow-lg shadow-emerald-600/20 active:scale-[0.98] group"
                                 >
@@ -575,6 +586,7 @@ const AttendanceKioskPage: React.FC = () => {
                                 </button>
 
                                 <button
+                                    type="button"
                                     onClick={() => processAction('CHECK_OUT')}
                                     className="bg-slate-200 hover:bg-slate-300 text-slate-600 p-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-3 mt-4 transition-all"
                                 >
@@ -587,6 +599,7 @@ const AttendanceKioskPage: React.FC = () => {
 
 
                     <button
+                        type="button"
                         onClick={() => setAuthenticatedEmployee(null)}
                         className="mt-10 text-slate-400 hover:text-slate-600 font-bold uppercase tracking-widest text-xs"
                     >
@@ -621,6 +634,8 @@ const AttendanceKioskPage: React.FC = () => {
                         <p className="text-[10px] text-sky-600 font-black uppercase tracking-widest mt-1">Conectado a Sucursal</p>
                     </div>
                     <button
+                        type="button"
+                        aria-label="Refrescar estados de asistencia"
                         onClick={handleRefresh}
                         disabled={isRefreshing}
                         className="w-12 h-12 flex items-center justify-center rounded-2xl bg-sky-50 text-sky-600 hover:bg-sky-100 transition-all border border-sky-100 disabled:opacity-50"
@@ -629,6 +644,8 @@ const AttendanceKioskPage: React.FC = () => {
                         <RefreshCw size={22} className={isRefreshing ? 'animate-spin' : ''} />
                     </button>
                     <button
+                        type="button"
+                        aria-label="Bloquear terminal de reloj control"
                         onClick={() => setIsLocked(true)}
                         className="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 hover:bg-amber-50 hover:text-amber-500 transition-all border border-slate-100"
                         title="Bloquear terminal"
@@ -636,6 +653,8 @@ const AttendanceKioskPage: React.FC = () => {
                         <Lock size={22} />
                     </button>
                     <button
+                        type="button"
+                        aria-label="Volver al inicio desde reloj control"
                         onClick={handleExitClick}
                         className="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 hover:bg-emerald-50 hover:text-emerald-500 transition-all border border-slate-100"
                         title="Volver al inicio"
@@ -709,19 +728,21 @@ const AttendanceKioskPage: React.FC = () => {
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                        className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto overscroll-contain bg-slate-900/60 p-4 pt-safe pb-safe backdrop-blur-sm sm:items-center"
                     >
                         <motion.div
                             initial={{ scale: 0.9, y: 20 }}
                             animate={{ scale: 1, y: 0 }}
                             exit={{ scale: 0.9, y: 20 }}
-                            className="bg-white rounded-[40px] p-10 max-w-md w-full relative shadow-2xl border border-slate-100"
+                            className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-[28px] border border-slate-100 bg-white p-6 shadow-2xl sm:rounded-[40px] sm:p-10"
                         >
                             <button
+                                type="button"
+                                aria-label="Cerrar verificación de asistencia"
                                 onClick={() => { setSelectedEmployee(null); setAuthMethod(null); setPin(''); setMessage(null); }}
-                                className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 transition-colors"
+                                className="absolute right-4 top-4 flex min-h-11 min-w-11 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 sm:right-6 sm:top-6"
                             >
-                                <X size={28} />
+                                <X size={28} aria-hidden="true" />
                             </button>
 
                             <div className="text-center mb-10">
@@ -745,6 +766,7 @@ const AttendanceKioskPage: React.FC = () => {
                             {authMethod === 'BIOMETRIC' ? (
                                 <div className="space-y-8">
                                     <button
+                                        type="button"
                                         onClick={handleBiometricAuth}
                                         className="w-full py-10 border-2 border-dashed border-sky-200 bg-sky-50/50 rounded-3xl flex flex-col items-center gap-4 hover:bg-sky-50 hover:border-sky-300 transition-all group relative overflow-hidden active:scale-[0.98]"
                                     >
@@ -759,6 +781,7 @@ const AttendanceKioskPage: React.FC = () => {
                                     </div>
 
                                     <button
+                                        type="button"
                                         onClick={() => setAuthMethod('PIN')}
                                         className="w-full py-4 text-slate-600 font-bold hover:bg-slate-50 rounded-2xl transition-all border border-transparent hover:border-slate-200 active:scale-[0.98]"
                                     >
@@ -791,6 +814,7 @@ const AttendanceKioskPage: React.FC = () => {
 
                                     <div className="w-full flex flex-col gap-3">
                                         <button
+                                            type="button"
                                             onClick={() => handlePinSubmit()}
                                             disabled={isValidating || pin.length < 4}
                                             className="w-full bg-sky-600 hover:bg-sky-500 text-white py-4 rounded-2xl font-bold shadow-xl shadow-sky-600/20 transition-all transform active:scale-[0.98] text-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 touch-manipulation"
@@ -799,6 +823,7 @@ const AttendanceKioskPage: React.FC = () => {
                                         </button>
 
                                         <button
+                                            type="button"
                                             onClick={() => setAuthMethod('BIOMETRIC')}
                                             className="w-full py-3 text-slate-400 font-bold hover:text-sky-600 transition-colors flex items-center justify-center gap-2 touch-manipulation"
                                         >

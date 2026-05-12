@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
+import { HEALTHCHECK_NO_STORE_HEADERS } from '@/lib/api-health';
+
+export const dynamic = 'force-dynamic';
 
 function isAuthorized(request: NextRequest) {
     const expectedToken = process.env.HEALTHCHECK_TOKEN;
@@ -9,8 +12,7 @@ function isAuthorized(request: NextRequest) {
     }
 
     const tokenFromHeader = request.headers.get('x-health-token');
-    const tokenFromQuery = request.nextUrl.searchParams.get('token');
-    return tokenFromHeader === expectedToken || tokenFromQuery === expectedToken;
+    return tokenFromHeader === expectedToken;
 }
 
 export async function GET(request: NextRequest) {
@@ -21,7 +23,7 @@ export async function GET(request: NextRequest) {
                 error: 'Unauthorized',
                 code: 'HEALTH_UNAUTHORIZED',
             },
-            { status: 401 }
+            { status: 401, headers: HEALTHCHECK_NO_STORE_HEADERS }
         );
     }
 
@@ -34,23 +36,13 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            environment: process.env.NODE_ENV,
-            uptime: process.uptime(),
             database: {
                 connected: true,
                 latencyMs: dbLatency,
-                poolTotal: pool.totalCount,
-                poolIdle: pool.idleCount,
-                poolWaiting: pool.waitingCount
             },
-            version: process.env.npm_package_version || '1.0.0'
         }, {
             status: 200,
-            headers: {
-                'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0',
-            }
+            headers: HEALTHCHECK_NO_STORE_HEADERS
         });
     } catch (error: any) {
         console.error('❌ Health Check Failed:', error);
@@ -58,10 +50,9 @@ export async function GET(request: NextRequest) {
             {
                 status: 'unhealthy',
                 error: 'Database connection failed',
-                details: error.message,
                 timestamp: new Date().toISOString()
             },
-            { status: 503 }
+            { status: 503, headers: HEALTHCHECK_NO_STORE_HEADERS }
         );
     }
 }
