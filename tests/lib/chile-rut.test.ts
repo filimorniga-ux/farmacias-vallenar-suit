@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     formatChileanRutInput,
     isCompleteChileanRutInput,
+    isValidChileanRutInput,
     normalizeChileanRutInput,
 } from '@/lib/chile-rut';
 
@@ -24,9 +25,18 @@ describe('chile-rut input helpers', () => {
         expect(formatChileanRutInput('2222222')).toBe('2.222.222');
     });
 
-    it('solo considera completo un RUT con cuerpo y digito verificador', () => {
+    it('valida el digito verificador con modulo 11', () => {
+        expect(isValidChileanRutInput('2.222.222-2')).toBe(false);
+        expect(isValidChileanRutInput('2.222.222-8')).toBe(true);
+        expect(isValidChileanRutInput('22.222.222-2')).toBe(true);
+        expect(isValidChileanRutInput('12.345.678-5')).toBe(true);
+        expect(isValidChileanRutInput('12.345.678-K')).toBe(false);
+    });
+
+    it('solo considera completo un RUT con digito verificador valido', () => {
         expect(isCompleteChileanRutInput('2.222.222')).toBe(false);
-        expect(isCompleteChileanRutInput('2.222.222-2')).toBe(true);
+        expect(isCompleteChileanRutInput('2.222.222-2')).toBe(false);
+        expect(isCompleteChileanRutInput('2.222.222-8')).toBe(true);
         expect(isCompleteChileanRutInput('22.222.222-2')).toBe(true);
     });
 });
