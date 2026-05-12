@@ -33,26 +33,19 @@ describe('public pre-auth mobile surfaces', () => {
         expect(source).toContain('href="mailto:soporte@farmaciasvallenar.cl"');
     });
 
-    it('keeps recovery pages scrollable, labeled and clear of iOS safe areas', () => {
+    it('keeps legacy email/password recovery out of the public pre-auth surface', () => {
         const forgotSource = readProjectFile('src/app/forgot-password/page.tsx');
         const resetSource = readProjectFile('src/app/reset-password/[token]/page.tsx');
 
         for (const source of [forgotSource, resetSource]) {
-            expect(source).toContain('min-h-dvh');
-            expect(source).toContain('pt-safe');
-            expect(source).toContain('pb-safe');
-            expect(source).toContain('max-h-[calc(100dvh-1rem)]');
-            expect(source).toContain('overflow-y-auto');
-            expect(source).toContain('min-h-11');
+            expect(source).toContain("redirect('/')");
+            expect(source).not.toContain("'use client'");
+            expect(source).not.toContain('type="email"');
+            expect(source).not.toContain('type="password"');
             expect(source).not.toContain('href="/login"');
         }
 
-        expect(forgotSource).toContain('htmlFor="recovery-email"');
-        expect(forgotSource).toContain('autoComplete="email"');
-        expect(forgotSource).not.toContain('consola del servidor');
-        expect(resetSource).toContain('htmlFor="new-password"');
-        expect(resetSource).toContain('htmlFor="confirm-new-password"');
-        expect(resetSource).toContain("router.push('/')");
-        expect(resetSource).not.toContain("router.push('/login')");
+        expect(forgotSource).not.toContain('forgotPasswordSecure');
+        expect(resetSource).not.toContain('resetPasswordSecure');
     });
 });
