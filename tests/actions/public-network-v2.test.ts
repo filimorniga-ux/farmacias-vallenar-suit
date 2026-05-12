@@ -60,7 +60,8 @@ describe('Public Network V2', () => {
         expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining("type = 'STORE'"));
         expect(result.data).toHaveLength(1);
         expect(result.data[0]?.name).toBe('Sucursal Centro');
-        expect(result.data[0]?.address).toContain('alert(1)Av. Siempre Viva 123');
+        expect(result.data[0]?.address).toBe('Av. Siempre Viva 123');
+        expect(result.data[0]?.address).not.toContain('alert(1)');
     });
 
     it('no expone bodegas ni casa matriz aunque lleguen desde la DB', async () => {

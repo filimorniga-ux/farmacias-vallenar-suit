@@ -64,6 +64,14 @@ function checkPublicNetworkRateLimit(ip: string): boolean {
     return true;
 }
 
+function sanitizePublicLocationText(value: unknown) {
+    return String(value || '')
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+        .replace(/<[^>]*>/g, '')
+        .trim();
+}
+
 export async function getPublicLocationsSecure(): Promise<PublicLocationsResult> {
     noStore();
 
@@ -102,8 +110,8 @@ export async function getPublicLocationsSecure(): Promise<PublicLocationsResult>
 
         const data = res.rows.filter((row: any) => row.type === 'STORE').map((row: any) => ({
             id: row.id,
-            name: (row.name || '').replace(/<[^>]*>/g, ''), // Strip HTML
-            address: (row.address || '').replace(/<[^>]*>/g, ''),
+            name: sanitizePublicLocationText(row.name),
+            address: sanitizePublicLocationText(row.address),
             type: row.type,
         }));
 
