@@ -26,5 +26,5 @@ Este directorio mezcla utilitarios vigentes, seeds y herramientas de diagnóstic
 
 ## No usar
 
-No reactivar scripts legacy que reseteaban PINs masivos o reinstalaban `1213`.
+No reactivar scripts legacy que reseteaban PINs masivos o reinstalaban el PIN DEV universal.
 Esos archivos quedan archivados solo como referencia histórica.

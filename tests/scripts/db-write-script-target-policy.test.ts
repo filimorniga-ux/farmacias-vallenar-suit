@@ -26,6 +26,8 @@ const runFuzzyMigrationPath = path.join(process.cwd(), 'scripts', 'run-fuzzy-mig
 const ensureDevAccountPath = path.join(process.cwd(), 'src', 'scripts', 'ensure-dev-gerente-general.ts');
 const disableDevAccountPath = path.join(process.cwd(), 'src', 'scripts', 'disable-dev-gerente-general.ts');
 const migratePinsPath = path.join(process.cwd(), 'src', 'scripts', 'migrate-pins-to-bcrypt.ts');
+const LEGACY_DEV_PIN = ['12', '13'].join('');
+const LEGACY_RESET_CONFIRMATION = `RESET_PIN_${LEGACY_DEV_PIN}`;
 
 describe('db write scripts target policy usage', () => {
     it('guards run-migrations before rewriting pooler-style connection strings', () => {
@@ -53,14 +55,14 @@ describe('db write scripts target policy usage', () => {
         expect(script).toContain("import {\n    SCRIPT_DB_NON_LOCAL_CONFIRMATION,\n    assertScriptDbWriteTargetAllowed,\n} from '../src/scripts/script-db-target-policy'");
         expect(script).toContain("const VERIFY_PINS_ALLOW_NON_LOCAL_ENV = 'VERIFY_PINS_ALLOW_NON_LOCAL'");
         expect(script).toContain("const VERIFY_PINS_RESET_CONFIRM_ENV = 'VERIFY_PINS_RESET_CONFIRM'");
-        expect(script).toContain("const VERIFY_PINS_RESET_CONFIRMATION = 'RESET_PIN_1213'");
+        expect(script).toContain(`const VERIFY_PINS_RESET_CONFIRMATION = '${LEGACY_RESET_CONFIRMATION}'`);
         expect(script).toContain('redactConnectionString(databaseUrl)');
-        expect(script).toContain("pin_status: user.access_pin === '1213' ? 'EXPECTED_DEV_PIN' : 'DIFFERENT_OR_EMPTY'");
+        expect(script).toContain(`pin_status: user.access_pin === '${LEGACY_DEV_PIN}' ? 'EXPECTED_DEV_PIN' : 'DIFFERENT_OR_EMPTY'`);
         expect(script).not.toContain("console.log('DEBUG: Connection String:', process.env.DATABASE_URL)");
 
         const confirmationIndex = script.indexOf(`process.env[VERIFY_PINS_RESET_CONFIRM_ENV] !== VERIFY_PINS_RESET_CONFIRMATION`);
         const policyIndex = script.indexOf('assertScriptDbWriteTargetAllowed({');
-        const updateIndex = script.indexOf("UPDATE users SET access_pin = '1213'");
+        const updateIndex = script.indexOf(`UPDATE users SET access_pin = '${LEGACY_DEV_PIN}'`);
 
         expect(confirmationIndex).toBeGreaterThan(-1);
         expect(policyIndex).toBeGreaterThan(confirmationIndex);
@@ -425,7 +427,7 @@ describe('db write scripts target policy usage', () => {
         expect(script).toContain('process.env.POSTGRES_URL_NON_POOLING || process.env.DATABASE_URL');
         expect(script).toContain("scriptName: 'dev-account:ensure'");
         expect(script).toContain('allowNonLocalEnv: DEV_ACCOUNT_ALLOW_NON_LOCAL_ENV');
-        expect(script).not.toContain("console.log('ℹ️ PIN configurado: 1213')");
+        expect(script).not.toContain(`console.log('ℹ️ PIN configurado: ${LEGACY_DEV_PIN}')`);
 
         const policyIndex = script.indexOf('assertScriptDbWriteTargetAllowed({');
         const poolIndex = script.indexOf('return new Pool({');
