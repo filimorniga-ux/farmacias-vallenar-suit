@@ -80,6 +80,8 @@ vi.mock('@/presentation/store/useStore', () => ({
 describe('NextSidebarLayout', () => {
     beforeEach(() => {
         userRoleMock.current = 'MANAGER';
+        Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1024 });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 768 });
     });
 
     it('monta una sola instancia real del notification bell y un solo runtime', () => {
@@ -116,6 +118,20 @@ describe('NextSidebarLayout', () => {
         const menuButton = screen.getByRole('button', { name: /Abrir menú principal/i });
         expect(menuButton.className).toContain('min-h-11');
         expect(menuButton.className).not.toContain('hidden md:block');
+    });
+
+    it('no bloquea el dashboard en viewport tipo escritorio angosto landscape', () => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 900 });
+        Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: 620 });
+
+        render(
+            <NextSidebarLayout>
+                <div>contenido dashboard</div>
+            </NextSidebarLayout>
+        );
+
+        expect(screen.queryByText(/Gire su dispositivo/i)).toBeNull();
+        expect(screen.getByText('contenido dashboard')).toBeTruthy();
     });
 
     it('usa location switcher compacto en header móvil', () => {

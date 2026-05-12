@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare, DollarSign
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Landmark, FileSpreadsheet, Sparkles, MessageSquare, DollarSign
 } from 'lucide-react';
 import ContextBadge from '@/presentation/components/layout/ContextBadge';
 import { usePharmaStore } from '@/presentation/store/useStore';
@@ -36,13 +36,10 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const pathname = usePathname();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const [isLandscape, setIsLandscape] = useState(false);
     const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
     useEffect(() => {
         const syncViewportState = () => {
-            // Check if width > height and width is small (mobile)
-            setIsLandscape(window.innerWidth > window.innerHeight && window.innerWidth < 1024);
             setIsDesktopViewport(window.innerWidth >= 1024);
         };
 
@@ -50,20 +47,6 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
         window.addEventListener('resize', syncViewportState);
         return () => window.removeEventListener('resize', syncViewportState);
     }, []);
-
-    if (isLandscape) {
-        return (
-            <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-white p-6 text-center">
-                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                    <RotateCcw size={40} className="text-cyan-400" />
-                </div>
-                <h2 className="text-2xl font-bold mb-3">Gire su dispositivo</h2>
-                <p className="text-slate-400 max-w-xs mx-auto">
-                    Para una mejor experiencia, utilice la aplicación en modo vertical.
-                </p>
-            </div>
-        );
-    }
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'indigo' as AppThemeColor },
