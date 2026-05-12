@@ -64,7 +64,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], color: 'emerald' as AppThemeColor },
-        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'amber' as AppThemeColor },
+        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], color: 'amber' as AppThemeColor },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'indigo' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'gray' as AppThemeColor },
     ];

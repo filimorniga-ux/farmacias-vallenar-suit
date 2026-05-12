@@ -9,6 +9,7 @@ import {
     Download, Printer
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { usePharmaStore } from '@/presentation/store/useStore';
 import {
     getPriceCostDashboard,
     getPriceCostHistory,
@@ -59,7 +60,10 @@ const REC_CONFIG: Record<string, { icon: React.ElementType; color: string; bg: s
     SWITCH_SUPPLIER: { icon: Building2, color: 'text-teal-600', bg: 'bg-teal-50', border: 'border-teal-200', label: 'Cambiar Proveedor' },
 };
 
+const PRICING_GLOBAL_UI_ROLES = new Set(['QF', 'ADMIN', 'GERENTE_GENERAL']);
+
 export default function CostMonitorPage() {
+    const user = usePharmaStore((state) => state.user);
     const [period, setPeriod] = useState('30d');
     const [activeTab, setActiveTab] = useState<Tab>('dashboard');
     const [isLoading, setIsLoading] = useState(true);
@@ -70,6 +74,7 @@ export default function CostMonitorPage() {
     const [supplierOverview, setSupplierOverview] = useState<any[]>([]);
     const [resolvingId, setResolvingId] = useState<string | null>(null);
     const [exporting, setExporting] = useState(false);
+    const canUseGlobalPricing = PRICING_GLOBAL_UI_ROLES.has(String(user?.role || '').trim().toUpperCase());
 
     const loadData = useCallback(async () => {
         setIsLoading(true);
@@ -77,9 +82,9 @@ export default function CostMonitorPage() {
             const [dashRes, histRes, recsRes, resolvedRes, suppRes] = await Promise.all([
                 getPriceCostDashboard(period),
                 getPriceCostHistory(undefined, period, 100),
-                getPendingRecommendations(),
-                getRecommendationHistory(),
-                getSupplierPriceOverview(),
+                canUseGlobalPricing ? getPendingRecommendations() : Promise.resolve({ success: true, data: [] }),
+                canUseGlobalPricing ? getRecommendationHistory() : Promise.resolve({ success: true, data: [] }),
+                canUseGlobalPricing ? getSupplierPriceOverview() : Promise.resolve({ success: true, data: [] }),
             ]);
 
             if (dashRes.success && dashRes.data) setSummary(dashRes.data);
@@ -92,9 +97,14 @@ export default function CostMonitorPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [period]);
+    }, [period, canUseGlobalPricing]);
 
     useEffect(() => { loadData(); }, [loadData]);
+    useEffect(() => {
+        if (!canUseGlobalPricing && (activeTab === 'recommendations' || activeTab === 'suppliers')) {
+            setActiveTab('dashboard');
+        }
+    }, [activeTab, canUseGlobalPricing]);
 
     const handleResolve = async (id: string, action: 'ACCEPTED' | 'REJECTED') => {
         setResolvingId(id);
@@ -126,8 +136,12 @@ export default function CostMonitorPage() {
 
     const tabs: { id: Tab; label: string; icon: React.ElementType; count?: number }[] = [
         { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-        { id: 'recommendations', label: 'Alertas', icon: Zap, count: recommendations.length },
-        { id: 'suppliers', label: 'Proveedores', icon: Building2, count: supplierOverview.length },
+        ...(canUseGlobalPricing
+            ? [
+                { id: 'recommendations' as const, label: 'Alertas', icon: Zap, count: recommendations.length },
+                { id: 'suppliers' as const, label: 'Proveedores', icon: Building2, count: supplierOverview.length },
+            ]
+            : []),
         { id: 'history', label: 'Historial', icon: Calendar, count: history.length },
     ];
 

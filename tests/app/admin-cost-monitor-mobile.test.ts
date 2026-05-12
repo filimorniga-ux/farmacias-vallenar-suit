@@ -16,4 +16,25 @@ describe('/app/admin/cost-monitor mobile controls', () => {
         expect(source).toContain('flex min-h-11 items-center gap-1.5 px-3 py-1.5');
         expect(source).toContain('flex min-h-11 items-center gap-1.5 px-4 py-2');
     });
+
+    it('alinea tabs globales de pricing con roles permitidos por el servidor', () => {
+        const pageSource = readFileSync(
+            join(process.cwd(), 'src/app/admin/cost-monitor/page.tsx'),
+            'utf8',
+        );
+        const nextSidebarSource = readFileSync(
+            join(process.cwd(), 'src/presentation/layouts/NextSidebarLayout.tsx'),
+            'utf8',
+        );
+        const legacySidebarSource = readFileSync(
+            join(process.cwd(), 'src/presentation/layouts/SidebarLayout.tsx'),
+            'utf8',
+        );
+
+        expect(pageSource).toContain("PRICING_GLOBAL_UI_ROLES = new Set(['QF', 'ADMIN', 'GERENTE_GENERAL'])");
+        expect(pageSource).toContain('canUseGlobalPricing ? getPendingRecommendations()');
+        expect(pageSource).toContain("activeTab === 'recommendations' || activeTab === 'suppliers'");
+        expect(nextSidebarSource).toContain("roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL']");
+        expect(legacySidebarSource).toContain("roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL']");
+    });
 });
