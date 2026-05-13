@@ -80,6 +80,7 @@ describe('POST /api/sii/emitir', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.stubEnv('ENABLE_SII_EMISSION_API', 'true');
         mocks.requireApiRolesMock.mockResolvedValue({
             ok: true,
             session: {
