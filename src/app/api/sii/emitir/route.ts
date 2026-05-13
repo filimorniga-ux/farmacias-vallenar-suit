@@ -44,6 +44,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 const SII_EMIT_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'] as const;
 const MAX_SII_EMIT_BODY_BYTES = 256 * 1024;
+const ENABLE_SII_EMISSION_API_FLAG = 'ENABLE_SII_EMISSION_API';
 
 function getDeclaredContentLength(request: NextRequest) {
     const raw = request.headers.get('content-length');
@@ -51,6 +52,14 @@ function getDeclaredContentLength(request: NextRequest) {
 
     const parsed = Number.parseInt(raw, 10);
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function isProductionLikeRuntime() {
+    return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+function isSiiEmissionApiEnabled() {
+    return !isProductionLikeRuntime() || process.env[ENABLE_SII_EMISSION_API_FLAG] === 'true';
 }
 
 const EmitirRequestSchema = z.object({
@@ -77,6 +86,14 @@ export async function POST(request: NextRequest) {
     }
 
     try {
+        if (!isSiiEmissionApiEnabled()) {
+            return NextResponse.json({
+                success: false,
+                error: 'SII_EMISSION_DISABLED',
+                message: 'Emisión SII deshabilitada hasta conectar CAF/SII real',
+            }, { status: 501, headers: API_NO_STORE_HEADERS });
+        }
+
         const declaredContentLength = getDeclaredContentLength(request);
         if (declaredContentLength !== null && declaredContentLength > MAX_SII_EMIT_BODY_BYTES) {
             return NextResponse.json({

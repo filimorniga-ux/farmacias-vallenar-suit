@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NextRequest } from 'next/server';
 
 const mocks = vi.hoisted(() => ({
@@ -74,6 +74,10 @@ const BASE_BODY = {
 };
 
 describe('POST /api/sii/emitir', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.requireApiRolesMock.mockResolvedValue({
@@ -153,6 +157,25 @@ describe('POST /api/sii/emitir', () => {
             message: 'El payload de emisión supera el límite permitido',
         });
         expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
+        expect(mocks.signXMLMock).not.toHaveBeenCalled();
+    });
+
+    it('bloquea emisión mock en runtime productivo sin flag explícito', async () => {
+        vi.stubEnv('VERCEL_ENV', 'production');
+        vi.stubEnv('ENABLE_SII_EMISSION_API', '');
+
+        const response = await POST(buildRequest(BASE_BODY));
+        const payload = await response.json();
+
+        expect(response.status).toBe(501);
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'SII_EMISSION_DISABLED',
+            message: 'Emisión SII deshabilitada hasta conectar CAF/SII real',
+        });
+        expect(mocks.getSiiEmissionConfigMock).not.toHaveBeenCalled();
+        expect(mocks.buildDteXMLMock).not.toHaveBeenCalled();
         expect(mocks.signXMLMock).not.toHaveBeenCalled();
     });
 
