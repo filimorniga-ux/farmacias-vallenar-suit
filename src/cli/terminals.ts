@@ -1,13 +1,22 @@
 
 import { Command } from 'commander';
 import { pool } from '../lib/db-cli'; // CLI-Safe DB Pool
-import { z } from 'zod';
+import { assertScriptDbWriteTargetAllowed } from '../scripts/script-db-target-policy';
 
 // Mock environment variables if needed, but dotenv is loaded by tsx/next usually. 
 // For standalone, we might need 'dotenv/config' if not automatically loaded.
 import 'dotenv/config';
 
 const program = new Command();
+const TERMINALS_CLI_ALLOW_NON_LOCAL_ENV = 'TERMINALS_CLI_ALLOW_NON_LOCAL';
+
+function assertTerminalWriteTargetAllowed(scriptName: string) {
+    assertScriptDbWriteTargetAllowed({
+        scriptName,
+        connectionString: process.env.DATABASE_URL,
+        allowNonLocalEnv: TERMINALS_CLI_ALLOW_NON_LOCAL_ENV,
+    });
+}
 
 program
     .name('terminals-cli')
@@ -156,6 +165,7 @@ program.command('force-close')
     .description('Force close a specific terminal')
     .argument('<terminalId>', 'ID of the terminal to close')
     .action(async (terminalId) => {
+        assertTerminalWriteTargetAllowed('terminals:force-close');
         const client = await pool.connect();
         try {
             console.log(`🔧 FORCE CLOSING TERMINAL: ${terminalId}`);
@@ -200,6 +210,7 @@ program.command('force-close')
 program.command('cleanup')
     .description('Auto-fix common issues (Zombies & Orphans)')
     .action(async () => {
+        assertTerminalWriteTargetAllowed('terminals:cleanup');
         const client = await pool.connect();
         try {
             console.log('🧹 STARTING AUTO-CLEANUP...');
