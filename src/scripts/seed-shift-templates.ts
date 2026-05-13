@@ -1,8 +1,16 @@
 
 import { pool } from '../lib/db-cli';
+import { assertScriptDbWriteTargetAllowed } from './script-db-target-policy';
+
+const SEED_SHIFT_TEMPLATES_ALLOW_NON_LOCAL_ENV = 'SEED_SHIFT_TEMPLATES_ALLOW_NON_LOCAL';
 
 async function seedTemplates() {
     console.log('🌱 Seeding Shift Templates...');
+    assertScriptDbWriteTargetAllowed({
+        scriptName: 'seed-shift-templates',
+        connectionString: process.env.DATABASE_URL,
+        allowNonLocalEnv: SEED_SHIFT_TEMPLATES_ALLOW_NON_LOCAL_ENV,
+    });
 
     const templates = [
         { name: 'Turno Mañana (Apertura)', start: '08:00', end: '16:00', color: '#10b981' }, // Emerald
