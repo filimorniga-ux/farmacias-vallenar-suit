@@ -55,6 +55,7 @@ async function runMigrations() {
         '022_secure_maintenance_backup_tables.sql',
         '023_fix_audit_log_functions_schema_qualified.sql',
         '024_purchase_order_review_flow.sql',
+        '036_fix_advisor_warnings.sql',
         '037_add_server_session_columns.sql',
         '038_notification_reads_scope_fix.sql',
         '039_invoice_deleted_audit_action.sql',

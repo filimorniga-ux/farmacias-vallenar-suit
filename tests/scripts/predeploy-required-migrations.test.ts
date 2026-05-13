@@ -15,6 +15,7 @@ describe('predeploy required migrations', () => {
             '007',
             '019',
             '022',
+            '036',
             '037',
             '038',
             '039',
@@ -33,6 +34,10 @@ describe('predeploy required migrations', () => {
         expect(PREDEPLOY_REQUIRED_MIGRATIONS).toContainEqual([
             '022',
             'Secure maintenance backup tables',
+        ]);
+        expect(PREDEPLOY_REQUIRED_MIGRATIONS).toContainEqual([
+            '036',
+            'Fix Supabase advisor warnings',
         ]);
         expect(PREDEPLOY_REQUIRED_MIGRATIONS).toContainEqual([
             '037',

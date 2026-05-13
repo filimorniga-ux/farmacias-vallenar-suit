@@ -9,12 +9,17 @@ describe('run-migrations default hotfix set', () => {
         const script = fs.readFileSync(scriptPath, 'utf8');
 
         expect(script).toContain("'019_supabase_rls_baseline_policies.sql'");
+        expect(script).toContain("'036_fix_advisor_warnings.sql'");
         expect(script).toContain("'040_board_notes_baseline.sql'");
         expect(script).toContain("'041_supplier_price_intelligence_rls_hardening.sql'");
         expect(script).toContain("'042_inventory_wms_rls_hardening.sql'");
         expect(script).toContain("'043_monthly_closing_baseline.sql'");
         expect(script.indexOf("'019_supabase_rls_baseline_policies.sql'"))
             .toBeLessThan(script.indexOf("'020_fix_batch_product_canonicalization.sql'"));
+        expect(script.indexOf("'024_purchase_order_review_flow.sql'"))
+            .toBeLessThan(script.indexOf("'036_fix_advisor_warnings.sql'"));
+        expect(script.indexOf("'036_fix_advisor_warnings.sql'"))
+            .toBeLessThan(script.indexOf("'037_add_server_session_columns.sql'"));
         expect(script.indexOf("'039_invoice_deleted_audit_action.sql'"))
             .toBeLessThan(script.indexOf("'040_board_notes_baseline.sql'"));
         expect(script.indexOf("'040_board_notes_baseline.sql'"))
