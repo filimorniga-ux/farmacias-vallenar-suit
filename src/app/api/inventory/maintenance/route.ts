@@ -11,6 +11,10 @@ const VALID_ACTIONS = new Set(['TRUNCATE', 'UNDO_IMPORT', 'ANALYZE_DUPLICATES'])
 const DESTRUCTIVE_ACTIONS = new Set(['TRUNCATE', 'UNDO_IMPORT']);
 const DESTRUCTIVE_MAINTENANCE_ROLES = new Set(['ADMIN', 'GERENTE_GENERAL']);
 const MAX_MAINTENANCE_BODY_BYTES = 16 * 1024;
+const DESTRUCTIVE_CONFIRMATION_CODES: Record<string, string> = {
+    TRUNCATE: 'BORRAR',
+    UNDO_IMPORT: 'DESHACER',
+};
 
 function getDeclaredContentLength(request: Request) {
     const raw = request.headers.get('content-length');
@@ -30,6 +34,10 @@ function isDestructiveMaintenanceAction(action: string) {
 
 function isValidAdminPin(pin: unknown) {
     return typeof pin === 'string' && /^\d{4,8}$/.test(pin);
+}
+
+function getRequiredConfirmationCode(action: string) {
+    return DESTRUCTIVE_CONFIRMATION_CODES[action] || null;
 }
 
 async function resetProductsStockSummary(
@@ -143,8 +151,16 @@ export async function POST(request: Request) {
         );
     }
 
-    if (action === 'TRUNCATE' && confirmation !== 'BORRAR') {
-        return NextResponse.json({ error: 'Invalid confirmation code' }, { status: 403, headers: API_NO_STORE_HEADERS });
+    const requiredConfirmationCode = getRequiredConfirmationCode(action);
+    if (requiredConfirmationCode && confirmation !== requiredConfirmationCode) {
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'Código de confirmación inválido',
+                code: 'MAINTENANCE_CONFIRMATION_REQUIRED',
+            },
+            { status: 403, headers: API_NO_STORE_HEADERS },
+        );
     }
 
     if (isDestructiveMaintenanceAction(action) && !isValidAdminPin(adminPin)) {

@@ -108,6 +108,9 @@ describe('InventorySettings', () => {
         render(<InventorySettings />);
 
         fireEvent.click(screen.getByRole('button', { name: /Deshacer Importación Reciente/i }));
+        fireEvent.change(screen.getByPlaceholderText('DESHACER'), {
+            target: { value: 'DESHACER' },
+        });
         fireEvent.change(screen.getByLabelText(/PIN administrador para mantenimiento de inventario/i), {
             target: { value: '1234' },
         });
@@ -118,7 +121,7 @@ describe('InventorySettings', () => {
                 '/api/inventory/maintenance',
                 expect.objectContaining({
                     method: 'POST',
-                    body: JSON.stringify({ action: 'UNDO_IMPORT', adminPin: '1234' }),
+                    body: JSON.stringify({ action: 'UNDO_IMPORT', confirmation: 'DESHACER', adminPin: '1234' }),
                 }),
             );
         });

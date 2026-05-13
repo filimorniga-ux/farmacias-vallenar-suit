@@ -69,11 +69,15 @@ const InventorySettings: React.FC = () => {
     };
 
     const handleUndoImport = () => {
+        if (deleteConfirmation !== 'DESHACER') {
+            toast.error('Debe escribir DESHACER para confirmar.');
+            return;
+        }
         if (!/^\d{4,8}$/.test(adminPin)) {
             toast.error('Ingrese PIN administrador válido.');
             return;
         }
-        executeAction('UNDO_IMPORT', { adminPin });
+        executeAction('UNDO_IMPORT', { confirmation: 'DESHACER', adminPin });
     };
 
     const closeMaintenanceModal = () => {
@@ -208,6 +212,21 @@ const InventorySettings: React.FC = () => {
                                     />
                                 </div>
                             )}
+                            {pendingMaintenanceAction === 'UNDO_IMPORT' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                        Escribe "DESHACER" para confirmar
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={deleteConfirmation}
+                                        onChange={(e) => setDeleteConfirmation(e.target.value)}
+                                        className="w-full min-h-11 p-3 border-2 border-red-200 rounded-xl focus:border-red-600 focus:outline-none font-bold text-center uppercase tracking-widest"
+                                        placeholder="DESHACER"
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
                                     PIN administrador
@@ -222,7 +241,6 @@ const InventorySettings: React.FC = () => {
                                     onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
                                     className="w-full min-h-11 p-3 border-2 border-red-200 rounded-xl focus:border-red-600 focus:outline-none font-bold text-center tracking-[0.35em]"
                                     placeholder="PIN"
-                                    autoFocus={pendingMaintenanceAction === 'UNDO_IMPORT'}
                                 />
                             </div>
                         </div>
@@ -238,7 +256,12 @@ const InventorySettings: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={pendingMaintenanceAction === 'UNDO_IMPORT' ? handleUndoImport : handleTruncate}
-                                disabled={(pendingMaintenanceAction === 'TRUNCATE' && deleteConfirmation !== 'BORRAR') || adminPin.length < 4 || isProcessing}
+                                disabled={
+                                    (pendingMaintenanceAction === 'TRUNCATE' && deleteConfirmation !== 'BORRAR') ||
+                                    (pendingMaintenanceAction === 'UNDO_IMPORT' && deleteConfirmation !== 'DESHACER') ||
+                                    adminPin.length < 4 ||
+                                    isProcessing
+                                }
                                 className="flex-1 min-h-11 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200"
                             >
                                 {isProcessing ? 'Procesando...' : pendingMaintenanceAction === 'UNDO_IMPORT' ? 'Autorizar Reversa' : 'Confirmar Borrado'}

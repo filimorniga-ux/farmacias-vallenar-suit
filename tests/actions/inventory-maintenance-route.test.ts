@@ -181,9 +181,31 @@ describe('POST /api/inventory/maintenance', () => {
 
         expect(response.status).toBe(403);
         expect(response.headers.get('cache-control')).toContain('no-store');
-        expect(payload.error).toBe('Invalid confirmation code');
+        expect(payload).toEqual({
+            success: false,
+            error: 'Código de confirmación inválido',
+            code: 'MAINTENANCE_CONFIRMATION_REQUIRED',
+        });
         expect(mockPool.connect).not.toHaveBeenCalled();
         expect(mockClient.query).not.toHaveBeenCalled();
+    });
+
+    it('rechaza reversa de importación sin confirmación textual antes de abrir DB', async () => {
+        const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'UNDO_IMPORT', adminPin: '1234' }),
+        }));
+        const payload = await response.json();
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('cache-control')).toContain('no-store');
+        expect(payload).toEqual({
+            success: false,
+            error: 'Código de confirmación inválido',
+            code: 'MAINTENANCE_CONFIRMATION_REQUIRED',
+        });
+        expect(mockPool.connect).not.toHaveBeenCalled();
+        expect(mockValidatePinForRoles).not.toHaveBeenCalled();
     });
 
     it('rechaza acción destructiva sin PIN antes de abrir conexión DB', async () => {
@@ -213,7 +235,7 @@ describe('POST /api/inventory/maintenance', () => {
 
         const response = await POST(new Request('http://localhost/api/inventory/maintenance', {
             method: 'POST',
-            body: JSON.stringify({ action: 'UNDO_IMPORT', adminPin: '9999' }),
+            body: JSON.stringify({ action: 'UNDO_IMPORT', confirmation: 'DESHACER', adminPin: '9999' }),
         }));
         const payload = await response.json();
 
