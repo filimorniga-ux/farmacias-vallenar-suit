@@ -807,6 +807,66 @@ const POSMainScreen: React.FC = () => {
         );
     }
 
+    const headerActionsPortal = mounted ? document.getElementById('header-actions-portal') : null;
+    const headerActions = (
+        <div data-testid="pos-header-actions" className="flex items-center gap-3">
+            <QueueWidget />
+
+            <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
+
+            <div className="flex items-center gap-2">
+                {currentCustomer ? (
+                    <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm transition-all hover:shadow-md cursor-pointer group" onClick={() => setIsCustomerSelectModalOpen(true)}>
+                        <User size={16} />
+                        <div className="flex flex-col">
+                            <span className="text-[10px] uppercase font-bold text-emerald-500 leading-none">Cliente</span>
+                            <span className="text-xs font-bold leading-none">{currentCustomer.fullName.split(' ')[0]}</span>
+                        </div>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setCustomer(null); }}
+                            className="p-1 hover:bg-emerald-200 rounded-full ml-1 transition-colors"
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setIsCustomerSelectModalOpen(true)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all shadow-sm"
+                    >
+                        <User size={16} className="text-slate-400" />
+                        <div className="flex flex-col items-start">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Cliente</span>
+                            <span className="text-xs font-bold leading-none">Anónimo</span>
+                        </div>
+                        <Plus size={12} className="ml-1 text-slate-400" />
+                    </button>
+                )}
+            </div>
+
+            <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
+
+            <POSHeaderActions
+                shiftStatus={currentShift?.status}
+                shiftId={currentShift?.id}
+                operatorName={user?.name}
+                locationName={currentLocation?.name}
+                onHandover={() => setIsHandoverModalOpen(true)}
+                onMovement={() => setCashModalMode('MOVEMENT')}
+                onAudit={() => setCashModalMode('AUDIT')}
+                onCloseTurn={() => setCashModalMode('CLOSE')}
+                onOpenTurn={() => setIsShiftModalOpen(true)}
+                onHistory={() => setIsHistoryModalOpen(true)}
+                onShiftHistory={() => setIsShiftHistoryModalOpen(true)}
+                onQuoteHistory={() => setIsQuoteHistoryOpen(true)}
+                onQuote={() => setIsQuoteMode(!isQuoteMode)}
+                isQuoteMode={isQuoteMode}
+                onManualItem={() => setIsManualItemModalOpen(true)}
+                onClearCart={clearCart}
+            />
+        </div>
+    );
+
     return (
         <div data-testid="pos-main-screen" className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden relative">
             {/* COL 1: Búsqueda (Fixed 400px Desktop, 100% Mobile Catalog View) */}
@@ -1024,95 +1084,11 @@ const POSMainScreen: React.FC = () => {
 
                         <div className="flex items-center gap-4">
                             {/* UNIFIED HEADER ACTIONS (Teleported to Header) */}
-                            {mounted && document.getElementById('header-actions-portal') && createPortal(
-                                <div className="flex items-center gap-3">
-                                    {/* 1. Queue Widget */}
-                                    <QueueWidget />
-
-                                    {/* 2. Divider */}
-                                    <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
-
-                                    {/* 3. Client Selector */}
-                                    <div className="flex items-center gap-2">
-                                        {currentCustomer ? (
-                                            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm transition-all hover:shadow-md cursor-pointer group" onClick={() => setIsCustomerSelectModalOpen(true)}>
-                                                <User size={16} />
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] uppercase font-bold text-emerald-500 leading-none">Cliente</span>
-                                                    <span className="text-xs font-bold leading-none">{currentCustomer.fullName.split(' ')[0]}</span>
-                                                </div>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setCustomer(null); }}
-                                                    className="p-1 hover:bg-emerald-200 rounded-full ml-1 transition-colors"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                onClick={() => setIsCustomerSelectModalOpen(true)}
-                                                className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all shadow-sm"
-                                            >
-                                                <User size={16} className="text-slate-400" />
-                                                <div className="flex flex-col items-start">
-                                                    <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Cliente</span>
-                                                    <span className="text-xs font-bold leading-none">Anónimo</span>
-                                                </div>
-                                                <Plus size={12} className="ml-1 text-slate-400" />
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {/* 4. Divider */}
-                                    <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
-
-                                    {/* 5. Actions */}
-                                    <POSHeaderActions
-                                        shiftStatus={currentShift?.status}
-                                        shiftId={currentShift?.id}
-                                        operatorName={user?.name}
-                                        locationName={currentLocation?.name}
-                                        onHandover={() => setIsHandoverModalOpen(true)}
-                                        onMovement={() => setCashModalMode('MOVEMENT')}
-                                        onAudit={() => setCashModalMode('AUDIT')}
-                                        onCloseTurn={() => setCashModalMode('CLOSE')}
-                                        onOpenTurn={() => setIsShiftModalOpen(true)}
-                                        onHistory={() => setIsHistoryModalOpen(true)}
-                                        onShiftHistory={() => setIsShiftHistoryModalOpen(true)} // Added missing prop
-                                        onQuoteHistory={() => {
-                                            console.log('📜 [POS] Abriendo Historial Cotizaciones'); // Debug
-                                            setIsQuoteHistoryOpen(true);
-                                        }}
-                                        onQuote={() => setIsQuoteMode(!isQuoteMode)}
-                                        isQuoteMode={isQuoteMode}
-                                        onManualItem={() => setIsManualItemModalOpen(true)}
-                                        onClearCart={clearCart}
-                                    />
-                                </div>,
-                                document.getElementById('header-actions-portal')!
+                            {headerActionsPortal ? createPortal(headerActions, headerActionsPortal) : (
+                                <div className="text-slate-400 relative z-[100]">
+                                    {headerActions}
+                                </div>
                             )}
-
-                            {/* Fallback for Mobile (Render inline if no portal target or is mobile) */}
-                            <div className="lg:hidden text-slate-400 relative z-[100]">
-                                <POSHeaderActions
-                                    shiftStatus={currentShift?.status}
-                                    shiftId={currentShift?.id}
-                                    operatorName={user?.name}
-                                    locationName={currentLocation?.name}
-                                    onHandover={() => setIsHandoverModalOpen(true)}
-                                    onMovement={() => setCashModalMode('MOVEMENT')}
-                                    onAudit={() => setCashModalMode('AUDIT')}
-                                    onCloseTurn={() => setCashModalMode('CLOSE')}
-                                    onOpenTurn={() => setIsShiftModalOpen(true)}
-                                    onHistory={() => setIsHistoryModalOpen(true)}
-                                    onShiftHistory={() => setIsShiftHistoryModalOpen(true)}
-                                    onQuoteHistory={() => setShowQuoteHistory(true)}
-                                    onQuote={() => setIsQuoteMode(!isQuoteMode)}
-                                    isQuoteMode={isQuoteMode}
-                                    onManualItem={() => setIsManualItemModalOpen(true)}
-                                    onClearCart={clearCart}
-                                />
-                            </div>
                         </div>
                     </div>
 
