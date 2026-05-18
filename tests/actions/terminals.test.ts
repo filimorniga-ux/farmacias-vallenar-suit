@@ -12,6 +12,8 @@ const VALID_USER_ID = 'user-123';
 const mockQuery = vi.fn();
 const mockRelease = vi.fn();
 const mockConnect = vi.fn();
+const mockGetValidatedSession = vi.fn();
+const mockBcryptCompare = vi.fn();
 
 // Mock DB module - must be hoisted before the import
 vi.mock('@/lib/db', () => ({
@@ -45,8 +47,33 @@ vi.mock('@/lib/logger', () => ({
     },
 }));
 
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: (...args: unknown[]) => mockGetValidatedSession(...args),
+}));
+
+vi.mock('bcryptjs', () => ({
+    default: {
+        compare: (...args: unknown[]) => mockBcryptCompare(...args),
+    },
+    compare: (...args: unknown[]) => mockBcryptCompare(...args),
+}));
+
+vi.mock('@/actions/attendance-v2', () => ({
+    ensureCheckInSecure: vi.fn(async () => false),
+}));
+
+vi.mock('@/lib/rate-limiter', () => ({
+    checkRateLimit: vi.fn(() => ({ allowed: true, reason: null })),
+    recordFailedAttempt: vi.fn(),
+    resetAttempts: vi.fn(),
+}));
+
 // Import after all mocks are set up
-import { openTerminalAtomic, closeTerminalAtomic } from '@/actions/terminals-v2';
+import { closeTerminalAtomic, forceCloseTerminalSecure, openTerminalAtomic, openTerminalWithPinValidation } from '@/actions/terminals-v2';
+
+const getTerminalUpdateSqls = () => mockQuery.mock.calls
+    .map(([sql]) => (typeof sql === 'string' ? sql : ''))
+    .filter((sql) => sql.includes('UPDATE terminals'));
 
 // =====================================================
 // TESTS
@@ -56,6 +83,15 @@ describe('openTerminalAtomic', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] }); // Default empty result
+        mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'terminal-session-token',
+        });
     });
 
     afterEach(() => {
@@ -84,6 +120,7 @@ describe('openTerminalAtomic', () => {
         expect(mockQuery).toHaveBeenNthCalledWith(1, 'BEGIN ISOLATION LEVEL SERIALIZABLE');
         expect(mockQuery).toHaveBeenCalledWith('COMMIT');
         expect(mockQuery).not.toHaveBeenCalledWith('ROLLBACK');
+        expect(getTerminalUpdateSqls().some((sql) => sql.includes('updated_at'))).toBe(false);
         expect(mockRelease).toHaveBeenCalled();
     });
 
@@ -188,12 +225,138 @@ describe('openTerminalAtomic', () => {
         // Ni siquiera debe conectar a DB
         expect(mockConnect).not.toHaveBeenCalled();
     });
+
+    it('debe rechazar apertura sin sesión validada', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await openTerminalAtomic(VALID_TERM_ID, VALID_USER_ID, 1000);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('debe usar el actor de sesión real y no el userId del payload', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: '123e4567-e89b-12d3-a456-426614174101',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja real',
+            tokenVersion: 2,
+            sessionToken: 'terminal-session-2',
+        });
+
+        mockQuery.mockReset();
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [] }, // existing session
+            { rows: [{ id: VALID_TERM_ID, status: 'CLOSED', current_cashier_id: null, location_id: 'loc-1', name: 'Terminal 1' }] }, // terminal
+            { rows: [], rowCount: 0 }, // ghost cleanup
+            { rows: [] }, // cash movement
+            { rows: [] }, // terminal update
+            { rows: [] }, // session insert
+            { rows: [] }, // audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await openTerminalAtomic(VALID_TERM_ID, 'payload-user-terminal', 1000);
+
+        expect(result.success).toBe(true);
+
+        const idempotencyCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('SELECT id FROM cash_register_sessions')
+        ) as unknown[] | undefined;
+        const idempotencyParams = (idempotencyCall?.[1] as unknown[]) || [];
+        expect(idempotencyParams[1]).toBe('123e4567-e89b-12d3-a456-426614174101');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        ) as unknown[] | undefined;
+        const auditParams = (auditCall?.[1] as unknown[]) || [];
+        expect(auditParams[0]).toBe('123e4567-e89b-12d3-a456-426614174101');
+    });
+
+    it('debe rechazar openTerminalWithPinValidation sin sesión validada', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await openTerminalWithPinValidation(VALID_TERM_ID, VALID_USER_ID, 1000, '1234');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('debe separar actor de sesión y autorizador por PIN en openTerminalWithPinValidation', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: '123e4567-e89b-12d3-a456-426614174104',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja con autorización',
+            tokenVersion: 2,
+            sessionToken: 'terminal-session-3',
+        });
+
+        mockQuery.mockReset();
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ id: 'manager-1', name: 'Manager Uno', access_pin_hash: 'hashed' }] }, // supervisor query
+            { rows: [] }, // existing session
+            { rows: [{ id: VALID_TERM_ID, status: 'CLOSED', current_cashier_id: null, location_id: 'loc-1', name: 'Terminal 1' }] }, // terminal
+            { rows: [], rowCount: 0 }, // ghost cleanup
+            { rows: [] }, // insert session
+            { rows: [] }, // insert cash movement
+            { rows: [] }, // update terminal
+            { rows: [] }, // audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await openTerminalWithPinValidation(VALID_TERM_ID, 'payload-user-pin', 1000, '1234');
+
+        expect(result.success).toBe(true);
+        expect(result.authorizedById).toBe('manager-1');
+        expect(getTerminalUpdateSqls().some((sql) => sql.includes('updated_at'))).toBe(false);
+
+        const insertSessionCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO cash_register_sessions')
+        ) as unknown[] | undefined;
+        const insertSessionParams = (insertSessionCall?.[1] as unknown[]) || [];
+        expect(insertSessionParams[2]).toBe('123e4567-e89b-12d3-a456-426614174104');
+        expect(insertSessionParams[4]).toBe('manager-1');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        ) as unknown[] | undefined;
+        const auditParams = (auditCall?.[1] as unknown[]) || [];
+        expect(auditParams[0]).toBe('123e4567-e89b-12d3-a456-426614174104');
+    });
 });
 
 describe('closeTerminalAtomic', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockQuery.mockResolvedValue({ rows: [] });
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'terminal-session-token',
+        });
     });
 
     afterEach(() => {
@@ -282,5 +445,124 @@ describe('closeTerminalAtomic', () => {
 
         // The function should succeed even without active session
         expect(result.success).toBe(true);
+    });
+
+    it('debe rechazar cierre sin sesión validada', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await closeTerminalAtomic(VALID_TERM_ID, VALID_USER_ID, 50000, 'Notes', 0);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('debe cerrar usando el actor de sesión real y no el userId del payload', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: '123e4567-e89b-12d3-a456-426614174102',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja real',
+            tokenVersion: 2,
+            sessionToken: 'terminal-close-2',
+        });
+
+        mockQuery.mockReset();
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ id: VALID_TERM_ID, status: 'OPEN', current_cashier_id: '123e4567-e89b-12d3-a456-426614174102', location_id: 'loc-1', name: 'Terminal 1' }] }, // terminal
+            { rows: [{ id: 'session-uuid-123', opening_amount: 50000, opened_at: new Date() }] }, // session
+            { rows: [], rowCount: 1 }, // close session
+            { rows: [] }, // cash movement
+            { rows: [], rowCount: 1 }, // update terminal
+            { rows: [] }, // audit
+            { rows: [] }, // commit
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await closeTerminalAtomic(VALID_TERM_ID, 'payload-user-close', 50000, 'Notes', 0);
+
+        expect(result.success).toBe(true);
+
+        const sessionLookupCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('FROM cash_register_sessions') && sql.includes('status = \'OPEN\'')
+        ) as unknown[] | undefined;
+        const sessionLookupParams = (sessionLookupCall?.[1] as unknown[]) || [];
+        expect(sessionLookupParams[1]).toBe('123e4567-e89b-12d3-a456-426614174102');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        ) as unknown[] | undefined;
+        const auditParams = (auditCall?.[1] as unknown[]) || [];
+        expect(auditParams[0]).toBe('123e4567-e89b-12d3-a456-426614174102');
+    });
+});
+
+describe('forceCloseTerminalSecure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+        mockGetValidatedSession.mockResolvedValue({
+            userId: '123e4567-e89b-12d3-a456-426614174103',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin',
+            tokenVersion: 1,
+            sessionToken: 'admin-terminal-session',
+        });
+    });
+
+    it('debe rechazar cierre forzado con rol insuficiente', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'cashier-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'cashier-terminal-session',
+        });
+
+        const result = await forceCloseTerminalSecure(VALID_TERM_ID, 'payload-admin', 'Necesario por bloqueo operativo');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('administrador');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('debe usar el admin de sesión real en auditoría y no adminUserId del payload', async () => {
+        mockQuery.mockReset();
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ id: VALID_TERM_ID, status: 'OPEN', current_cashier_id: 'cashier-1', location_id: 'loc-1', name: 'Terminal 1' }] }, // terminal
+            { rows: [{ id: 'session-open-1', user_id: 'cashier-1', opening_amount: 10000, opened_at: new Date(), status: 'OPEN' }] }, // active session
+            { rows: [{ name: 'Caja Uno', email: 'caja@test.local' }] }, // user lookup
+            { rows: [], rowCount: 1 }, // close session
+            { rows: [], rowCount: 1 }, // close terminal
+            { rows: [] }, // audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await forceCloseTerminalSecure(VALID_TERM_ID, 'payload-admin', 'Necesario por bloqueo operativo');
+
+        expect(result.success).toBe(true);
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        ) as unknown[] | undefined;
+        const auditParams = (auditCall?.[1] as unknown[]) || [];
+        expect(auditParams[0]).toBe('123e4567-e89b-12d3-a456-426614174103');
     });
 });

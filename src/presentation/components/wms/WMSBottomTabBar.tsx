@@ -1,9 +1,9 @@
 /**
  * WMSBottomTabBar — Barra de navegación inferior estilo nativo (iOS/Android)
- * 
+ *
  * Glassmorphism, safe area bottom, haptic feedback, touch targets 48px.
  * Solo se muestra en móvil (usePlatform).
- * 
+ *
  * Skills: estilo-marca (#0ea5e9), modo-produccion (touch targets)
  */
 import React from 'react';
@@ -55,33 +55,40 @@ export const WMSBottomTabBar: React.FC<WMSBottomTabBarProps> = ({ activeTab, onT
             style={{ bottom: `${bottomOffset}px` }}
         >
             {/* Glassmorphism bar */}
-            <div className="bg-white/80 backdrop-blur-xl border-t border-slate-200/60
+            <div className="bg-white/80 backdrop-blur-xl border-t border-slate-200/60 pb-safe
                           shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
-                <div className="flex items-stretch justify-around px-1">
+                <div
+                    role="tablist"
+                    aria-label="Navegación WMS"
+                    className="scrollbar-hide flex items-stretch justify-start gap-1 overflow-x-auto overscroll-x-contain px-2 pl-safe pr-safe snap-x snap-mandatory touch-pan-x"
+                >
                     {TABS.map(tab => {
                         const isActive = activeTab === tab.key;
                         const Icon = tab.icon;
                         return (
                             <button
+                                type="button"
+                                role="tab"
                                 key={tab.key}
                                 onClick={() => handleTabPress(tab.key)}
-                                className={`flex-1 flex flex-col items-center justify-center gap-0.5 
-                                          py-2 min-h-[52px] relative
+                                className={`min-w-[4.75rem] flex-none snap-center flex flex-col items-center justify-center gap-0.5
+                                          py-2 min-h-[56px] relative touch-manipulation
                                           transition-all duration-200 active:scale-95
                                           ${isActive ? '' : 'opacity-60'}`}
                                 aria-label={tab.label}
+                                aria-selected={isActive}
                                 aria-current={isActive ? 'page' : undefined}
                             >
                                 {/* Active dot indicator */}
                                 {isActive && (
-                                    <div className={`absolute top-0.5 left-1/2 -translate-x-1/2 
+                                    <div className={`absolute top-0.5 left-1/2 -translate-x-1/2
                                                    w-5 h-0.5 rounded-full ${DOT_COLORS[tab.key]}
                                                    animate-in fade-in zoom-in-50 duration-200`} />
                                 )}
 
                                 <Icon
                                     size={22}
-                                    className={`transition-colors duration-200 
+                                    className={`transition-colors duration-200
                                               ${isActive ? tab.activeColor : tab.color}`}
                                     strokeWidth={isActive ? 2.5 : 2}
                                 />

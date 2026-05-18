@@ -19,7 +19,14 @@ import { formatDateTimeCL, formatDateCL, formatTimeCL } from '@/lib/timezone';
 import { getSessionSecure } from './auth-v2';
 
 // Importar versiones SEGURAS
-import { getCashFlowLedgerSecure, getTaxSummarySecure, getPayrollPreviewSecure } from './reports-detail-v2';
+import {
+    getCashFlowLedgerSecure,
+    getInventoryValuationSecure,
+    getLogisticsKPIsSecure,
+    getPayrollPreviewSecure,
+    getStockMovementsDetailSecure,
+    getTaxSummarySecure,
+} from './reports-detail-v2';
 
 // ============================================================================
 // CONSTANTS
@@ -300,3 +307,137 @@ export async function exportAttendanceSecure(
     }
 }
 
+/**
+ * 📦 Exportar Resumen Logístico (alineado con ReportsPage/logistics)
+ */
+export async function exportLogisticsReportSecure(
+    params: { startDate: string; endDate: string; warehouseId?: string; movementType?: 'IN' | 'OUT' }
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const session = await getSessionSecure();
+    if (!session) return { success: false, error: 'No autenticado' };
+    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'WAREHOUSE' && session.role !== 'QF') {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
+    try {
+        const [valuationResult, kpiResult] = await Promise.all([
+            getInventoryValuationSecure(params.warehouseId),
+            getLogisticsKPIsSecure(params.startDate, params.endDate, params.warehouseId),
+        ]);
+
+        if (!valuationResult.success || !valuationResult.data) {
+            return { success: false, error: valuationResult.error || 'Error obteniendo valorización logística' };
+        }
+
+        if (!kpiResult.success || !kpiResult.data) {
+            return { success: false, error: kpiResult.error || 'Error obteniendo KPIs logísticos' };
+        }
+
+        const summaryRows = [
+            { metric: 'Entradas', value: kpiResult.data.total_in, detail: 'Movimientos de ingreso en el período' },
+            { metric: 'Salidas', value: kpiResult.data.total_out, detail: 'Movimientos de salida en el período' },
+            { metric: 'Último movimiento', value: kpiResult.data.last_movement || 'Sin movimientos', detail: 'Último registro visible en el tablero' },
+            { metric: 'Unidades valorizadas', value: valuationResult.data.total_items, detail: 'Stock positivo visible' },
+            { metric: 'Costo inmovilizado', value: valuationResult.data.total_cost_value, detail: 'Valorización a costo' },
+            { metric: 'Valor venta potencial', value: valuationResult.data.total_sales_value, detail: 'Valorización a precio venta' },
+            { metric: 'Margen bruto proyectado', value: valuationResult.data.potential_gross_margin, detail: 'Venta potencial - costo' },
+        ];
+
+        const topProducts = (valuationResult.data.top_products || []).map((product: any) => ({
+            product: product.name,
+            sku: product.sku || '-',
+            quantity: Number(product.quantity) || 0,
+            cost_value: Number(product.cost_value) || 0,
+            sales_value: Number(product.sales_value) || 0,
+        }));
+
+        const excel = new ExcelService();
+        const sheets: Array<{
+            name: string;
+            title: string;
+            subtitle?: string;
+            columns: { header: string; key: string; width?: number }[];
+            data: any[];
+        }> = [
+            {
+                name: 'Resumen',
+                title: 'Resumen Logístico - Farmacias Vallenar',
+                subtitle: `${params.startDate} al ${params.endDate}`,
+                columns: [
+                    { header: 'Métrica', key: 'metric', width: 28 },
+                    { header: 'Valor', key: 'value', width: 20 },
+                    { header: 'Detalle', key: 'detail', width: 36 },
+                ],
+                data: summaryRows,
+            },
+            {
+                name: 'Top Productos',
+                title: 'Top Productos de Alto Valor',
+                subtitle: 'Mismo dataset visible en valorización',
+                columns: [
+                    { header: 'Producto', key: 'product', width: 36 },
+                    { header: 'SKU', key: 'sku', width: 16 },
+                    { header: 'Stock', key: 'quantity', width: 12 },
+                    { header: 'Valor Costo', key: 'cost_value', width: 18 },
+                    { header: 'Valor Venta', key: 'sales_value', width: 18 },
+                ],
+                data: topProducts,
+            },
+        ];
+
+        if (params.movementType) {
+            const detailResult = await getStockMovementsDetailSecure(
+                params.movementType,
+                params.startDate,
+                params.endDate,
+                params.warehouseId,
+            );
+
+            if (detailResult.success && detailResult.data) {
+                sheets.push({
+                    name: params.movementType === 'IN' ? 'Detalle Entradas' : 'Detalle Salidas',
+                    title: `Detalle de ${params.movementType === 'IN' ? 'Entradas' : 'Salidas'}`,
+                    subtitle: 'Drilldown visible en el tablero',
+                    columns: [
+                        { header: 'Fecha', key: 'timestamp', width: 22 },
+                        { header: 'Tipo', key: 'type', width: 18 },
+                        { header: 'Producto', key: 'product', width: 32 },
+                        { header: 'Cantidad', key: 'quantity', width: 12 },
+                        { header: 'Usuario', key: 'user', width: 20 },
+                        { header: 'Motivo', key: 'reason', width: 30 },
+                        { header: 'Contexto', key: 'location_context', width: 24 },
+                    ],
+                    data: detailResult.data.map((row) => ({
+                        timestamp: new Date(row.timestamp).toLocaleString('es-CL'),
+                        type: row.type,
+                        product: row.product,
+                        quantity: row.quantity,
+                        user: row.user,
+                        reason: row.reason,
+                        location_context: row.location_context || '-',
+                    })),
+                });
+            }
+        }
+
+        const buffer = await excel.generateMultiSheetReport({
+            creator: session.userName,
+            sheets,
+        });
+
+        await auditExport(session.userId, 'LOGISTICS_SUMMARY', {
+            ...params,
+            topProducts: topProducts.length,
+            detailIncluded: Boolean(params.movementType),
+        });
+
+        return {
+            success: true,
+            data: buffer.toString('base64'),
+            filename: `Logistica_${params.startDate.split('T')[0]}.xlsx`,
+        };
+    } catch (error: unknown) {
+        logger.error({ error }, '[Export] Logistics summary error');
+        return { success: false, error: 'Error exportando resumen logístico' };
+    }
+}

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Send, X, Bot, User, Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { askReportsAssistant } from '@/actions/analytics/ai-reports-assistant';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 
 interface Message {
     id: string;
@@ -27,7 +28,8 @@ export default function ReportsAssistant() {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const { currentLocationId, locations } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const locations = useLocationStore((state) => state.locations);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -113,41 +115,47 @@ export default function ReportsAssistant() {
         <>
             {/* Toggle Button (Floating Action Button) */}
             <motion.button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
+                aria-label={isOpen ? 'Cerrar asistente de reportes' : 'Abrir asistente de reportes'}
+                aria-expanded={isOpen}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className={`fixed bottom-6 right-6 z-50 p-4 rounded-full shadow-2xl transition-colors flex items-center justify-center ${isOpen ? 'bg-slate-800 text-white' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
+                className={`fixed right-4 z-50 flex min-h-14 min-w-14 items-center justify-center rounded-full p-4 shadow-2xl transition-colors bottom-[calc(1rem+env(safe-area-inset-bottom))] sm:right-6 sm:bottom-[calc(1.5rem+env(safe-area-inset-bottom))] ${isOpen ? 'bg-slate-800 text-white' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
                     }`}
             >
-                {isOpen ? <X size={24} /> : <Sparkles size={24} />}
+                {isOpen ? <X size={24} aria-hidden="true" /> : <Sparkles size={24} aria-hidden="true" />}
             </motion.button>
 
             {/* Chat Window */}
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="reports-assistant-title"
                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.9 }}
                         transition={{ duration: 0.2 }}
-                        className="fixed bottom-20 right-6 w-[400px] h-[600px] max-h-[80vh] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 flex flex-col overflow-hidden"
+                        className="fixed right-2 z-50 flex h-[min(600px,calc(100dvh-6rem))] w-[calc(100vw-1rem)] max-w-[400px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl bottom-[calc(4.75rem+env(safe-area-inset-bottom))] sm:right-6 sm:w-[400px]"
                     >
                         {/* Header */}
                         <div className="bg-slate-50 border-b border-slate-200 p-4 flex items-center gap-3">
                             <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
-                                <Bot size={24} />
+                                <Bot size={24} aria-hidden="true" />
                             </div>
-                            <div>
-                                <h3 className="font-bold text-slate-800">Suit Enterprise AI</h3>
+                            <div className="min-w-0">
+                                <h3 id="reports-assistant-title" className="font-bold text-slate-800">Suit Enterprise AI</h3>
                                 <p className="text-xs text-slate-500 flex items-center gap-1">
-                                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" aria-hidden="true" />
                                     Online - GPT-4 Optimized
                                 </p>
                             </div>
                         </div>
 
                         {/* Messages Area */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+                        <div className="flex-1 overflow-y-auto overscroll-contain p-4 space-y-4 bg-slate-50/50" aria-live="polite">
                             {messages.map((msg) => (
                                 <motion.div
                                     key={msg.id}
@@ -161,10 +169,10 @@ export default function ReportsAssistant() {
                                         }`}>
                                         {msg.role === 'assistant' && (
                                             <div className="flex items-center gap-2 mb-1 text-xs font-bold opacity-50">
-                                                <Bot size={12} /> Asistente
+                                                <Bot size={12} aria-hidden="true" /> Asistente
                                             </div>
                                         )}
-                                        <div className="whitespace-pre-wrap leading-relaxed">
+                                        <div className="whitespace-pre-wrap break-words leading-relaxed">
                                             {formatText(msg.content)}
                                         </div>
                                         <div className={`text-[10px] mt-1 text-right ${msg.role === 'user' ? 'text-blue-200' : 'text-slate-400'}`}>
@@ -176,8 +184,8 @@ export default function ReportsAssistant() {
                             {isLoading && (
                                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex justify-start">
                                     <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-4 shadow-sm flex items-center gap-2">
-                                        <Loader2 className="animate-spin text-indigo-500" size={16} />
-                                        <span className="text-xs text-slate-500 italic">Analizando datos...</span>
+                                        <Loader2 className="animate-spin text-indigo-500" size={16} aria-hidden="true" />
+                                        <span className="text-xs text-slate-500 italic">Analizando datos…</span>
                                     </div>
                                 </motion.div>
                             )}
@@ -191,17 +199,18 @@ export default function ReportsAssistant() {
                                     type="text"
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
-                                    placeholder="Pregunta sobre ventas, stock..."
-                                    className="flex-1 bg-slate-100 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400"
+                                    aria-label="Pregunta para el asistente de reportes"
+                                    placeholder="Pregunta sobre ventas, stock…"
+                                    className="min-h-11 min-w-0 flex-1 rounded-xl border-none bg-slate-100 px-4 py-3 text-base placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:text-sm"
                                     disabled={isLoading}
-                                    autoFocus
                                 />
                                 <button
                                     type="submit"
+                                    aria-label="Enviar pregunta"
                                     disabled={!input.trim() || isLoading}
-                                    className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-indigo-600 p-3 text-white transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    <Send size={18} />
+                                    <Send size={18} aria-hidden="true" />
                                 </button>
                             </div>
                             <p className="text-[10px] text-center text-slate-400 mt-2">

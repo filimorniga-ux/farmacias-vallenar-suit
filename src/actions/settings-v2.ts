@@ -14,18 +14,21 @@
  */
 
 import { pool, query } from '@/lib/db';
-import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
+import { getSiiConfigurationSummary } from '@/lib/sii-config';
+import { resolveActorResult } from './actor-result';
+import {
+    PinRbacError,
+    type PinRbacActor,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 
 // Categorización de settings
 const PUBLIC_SETTINGS = [
@@ -41,7 +44,6 @@ const PUBLIC_SETTINGS = [
 const PRIVATE_SETTINGS = [
     'ADMIN_EMAIL',
     'SUPPORT_EMAIL',
-    'MAINTENANCE_MODE',
     'MAX_SHIFT_HOURS',
     'AUTO_CLOSE_ENABLED',
 ];
@@ -54,6 +56,17 @@ const CRITICAL_SETTINGS = [
     'SMTP_PASSWORD',
     'API_SECRET_KEY',
 ];
+const ENV_MANAGED_SETTINGS = ['MAINTENANCE_MODE'] as const;
+const OPERATIONAL_SECURITY_KEYS = {
+    idleTimeoutMinutes: 'SECURITY_IDLE_TIMEOUT_MINUTES',
+    maxLoginAttempts: 'SECURITY_MAX_LOGIN_ATTEMPTS',
+    lockoutDurationMinutes: 'SECURITY_LOCKOUT_DURATION_MINUTES',
+} as const;
+const DEFAULT_OPERATIONAL_SECURITY = {
+    idle_timeout_minutes: 5,
+    max_login_attempts: 5,
+    lockout_duration_minutes: 15,
+} as const;
 
 // Caché para lecturas
 const settingsCache = new Map<string, { value: string; expiresAt: number }>();
@@ -63,18 +76,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        if (!userId || !role) return null;
-        return { userId, role };
-    } catch {
-        return null;
-    }
-}
-
 function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | null {
     if (PUBLIC_SETTINGS.includes(key)) return 'PUBLIC';
     if (PRIVATE_SETTINGS.includes(key)) return 'PRIVATE';
@@ -82,37 +83,33 @@ function getSettingCategory(key: string): 'PUBLIC' | 'PRIVATE' | 'CRITICAL' | nu
     return null;
 }
 
-async function validateAdminPin(
-    client: any,
-    pin: string
-): Promise<{ valid: boolean; admin?: { id: string; name: string } }> {
+function isEnvManagedSetting(key: string) {
+    return ENV_MANAGED_SETTINGS.includes(key as (typeof ENV_MANAGED_SETTINGS)[number]);
+}
+
+async function readOperationalNumberSetting(key: string, fallback: number) {
+    const res = await query(
+        'SELECT value FROM app_settings WHERE key = $1 LIMIT 1',
+        [key],
+    );
+    const parsed = Number(res.rows[0]?.value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function ensureSettingsRole(
+    actor: PinRbacActor,
+    allowedRoles: readonly string[],
+    errorMessage: string
+) {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-
-        const adminsRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const admin of adminsRes.rows) {
-            const rateCheck = checkRateLimit(admin.id);
-            if (!rateCheck.allowed) continue;
-
-            if (admin.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, admin.access_pin_hash);
-                if (valid) {
-                    resetAttempts(admin.id);
-                    return { valid: true, admin: { id: admin.id, name: admin.name } };
-                }
-                recordFailedAttempt(admin.id);
-            } else if (admin.access_pin === pin) {
-                resetAttempts(admin.id);
-                return { valid: true, admin: { id: admin.id, name: admin.name } };
-            }
+        requireRole(actor, allowedRoles);
+        return { success: true as const };
+    } catch (error) {
+        if (error instanceof PinRbacError && error.code === 'AUTH_FORBIDDEN') {
+            return { success: false as const, error: errorMessage };
         }
-        return { valid: false };
-    } catch {
-        return { valid: false };
+
+        throw error;
     }
 }
 
@@ -126,6 +123,10 @@ async function validateAdminPin(
 export async function getPublicSettingSecure(
     key: string
 ): Promise<{ success: boolean; value?: string | null; error?: string }> {
+    if (isEnvManagedSetting(key)) {
+        return { success: false, error: 'Setting gestionado por entorno de despliegue' };
+    }
+
     if (!PUBLIC_SETTINGS.includes(key)) {
         return { success: false, error: 'Setting no disponible públicamente' };
     }
@@ -163,24 +164,39 @@ export async function getPublicSettingSecure(
 export async function getPrivateSettingSecure(
     key: string
 ): Promise<{ success: boolean; value?: string | null; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    if (isEnvManagedSetting(key)) {
+        return { success: false, error: 'Setting gestionado por entorno de despliegue' };
     }
 
     const category = getSettingCategory(key);
-
-    // Verificar permisos
-    if (category === 'CRITICAL' && !ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores pueden ver este setting' };
-    }
-
-    if (category === 'PRIVATE' && !MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Permisos insuficientes' };
-    }
-
     if (category === null) {
         return { success: false, error: 'Setting no reconocido' };
+    }
+
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    // Verificar permisos
+    if (category === 'CRITICAL') {
+        const authorization = ensureSettingsRole(
+            auth.actor,
+            ROLE_GROUPS.ADMIN,
+            'Solo administradores pueden ver este setting'
+        );
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
+    } else if (category === 'PRIVATE') {
+        const authorization = ensureSettingsRole(
+            auth.actor,
+            ROLE_GROUPS.MANAGER,
+            'Permisos insuficientes'
+        );
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
     }
 
     try {
@@ -190,6 +206,63 @@ export async function getPrivateSettingSecure(
     } catch (error: any) {
         logger.error({ error, key }, '[Settings] Get private error');
         return { success: false, error: 'Error obteniendo configuración' };
+    }
+}
+
+export async function getOperationalSettingsSecure(): Promise<{
+    success: boolean;
+    data?: {
+        sii_enabled: boolean;
+        fiscal_mode: 'FISCAL' | 'INTERNAL';
+        sii_environment: 'CERTIFICACION' | 'PRODUCCION';
+        security: {
+            idle_timeout_minutes: number;
+            max_login_attempts: number;
+            lockout_duration_minutes: number;
+        };
+    };
+    error?: string;
+}> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    try {
+        const [siiSummary, idleTimeoutMinutes, maxLoginAttempts, lockoutDurationMinutes] = await Promise.all([
+            getSiiConfigurationSummary(),
+            readOperationalNumberSetting(
+                OPERATIONAL_SECURITY_KEYS.idleTimeoutMinutes,
+                DEFAULT_OPERATIONAL_SECURITY.idle_timeout_minutes,
+            ),
+            readOperationalNumberSetting(
+                OPERATIONAL_SECURITY_KEYS.maxLoginAttempts,
+                DEFAULT_OPERATIONAL_SECURITY.max_login_attempts,
+            ),
+            readOperationalNumberSetting(
+                OPERATIONAL_SECURITY_KEYS.lockoutDurationMinutes,
+                DEFAULT_OPERATIONAL_SECURITY.lockout_duration_minutes,
+            ),
+        ]);
+
+        const siiEnabled = Boolean(siiSummary.hasCertificate);
+
+        return {
+            success: true,
+            data: {
+                sii_enabled: siiEnabled,
+                fiscal_mode: siiEnabled ? 'FISCAL' : 'INTERNAL',
+                sii_environment: siiSummary.ambiente,
+                security: {
+                    idle_timeout_minutes: idleTimeoutMinutes,
+                    max_login_attempts: maxLoginAttempts,
+                    lockout_duration_minutes: lockoutDurationMinutes,
+                },
+            },
+        };
+    } catch (error: any) {
+        logger.error({ error }, '[Settings] Get operational settings error');
+        return { success: false, error: 'Error obteniendo configuración operativa' };
     }
 }
 
@@ -205,9 +278,8 @@ export async function updateSettingSecure(
     value: string,
     adminPin?: string
 ): Promise<{ success: boolean; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    if (isEnvManagedSetting(key)) {
+        return { success: false, error: 'Setting gestionado por entorno de despliegue' };
     }
 
     const category = getSettingCategory(key);
@@ -215,21 +287,29 @@ export async function updateSettingSecure(
         return { success: false, error: 'Setting no reconocido' };
     }
 
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // Verificar permisos por categoría
     if (category === 'CRITICAL') {
-        if (!ADMIN_ROLES.includes(session.role)) {
-            return { success: false, error: 'Solo administradores' };
+        const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.ADMIN, 'Solo administradores');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
         }
         if (!adminPin) {
             return { success: false, error: 'Se requiere PIN de administrador para settings críticos' };
         }
     } else if (category === 'PRIVATE') {
-        if (!MANAGER_ROLES.includes(session.role)) {
-            return { success: false, error: 'Permisos insuficientes' };
+        const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.MANAGER, 'Permisos insuficientes');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
         }
     } else {
-        if (!MANAGER_ROLES.includes(session.role)) {
-            return { success: false, error: 'Permisos insuficientes' };
+        const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.MANAGER, 'Permisos insuficientes');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
         }
     }
 
@@ -240,7 +320,10 @@ export async function updateSettingSecure(
 
         // Validar PIN si es CRITICAL
         if (category === 'CRITICAL' && adminPin) {
-            const authResult = await validateAdminPin(client, adminPin);
+            const authResult = await validatePinForRoles(client, adminPin, ROLE_GROUPS.ADMIN, {
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            });
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN de administrador inválido' };
@@ -262,7 +345,7 @@ export async function updateSettingSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
             VALUES ($1, 'SETTING_UPDATED', 'SETTING', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [session.userId, key, JSON.stringify({ value: previousValue }), JSON.stringify({
+        `, [auth.actor.userId, key, JSON.stringify({ value: previousValue }), JSON.stringify({
             value,
             category,
         })]);
@@ -272,7 +355,7 @@ export async function updateSettingSecure(
 
         await client.query('COMMIT');
 
-        logger.info({ key, category, userId: session.userId }, '✏️ [Settings] Updated');
+        logger.info({ key, category, userId: auth.actor.userId }, '✏️ [Settings] Updated');
         revalidatePath('/settings');
         return { success: true };
 
@@ -297,13 +380,14 @@ export async function getAllSettingsSecure(): Promise<{
     data?: { key: string; value: string; category: string; updated_at: Date }[];
     error?: string;
 }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores' };
+    const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.ADMIN, 'Solo administradores');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     try {
@@ -314,7 +398,7 @@ export async function getAllSettingsSecure(): Promise<{
         const data = res.rows.map((row: any) => ({
             key: row.key,
             value: row.value,
-            category: getSettingCategory(row.key) || 'UNKNOWN',
+            category: isEnvManagedSetting(row.key) ? 'ENV' : (getSettingCategory(row.key) || 'UNKNOWN'),
             updated_at: row.updated_at,
         }));
 
@@ -336,13 +420,14 @@ export async function getAllSettingsSecure(): Promise<{
 export async function getSettingHistorySecure(
     key: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!ADMIN_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo administradores' };
+    const authorization = ensureSettingsRole(auth.actor, ROLE_GROUPS.ADMIN, 'Solo administradores');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
     }
 
     try {

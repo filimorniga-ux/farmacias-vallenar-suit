@@ -5,6 +5,7 @@ import { getActiveSessionsSecure, forceLogoutSecure, ActiveSession } from '@/act
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { toast } from 'sonner';
 import { User, Globe, Clock, Power, RefreshCw } from 'lucide-react';
+import { OPERATIONAL_CONTEXT_ORIGIN_LABELS } from '@/lib/operational-message-catalog';
 
 export function ActiveSessionsTable() {
     const { user } = usePharmaStore();
@@ -68,7 +69,7 @@ export function ActiveSessionsTable() {
                     <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-xs">
                         <tr>
                             <th className="p-4">Usuario</th>
-                            <th className="p-4">Ubicación / Contexto</th>
+                            <th className="p-4">{OPERATIONAL_CONTEXT_ORIGIN_LABELS.validatedSession}</th>
                             <th className="p-4">Última Actividad</th>
                             <th className="p-4">Estado</th>
                             <th className="p-4 text-center">Acción</th>

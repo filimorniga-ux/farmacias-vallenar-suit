@@ -9,27 +9,35 @@ import WMSTransitoTab from '@/presentation/components/wms/tabs/WMSTransitoTab';
 
 type PharmaState = {
     currentLocationId: string;
-    shipments: unknown[];
-    purchaseOrders: unknown[];
-    refreshShipments: (locationId?: string) => Promise<void>;
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 };
 
 const mocks = vi.hoisted(() => {
     const state: PharmaState = {
         currentLocationId: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
-        shipments: [],
-        purchaseOrders: [],
-        refreshShipments: vi.fn(async () => {}),
-        refreshPurchaseOrders: vi.fn(async () => {}),
     };
 
     const usePharmaStoreMock = Object.assign(
-        () => state,
+        function <T>(selector?: (state: PharmaState) => T) {
+            return selector ? selector(state) : (state as T);
+        },
         { getState: () => state }
     );
 
     return {
+        refreshTransitMock: vi.fn(async () => {}),
+        shipmentRows: [
+            {
+                id: 'shp-1',
+                type: 'INTER_BRANCH',
+                status: 'IN_TRANSIT',
+                origin_location_id: 'aaaa1111-1111-4111-8111-111111111111',
+                origin_location_name: 'Farmacia prat',
+                destination_location_id: 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6',
+                destination_location_name: 'Farmacia Vallenar santiago',
+                created_at: Date.now(),
+                items: [{ id: 'item-1', sku: 'SKU-9', name: 'Producto Z', quantity: 3 }],
+            },
+        ],
         state,
         usePharmaStoreMock,
         toastErrorMock: vi.fn(),
@@ -50,14 +58,11 @@ describe('WMSTransitoTab', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.state.currentLocationId = 'bd7ddf7a-fac6-42f5-897d-bae8dfb3adf6';
-        mocks.state.shipments = [];
-        mocks.state.purchaseOrders = [];
-        mocks.state.refreshShipments = vi.fn(async () => {});
-        mocks.state.refreshPurchaseOrders = vi.fn(async () => {});
+        mocks.refreshTransitMock.mockResolvedValue(undefined);
     });
 
     it('muestra en transito una OC del kanban (ORDERED/SENT)', async () => {
-        mocks.state.purchaseOrders = [
+        const purchaseOrders = [
             {
                 id: '63592c1c-abb9-4325-82f5-67cd1d8d535f',
                 status: 'ORDERED',
@@ -71,7 +76,13 @@ describe('WMSTransitoTab', () => {
             },
         ];
 
-        render(<WMSTransitoTab />);
+        render(
+            <WMSTransitoTab
+                purchaseOrders={purchaseOrders as never[]}
+                shipments={[]}
+                onRefresh={mocks.refreshTransitMock}
+            />
+        );
 
         expect(await screen.findByText('Orden Compra')).toBeTruthy();
         expect(screen.getByText('Farmacia prat')).toBeTruthy();
@@ -79,7 +90,7 @@ describe('WMSTransitoTab', () => {
     });
 
     it('filtra direccion entrante/saliente para PO de traspaso', async () => {
-        mocks.state.purchaseOrders = [
+        const purchaseOrders = [
             {
                 id: '95e16cda-8f90-4d20-9bdb-ad0a3eea8f70',
                 status: 'SENT',
@@ -91,7 +102,13 @@ describe('WMSTransitoTab', () => {
             },
         ];
 
-        render(<WMSTransitoTab />);
+        render(
+            <WMSTransitoTab
+                purchaseOrders={purchaseOrders as never[]}
+                shipments={[]}
+                onRefresh={mocks.refreshTransitMock}
+            />
+        );
 
         await waitFor(() => {
             expect(screen.getByText('Farmacia Vallenar santiago')).toBeTruthy();
@@ -107,5 +124,85 @@ describe('WMSTransitoTab', () => {
             expect(screen.getByText('Farmacia Vallenar santiago')).toBeTruthy();
         });
     });
-});
 
+    it('permite desactivar el bootstrap automático cuando WMS ya inicializó el dominio', async () => {
+        render(
+            <WMSTransitoTab
+                purchaseOrders={[]}
+                shipments={[]}
+                bootstrapOnMount={false}
+                onRefresh={mocks.refreshTransitMock}
+            />
+        );
+
+        await waitFor(() => {
+            expect(screen.getByText('Sin movimientos en tránsito')).toBeTruthy();
+        });
+
+        expect(mocks.refreshTransitMock).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Actualizar' }));
+
+        await waitFor(() => {
+            expect(mocks.refreshTransitMock).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('muestra envíos desde props en vez de depender del store global', async () => {
+        render(
+            <WMSTransitoTab
+                purchaseOrders={[]}
+                shipments={mocks.shipmentRows as never[]}
+                bootstrapOnMount={false}
+                onReceiveShipment={vi.fn()}
+            />
+        );
+
+        expect(await screen.findByText('Farmacia prat')).toBeTruthy();
+        expect(screen.getByText('Farmacia Vallenar santiago')).toBeTruthy();
+    });
+
+    it('prioriza pendientes en tránsito por antigüedad y muestra razón visible sin mutar estado', async () => {
+        const now = Date.now();
+        const currentLocationId = mocks.state.currentLocationId;
+        const shipments = [
+            {
+                id: 'shp-recent',
+                type: 'INTER_BRANCH',
+                status: 'IN_TRANSIT',
+                origin_location_id: 'origin-recent',
+                origin_location_name: 'Bodega Reciente',
+                destination_location_id: currentLocationId,
+                destination_location_name: 'Farmacia Vallenar santiago',
+                created_at: now - (2 * 60 * 60 * 1000),
+                items: [{ id: 'item-recent', sku: 'SKU-R', name: 'Producto reciente', quantity: 1 }],
+            },
+            {
+                id: 'shp-old',
+                type: 'INTER_BRANCH',
+                status: 'IN_TRANSIT',
+                origin_location_id: 'origin-old',
+                origin_location_name: 'Bodega Antigua',
+                destination_location_id: currentLocationId,
+                destination_location_name: 'Farmacia Vallenar santiago',
+                created_at: now - (80 * 60 * 60 * 1000),
+                items: [{ id: 'item-old', sku: 'SKU-A', name: 'Producto antiguo', quantity: 1 }],
+            },
+        ];
+
+        render(
+            <WMSTransitoTab
+                purchaseOrders={[]}
+                shipments={shipments as never[]}
+                bootstrapOnMount={false}
+                onReceiveShipment={vi.fn()}
+            />
+        );
+
+        const rows = await screen.findAllByTestId('wms-transit-row');
+        expect(rows[0].textContent).toContain('Bodega Antigua');
+        expect(rows[0].textContent).toContain('Prioridad alta');
+        expect(rows[0].textContent).toContain('Más antiguo');
+        expect(rows[0].textContent).toContain('80 h pendiente');
+    });
+});

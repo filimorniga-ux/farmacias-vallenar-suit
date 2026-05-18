@@ -23,6 +23,8 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
                 if (digit === '') return <div key={index} />;
                 if (digit === 'DEL') return (
                     <button
+                        type="button"
+                        aria-label="Borrar dígito"
                         key={index}
                         onClick={onDelete}
                         disabled={disabled}
@@ -33,6 +35,7 @@ export const NumericKeypad: React.FC<NumericKeypadProps> = ({
                 );
                 return (
                     <button
+                        type="button"
                         key={index}
                         onClick={() => onDigit(digit)}
                         disabled={disabled}

@@ -3,6 +3,7 @@
  */
 
 import React from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CashReceiptsReport } from '@/presentation/components/reports/CashReceiptsReport';
@@ -13,6 +14,10 @@ const mocks = vi.hoisted(() => ({
     printSaleTicketMock: vi.fn(),
     toastSuccessMock: vi.fn(),
     toastErrorMock: vi.fn(),
+    xlsxBookNewMock: vi.fn(),
+    xlsxJsonToSheetMock: vi.fn(() => ({})),
+    xlsxAppendSheetMock: vi.fn(),
+    xlsxWriteFileMock: vi.fn(),
 }));
 
 vi.mock('@/hooks/usePlatform', () => ({
@@ -36,6 +41,15 @@ vi.mock('@/presentation/utils/print-utils', () => ({
     printSaleTicket: mocks.printSaleTicketMock,
 }));
 
+vi.mock('xlsx', () => ({
+    utils: {
+        book_new: mocks.xlsxBookNewMock,
+        json_to_sheet: mocks.xlsxJsonToSheetMock,
+        book_append_sheet: mocks.xlsxAppendSheetMock,
+    },
+    writeFile: mocks.xlsxWriteFileMock,
+}));
+
 vi.mock('sonner', () => ({
     toast: {
         success: mocks.toastSuccessMock,
@@ -45,6 +59,22 @@ vi.mock('sonner', () => ({
 }));
 
 describe('CashReceiptsReport', () => {
+    function renderWithQueryClient(ui: React.ReactElement, queryClient?: QueryClient) {
+        const client = queryClient ?? new QueryClient({
+            defaultOptions: {
+                queries: {
+                    retry: false,
+                },
+            },
+        });
+
+        return render(
+            <QueryClientProvider client={client}>
+                {ui}
+            </QueryClientProvider>
+        );
+    }
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getCashReceiptsMock.mockResolvedValue({
@@ -71,7 +101,7 @@ describe('CashReceiptsReport', () => {
     });
 
     it('renderiza cards móviles y abre el detalle del recibo', async () => {
-        render(
+        renderWithQueryClient(
             <CashReceiptsReport
                 startDate={new Date('2026-03-01T00:00:00.000Z')}
                 endDate={new Date('2026-03-31T23:59:59.000Z')}
@@ -94,5 +124,54 @@ describe('CashReceiptsReport', () => {
 
         expect(await screen.findByText('Detalle de Recibo')).toBeTruthy();
         expect((await screen.findAllByText('Paracetamol 500mg')).length).toBeGreaterThan(1);
+    });
+
+    it('reutiliza cache al remontar con el mismo QueryClient', async () => {
+        const queryClient = new QueryClient({
+            defaultOptions: {
+                queries: {
+                    retry: false,
+                },
+            },
+        });
+
+        const props = {
+            startDate: new Date('2026-03-01T00:00:00.000Z'),
+            endDate: new Date('2026-03-31T23:59:59.000Z'),
+        };
+
+        const firstRender = renderWithQueryClient(<CashReceiptsReport {...props} />, queryClient);
+
+        await waitFor(() => {
+            expect(mocks.getCashReceiptsMock).toHaveBeenCalledTimes(1);
+        });
+
+        firstRender.unmount();
+
+        renderWithQueryClient(<CashReceiptsReport {...props} />, queryClient);
+
+        await screen.findByTestId('receipt-card-rcp-1');
+        expect(mocks.getCashReceiptsMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('carga xlsx solo al exportar', async () => {
+        renderWithQueryClient(
+            <CashReceiptsReport
+                startDate={new Date('2026-03-01T00:00:00.000Z')}
+                endDate={new Date('2026-03-31T23:59:59.000Z')}
+            />
+        );
+
+        await screen.findByTestId('receipt-card-rcp-1');
+
+        expect(mocks.xlsxBookNewMock).not.toHaveBeenCalled();
+        expect(mocks.xlsxWriteFileMock).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: /Excel/i }));
+
+        await waitFor(() => {
+            expect(mocks.xlsxBookNewMock).toHaveBeenCalledTimes(1);
+            expect(mocks.xlsxWriteFileMock).toHaveBeenCalledTimes(1);
+        });
     });
 });

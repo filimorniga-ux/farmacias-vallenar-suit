@@ -14,11 +14,25 @@ interface DuplicateParams {
     price: boolean;
 }
 
+interface BarcodeDuplicateGroup {
+    barcode: string;
+    count: number | string;
+    skus?: string[];
+    names?: string[];
+}
+
+interface BatchDuplicateGroup {
+    sku?: string;
+    name?: string;
+    lot_number?: string | null;
+    count: number | string;
+}
+
 export default function InventoryDuplicates() {
     const [isLoading, setIsLoading] = useState(false);
     const [searchMode, setSearchMode] = useState<SearchMode>('barcode'); // Default to barcode
-    const [batchResults, setBatchResults] = useState<any[]>([]);
-    const [barcodeResults, setBarcodeResults] = useState<any[]>([]);
+    const [batchResults, setBatchResults] = useState<BatchDuplicateGroup[]>([]);
+    const [barcodeResults, setBarcodeResults] = useState<BarcodeDuplicateGroup[]>([]);
     const [params, setParams] = useState<DuplicateParams>({
         sku: true,
         lot: true,
@@ -58,7 +72,7 @@ export default function InventoryDuplicates() {
                     toast.error(res.error || 'Error al buscar duplicados');
                 }
             }
-        } catch (e) {
+        } catch {
             toast.error('Error de conexión');
         } finally {
             setIsLoading(false);
@@ -66,15 +80,20 @@ export default function InventoryDuplicates() {
     };
 
     return (
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-            <div className="flex items-start gap-4 mb-6">
-                <div className="p-3 bg-amber-100 rounded-lg text-amber-600">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
                     <Database size={24} />
                 </div>
-                <div>
-                    <h3 className="text-lg font-bold text-slate-900">Buscador de Duplicados</h3>
-                    <p className="text-slate-500 mt-1">
-                        Detecta productos o lotes que podrían estar duplicados en el sistema.
+                <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-bold text-slate-900">Duplicados de inventario</h3>
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-bold uppercase text-emerald-700">
+                            Solo lectura
+                        </span>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-500">
+                        Revisa coincidencias de códigos de barras y lotes sin fusionar ni modificar registros.
                     </p>
                 </div>
             </div>
@@ -82,27 +101,29 @@ export default function InventoryDuplicates() {
             {/* Mode Selection */}
             <div className="bg-slate-50 p-4 rounded-lg mb-6">
                 <h4 className="text-sm font-bold text-slate-700 mb-3 block">¿Qué buscar?</h4>
-                <div className="flex gap-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <button
+                        type="button"
                         onClick={() => setSearchMode('barcode')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition ${searchMode === 'barcode'
+                        className={`flex min-h-11 items-center gap-2 rounded-lg border-2 px-4 py-2 text-left transition ${searchMode === 'barcode'
                                 ? 'border-amber-500 bg-amber-50 text-amber-800'
                                 : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                             }`}
                     >
                         <Barcode size={18} />
-                        <span className="font-medium">Códigos de Barras Duplicados</span>
+                        <span className="font-medium">Códigos de barras duplicados</span>
                         <span className="text-xs bg-amber-500 text-white px-1.5 py-0.5 rounded">Recomendado</span>
                     </button>
                     <button
+                        type="button"
                         onClick={() => setSearchMode('batch')}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 transition ${searchMode === 'batch'
+                        className={`flex min-h-11 items-center gap-2 rounded-lg border-2 px-4 py-2 text-left transition ${searchMode === 'batch'
                                 ? 'border-blue-500 bg-blue-50 text-blue-800'
                                 : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                             }`}
                     >
                         <Database size={18} />
-                        <span className="font-medium">Lotes Duplicados (Avanzado)</span>
+                        <span className="font-medium">Lotes duplicados</span>
                     </button>
                 </div>
             </div>
@@ -111,8 +132,8 @@ export default function InventoryDuplicates() {
             {searchMode === 'batch' && (
                 <div className="bg-slate-50 p-4 rounded-lg mb-6">
                     <h4 className="text-sm font-bold text-slate-700 mb-3 block">Agrupar Lotes Por:</h4>
-                    <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
+                    <div className="flex flex-wrap gap-3">
+                        <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={params.sku}
@@ -121,7 +142,7 @@ export default function InventoryDuplicates() {
                             />
                             <span className="text-sm text-slate-700">SKU / Producto</span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={params.lot}
@@ -130,7 +151,7 @@ export default function InventoryDuplicates() {
                             />
                             <span className="text-sm text-slate-700">N° Lote</span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={params.expiry}
@@ -139,7 +160,7 @@ export default function InventoryDuplicates() {
                             />
                             <span className="text-sm text-slate-700">Fecha Vencimiento</span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                             <input
                                 type="checkbox"
                                 checked={params.price}
@@ -152,85 +173,134 @@ export default function InventoryDuplicates() {
                 </div>
             )}
 
-            <div className="flex justify-end mb-6">
+            <div className="mb-6 flex justify-end">
                 <button
+                    type="button"
                     onClick={handleSearch}
                     disabled={isLoading}
-                    className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 transition disabled:opacity-50"
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-white transition hover:bg-slate-800 disabled:opacity-50 sm:w-auto"
                 >
                     {isLoading ? <Loader2 className="animate-spin" size={18} /> : <Search size={18} />}
-                    {searchMode === 'barcode' ? 'Buscar Barcodes Duplicados' : 'Buscar Lotes Duplicados'}
+                    {searchMode === 'barcode' ? 'Buscar códigos duplicados' : 'Buscar lotes duplicados'}
                 </button>
             </div>
 
             {/* Barcode Results */}
             {barcodeResults.length > 0 && (
-                <div className="overflow-x-auto border rounded-lg">
-                    <div className="p-3 bg-amber-50 border-b flex items-center gap-2">
+                <div className="overflow-hidden rounded-lg border">
+                    <div className="flex items-center gap-2 border-b bg-amber-50 p-3">
                         <AlertTriangle size={18} className="text-amber-600" />
                         <span className="font-bold text-amber-800">
                             {barcodeResults.length} código(s) de barras duplicado(s) encontrado(s)
                         </span>
                     </div>
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-xs">
-                            <tr>
-                                <th className="p-3">Código de Barras</th>
-                                <th className="p-3">Productos con este código</th>
-                                <th className="p-3 text-right">Cantidad</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                            {barcodeResults.map((group, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50">
-                                    <td className="p-3 font-mono font-bold text-amber-700">{group.barcode}</td>
-                                    <td className="p-3">
-                                        <div className="space-y-1">
-                                            {group.names?.map((name: string, i: number) => (
-                                                <div key={i} className="flex items-center gap-2">
-                                                    <span className="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono">
-                                                        {group.skus?.[i]}
-                                                    </span>
-                                                    <span className="text-slate-800">{name}</span>
-                                                </div>
-                                            ))}
+                    <div className="space-y-3 p-3 md:hidden">
+                        {barcodeResults.map((group, idx) => (
+                            <div key={`${group.barcode}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <div className="text-xs font-bold uppercase text-slate-400">Código</div>
+                                        <div className="break-all font-mono text-sm font-bold text-amber-700">{group.barcode}</div>
+                                    </div>
+                                    <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-600">
+                                        {group.count}
+                                    </span>
+                                </div>
+                                <div className="mt-3 space-y-2">
+                                    {group.names?.map((name, i) => (
+                                        <div key={`${name}-${i}`} className="rounded-md bg-slate-50 px-2 py-1.5">
+                                            <div className="font-mono text-[11px] font-bold text-slate-500">
+                                                {group.skus?.[i] || 'SKU no informado'}
+                                            </div>
+                                            <div className="text-sm font-medium text-slate-800">{name}</div>
                                         </div>
-                                    </td>
-                                    <td className="p-3 text-right font-bold text-red-600">{group.count}</td>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="hidden overflow-x-auto md:block">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-100 text-xs font-bold uppercase text-slate-600">
+                                <tr>
+                                    <th className="p-3">Código de barras</th>
+                                    <th className="p-3">Productos con este código</th>
+                                    <th className="p-3 text-right">Cantidad</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y">
+                                {barcodeResults.map((group, idx) => (
+                                    <tr key={`${group.barcode}-${idx}`} className="hover:bg-slate-50">
+                                        <td className="p-3 font-mono font-bold text-amber-700">{group.barcode}</td>
+                                        <td className="p-3">
+                                            <div className="space-y-1">
+                                                {group.names?.map((name, i) => (
+                                                    <div key={`${name}-${i}`} className="flex items-center gap-2">
+                                                        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-500">
+                                                            {group.skus?.[i]}
+                                                        </span>
+                                                        <span className="text-slate-800">{name}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </td>
+                                        <td className="p-3 text-right font-bold text-red-600">{group.count}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
 
             {/* Batch Results */}
             {batchResults.length > 0 && (
-                <div className="overflow-x-auto border rounded-lg">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-xs">
-                            <tr>
-                                <th className="p-3">Análisis</th>
-                                <th className="p-3">SKU</th>
-                                <th className="p-3">Producto</th>
-                                <th className="p-3">Lote</th>
-                                <th className="p-3 text-right">Cantidad de Registros</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                            {batchResults.map((group, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50">
-                                    <td className="p-3">
-                                        <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-bold">POSIBLE DUPLICADO</span>
-                                    </td>
-                                    <td className="p-3 font-mono text-slate-500">{group.sku}</td>
-                                    <td className="p-3 font-medium text-slate-900">{group.name}</td>
-                                    <td className="p-3">{group.lot_number || '-'}</td>
-                                    <td className="p-3 text-right font-bold text-red-600">{group.count}</td>
+                <div className="overflow-hidden rounded-lg border">
+                    <div className="space-y-3 p-3 md:hidden">
+                        {batchResults.map((group, idx) => (
+                            <div key={`${group.sku || 'sku'}-${group.lot_number || 'lot'}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                        <span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700">POSIBLE DUPLICADO</span>
+                                        <div className="mt-2 font-medium text-slate-900">{group.name || 'Producto sin nombre'}</div>
+                                        <div className="font-mono text-xs text-slate-500">{group.sku || 'SKU no informado'}</div>
+                                    </div>
+                                    <span className="rounded-full bg-red-50 px-2 py-1 text-xs font-bold text-red-600">
+                                        {group.count}
+                                    </span>
+                                </div>
+                                <div className="mt-3 text-sm text-slate-600">
+                                    Lote: <span className="font-medium text-slate-800">{group.lot_number || '-'}</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="hidden overflow-x-auto md:block">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-100 text-xs font-bold uppercase text-slate-600">
+                                <tr>
+                                    <th className="p-3">Análisis</th>
+                                    <th className="p-3">SKU</th>
+                                    <th className="p-3">Producto</th>
+                                    <th className="p-3">Lote</th>
+                                    <th className="p-3 text-right">Cantidad de registros</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody className="divide-y">
+                                {batchResults.map((group, idx) => (
+                                    <tr key={`${group.sku || 'sku'}-${group.lot_number || 'lot'}-${idx}`} className="hover:bg-slate-50">
+                                        <td className="p-3">
+                                            <span className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-700">POSIBLE DUPLICADO</span>
+                                        </td>
+                                        <td className="p-3 font-mono text-slate-500">{group.sku}</td>
+                                        <td className="p-3 font-medium text-slate-900">{group.name}</td>
+                                        <td className="p-3">{group.lot_number || '-'}</td>
+                                        <td className="p-3 text-right font-bold text-red-600">{group.count}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             )}
         </div>

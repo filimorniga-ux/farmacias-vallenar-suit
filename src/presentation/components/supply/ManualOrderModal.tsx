@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { X, Plus, Trash2, AlertTriangle, Save, Send, DollarSign, Calendar, Truck, Package, Printer, FileDown } from 'lucide-react';
 import { WMSProductScanner } from '@/presentation/components/wms/WMSProductScanner';
 import { usePharmaStore } from '@/presentation/store/useStore';
-import { useNotificationStore } from '@/presentation/store/useNotificationStore';
 import { toast } from 'sonner';
-import { InventoryBatch, PurchaseOrder, PurchaseOrderItem } from '@/domain/types';
+import { InventoryBatch, PurchaseOrder } from '@/domain/types';
 import { createNotificationSecure } from '@/actions/notifications-v2';
 import { createPurchaseOrderSecure, updatePurchaseOrderSecure } from '@/actions/supply-v2';
 import { updatePriceSecure } from '@/actions/products-v2';
@@ -35,7 +35,8 @@ interface OrderItem {
 }
 
 const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, initialOrder }) => {
-    const { inventory, suppliers, addPurchaseOrder, updatePurchaseOrder, user, currentWarehouseId, currentLocationId } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { inventory, suppliers, user, currentWarehouseId, currentLocationId } = usePharmaStore();
 
     const [selectedSupplierId, setSelectedSupplierId] = useState('');
     const [customOrderId, setCustomOrderId] = useState('');
@@ -266,6 +267,7 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
 
         const { supplierId: sanitizedSupplierId, warehouseId: sanitizedWarehouseId } = resolveManualOrderIds({
             selectedSupplierId,
+            requestedWarehouseId: initialOrder?.target_warehouse_id || (initialOrder as { targetWarehouseId?: string } | null)?.targetWarehouseId,
             currentWarehouseId,
             fallbackWarehouseId: DEFAULT_WAREHOUSE_FALLBACK_ID
         });
@@ -306,44 +308,12 @@ const ManualOrderModal: React.FC<ManualOrderModalProps> = ({ isOpen, onClose, in
             }
             savedOrderId = serverOrderId;
 
-            // 3. Update local state (Zustand) for UI immediacy
-            const orderData = {
-                supplier_id: sanitizedSupplierId,
-                supplier_name: selectedSupplierId === 'TRANSFER' ? 'TRASPASO INTERNO' : selectedSupplier?.fantasy_name,
-                target_warehouse_id: sanitizedWarehouseId,
-                destination_location_id: currentLocationId || 'BODEGA_CENTRAL',
-                status: (status === 'SENT' ? 'APPROVED' : 'DRAFT') as any,
-                items: orderItems.map(i => ({
-                    sku: i.sku,
-                    name: i.name,
-                    quantity_ordered: i.quantity || 0,
-                    quantity_received: 0,
-                    cost_price: i.cost_price || 0,
-                    quantity: i.quantity || 0
-                })),
-                total_estimated: totals.total,
-                updated_at: Date.now()
-            };
-
-            if (initialOrder) {
-                updatePurchaseOrder(
-                    initialOrder.id,
-                    serverOrderId && serverOrderId !== initialOrder.id
-                        ? { ...orderData, id: serverOrderId }
-                        : orderData
-                );
-                toast.success(status === 'SENT' ? 'Orden enviada correctamente' : 'Borrador actualizado en nube');
-            } else {
-                const newOrder: PurchaseOrder = {
-                    id: serverOrderId || `ORD-${Date.now()}`,
-                    created_at: Date.now(),
-                    is_auto_generated: false,
-                    generation_reason: 'MANUAL',
-                    ...orderData
-                };
-                addPurchaseOrder(newOrder);
-                toast.success(status === 'SENT' ? 'Orden creada y enviada' : 'Borrador persistido en nube');
-            }
+            await queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] });
+            toast.success(
+                initialOrder
+                    ? (status === 'SENT' ? 'Orden enviada correctamente' : 'Borrador actualizado en nube')
+                    : (status === 'SENT' ? 'Orden creada y enviada' : 'Borrador persistido en nube')
+            );
         } catch (error) {
             console.error('Failed to save to DB', error);
             toast.error('Error crítico al conectar con el servidor');

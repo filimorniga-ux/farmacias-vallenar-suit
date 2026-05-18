@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { inventoryQueryKey } from './useInventoryQuery';
 import { shouldGenerateDTE } from '../../domain/logic/sii_dte';
 import { printSaleTicket } from '../utils/print-utils';
 import { Customer, CartItem } from '../../domain/types';
@@ -45,6 +46,7 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
         cart,
         currentShift,
         currentCustomer,
+        currentLocationId,
         processSale,
         redeemPoints,
         calculateDiscountValue,
@@ -52,7 +54,7 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
     } = usePharmaStore();
 
     const { currentLocation } = useLocationStore();
-    const { enable_sii_integration, hardware } = useSettingsStore();
+    const { hardware } = useSettingsStore();
 
     // State
     const [isProcessing, setIsProcessing] = useState(false);
@@ -107,11 +109,24 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
         setIsProcessing(true);
 
         try {
+            const { getOperationalSettingsSecure } = await import('../../actions/settings-v2');
+            const operationalSettingsResult = await getOperationalSettingsSecure();
+            if (!operationalSettingsResult.success || !operationalSettingsResult.data) {
+                const error = operationalSettingsResult.error || 'No se pudo validar la configuración operativa';
+                toast.error(error);
+                options.onError?.(error);
+                return { success: false, error };
+            }
+
+            const operationalSettings = operationalSettingsResult.data;
+            const useFiscalMode = operationalSettings.sii_enabled
+                && operationalSettings.fiscal_mode === 'FISCAL';
+
             // Determine DTE Status
             let dteResult = { shouldGenerate: false, status: 'FISCALIZED_BY_VOUCHER' as string };
             let dteFolio: string | undefined;
 
-            if (enable_sii_integration) {
+            if (useFiscalMode) {
                 const check = shouldGenerateDTE(paymentMethod);
                 dteResult = { shouldGenerate: check.shouldGenerate, status: check.status };
                 dteFolio = dteResult.shouldGenerate
@@ -141,7 +156,7 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
                 transfer_id: paymentMethod === 'TRANSFER' ? (transferId || 'SIN_ID_PENDIENTE') : undefined,
                 dte_status: dteResult.status,
                 dte_folio: dteFolio,
-                is_internal_ticket: !enable_sii_integration,
+                is_internal_ticket: !useFiscalMode,
                 points_redeemed: pointsToRedeem,
                 points_discount: pointsDiscount
             };
@@ -157,8 +172,12 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
                 return { success: false, error };
             }
 
-            // [FIX] Invalidate inventory cache immediately after sale
-            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            const inventoryLocationId = currentLocation?.id || currentLocationId;
+            if (inventoryLocationId) {
+                queryClient.invalidateQueries({
+                    queryKey: inventoryQueryKey(inventoryLocationId, 'full')
+                });
+            }
 
             // Auto-print if enabled
             if (autoPrint) {
@@ -176,9 +195,9 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
             }
 
             // Success message
-            if (enable_sii_integration && dteResult.shouldGenerate) {
+            if (useFiscalMode && dteResult.shouldGenerate) {
                 toast.success(`¡Venta Exitosa! Boleta Nº ${dteFolio} generada.`, { duration: 3000 });
-            } else if (!enable_sii_integration) {
+            } else if (!useFiscalMode) {
                 toast.success('¡Venta Exitosa! Comprobante Interno Generado.', { duration: 3000 });
             } else {
                 toast.success('¡Venta Exitosa! Fiscalizada por Voucher.', { duration: 3000 });
@@ -208,9 +227,10 @@ export function useCheckout(options: UseCheckoutOptions = {}) {
             setIsProcessing(false);
         }
     }, [
-        isProcessing, canCheckout, enable_sii_integration, paymentMethod,
+        isProcessing, canCheckout, paymentMethod,
         currentCustomer, pointsToRedeem, redeemPoints, cart, finalTotal,
         transferId, pointsDiscount, processSale, autoPrint, currentLocation,
+        currentLocationId,
         hardware, options
     ]);
 

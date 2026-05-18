@@ -1,20 +1,22 @@
 import 'server-only';
 import { Pool, type PoolClient } from 'pg';
 import { isTransientPgConnectionError } from './db-errors';
+import { resolveDbPoolMax } from './db-config';
 export type { PoolClient };
 
 // Detectar entorno
 const isProduction = process.env.NODE_ENV === 'production';
+const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST === 'true';
 
 // Debug: Log environment
-if (isProduction) {
+if (!isTest && isProduction) {
     console.log('🔌 [DB] Production Mode - DATABASE_URL:', process.env.DATABASE_URL ? 'CONFIGURED' : '❌ MISSING');
-} else {
+} else if (!isTest) {
     console.log('🔌 [DB] Development Mode - DATABASE_URL:', process.env.DATABASE_URL ? 'CONFIGURED' : '❌ MISSING');
 }
 
 // Validar que DATABASE_URL existe
-if (!process.env.DATABASE_URL) {
+if (!isTest && !process.env.DATABASE_URL) {
     console.error('❌ CRITICAL: DATABASE_URL environment variable is not set!');
 }
 
@@ -23,28 +25,35 @@ const dbUrl = process.env.DATABASE_URL || '';
 const isCloudDB = dbUrl.includes('tsdb.cloud.timescale.com') || dbUrl.includes('m1xugm0lj9') || dbUrl.includes('supabase.com');
 const isLocalhost = dbUrl.includes('localhost') || dbUrl.includes('127.0.0.1');
 
-// SSL Config: Force rejectUnauthorized: false for cloud/remote
+// Postura runtime actual:
+// para conexiones remotas seguimos usando TLS sin verificación de certificado
+// hasta que infraestructura provea CA bundle o sslmode verificado.
+// No duplicar esta decisión en routes/scripts ad-hoc; todo runtime debe reutilizar esta capa.
 const sslConfig = (!isLocalhost || isCloudDB) ? { rejectUnauthorized: false } : undefined;
+const poolMax = resolveDbPoolMax(dbUrl);
 
-if (!isProduction) {
+if (!isProduction && !isTest) {
     console.log(`🔌 [DB] Environment Trace:`, {
         isCloudDB,
         isLocalhost,
         hasSSL: !!sslConfig,
-        sslMode: sslConfig ? 'REJECT_UNAUTHORIZED_FALSE' : 'NONE'
+        sslMode: sslConfig ? 'REJECT_UNAUTHORIZED_FALSE' : 'NONE',
+        poolMax,
     });
 }
 
 const connectionConfig = {
     connectionString: dbUrl,
     ssl: sslConfig,
-    max: 10, // Serverless limit logic
+    max: poolMax,
     connectionTimeoutMillis: 8000, // Reducido a 8s (Supabase es más rápido por su pooling IPv4)
     idleTimeoutMillis: 30000,
     keepAlive: true,
 };
 
-console.log('🔌 [DB-DEBUG] Connecting to host:', dbUrl.split('@')[1]?.split('/')[0] || 'Unknown');
+if (!isTest) {
+    console.log('🔌 [DB-DEBUG] Connecting to host:', dbUrl.split('@')[1]?.split('/')[0] || 'Unknown');
+}
 
 // Singleton Pattern corrected for Next.js Fast Refresh
 export let pool: Pool;
@@ -71,7 +80,9 @@ if (isProduction) {
             currentPool.end().catch(() => { });
         }
 
-        console.log('🔌 [DB] Initializing PostgreSQL Pool (Dev)...');
+        if (!isTest) {
+            console.log('🔌 [DB] Initializing PostgreSQL Pool (Dev)...');
+        }
         try {
             const newPool = new Pool(connectionConfig) as Pool & { _lastUrl: string };
             newPool._lastUrl = dbUrl; // Store URL for comparison
@@ -79,14 +90,16 @@ if (isProduction) {
             newPool.on('connect', setLocalTimezone);
             newPool.on('error', (err: Error) => console.error('🔥 [DB] Unexpected error on idle client:', err.message));
 
-            newPool.connect()
-                .then((client: PoolClient) => {
-                    console.log('✅ [DB] Connected successfully to:', dbUrl.split('@')[1] || 'DB');
-                    client.release();
-                })
-                .catch((err: Error) => {
-                    console.error('❌ [DB] FATAL: Could not connect:', err.message);
-                });
+            if (!isTest) {
+                newPool.connect()
+                    .then((client: PoolClient) => {
+                        console.log('✅ [DB] Connected successfully to:', dbUrl.split('@')[1] || 'DB');
+                        client.release();
+                    })
+                    .catch((err: Error) => {
+                        console.error('❌ [DB] FATAL: Could not connect:', err.message);
+                    });
+            }
 
             global.postgresPool = newPool;
         } catch (err) {

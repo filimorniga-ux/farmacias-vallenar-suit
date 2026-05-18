@@ -3,6 +3,11 @@
 import { query } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { z } from 'zod';
+import {
+    POS_SUPERVISOR_ROLES,
+    requirePosActor,
+    resolvePosContextScope,
+} from './pos-scope';
 
 const HistoryFilterSchema = z.object({
     locationId: z.string().uuid().optional(),
@@ -20,7 +25,24 @@ export async function getShiftHistory(filters: z.infer<typeof HistoryFilterSchem
             return { success: false, error: 'Filtros inválidos' };
         }
 
-        const { locationId, limit, startDate, endDate, terminalId, status } = validation.data;
+        const auth = await requirePosActor(undefined, 'getShiftHistory');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const scoped = await resolvePosContextScope(auth.actor, {
+            locationId: validation.data.locationId,
+            terminalId: validation.data.terminalId,
+        });
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
+        const { limit, startDate, endDate, terminalId, status } = validation.data;
+        const locationId = scoped.locationId;
 
         // Construcción dinámica de la query
         const conditions: string[] = [];
@@ -109,6 +131,19 @@ export async function getShiftHistory(filters: z.infer<typeof HistoryFilterSchem
 export async function getShiftDetails(sessionId: string) {
     try {
         if (!sessionId) return { success: false, error: 'Session ID requerido' };
+
+        const auth = await requirePosActor(undefined, 'getShiftDetails');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const scoped = await resolvePosContextScope(auth.actor, { sessionId });
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
 
         // 1. Obtener datos base de la sesión (reuso parcial query anterior pero para 1 ID)
         const sessionRes = await query(`
@@ -211,13 +246,33 @@ export async function getShiftDetails(sessionId: string) {
 }
 
 export async function reopenShift(sessionId: string) {
-    const { getClient } = await import('@/lib/db');
-    const client = await getClient();
+    let client: {
+        query: (sql: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>;
+        release: () => void;
+    } | null = null;
+    let transactionStarted = false;
 
     try {
         if (!sessionId) return { success: false, error: 'ID de sesión requerido' };
 
+        const auth = await requirePosActor(POS_SUPERVISOR_ROLES, 'reopenShift');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const { getClient } = await import('@/lib/db');
+        client = await getClient();
+
+        const scoped = await resolvePosContextScope(auth.actor, { sessionId }, client);
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         await client.query('BEGIN');
+        transactionStarted = true;
 
         // 1. Verificar estado actual de la sesión y la terminal (FOR UPDATE para bloquear fila)
         const sessionRes = await client.query(`
@@ -263,10 +318,8 @@ export async function reopenShift(sessionId: string) {
                 // CIERRE SEGURO AUTOMÁTICO
                 console.log(`   -> Has sales (${salesCount}). Auto-closing properly.`);
 
-                const details = await getShiftDetails(activeSession.id); // Reusing getShiftDetails logic (which calls DB, safe outside transaction? No, better inline calculation or accept read-only query inside or just trust simple calc)
-                // getShiftDetails uses 'query' aka specific pool client. It might not see uncommitted changes if we did any? 
-                // We haven't changed anything yet. So calling it is safe-ish, but ideally we use 'client'.
-                // For simplicity, we assume theoretical cash is enough. using a simplified query here.
+                // Usamos el mismo cliente transaccional para calcular el cierre teórico y evitar
+                // depender de un helper externo con tipo/cliente distinto dentro de la transacción.
 
                 const calcRes = await client.query(`
                    SELECT 
@@ -346,10 +399,12 @@ export async function reopenShift(sessionId: string) {
         return { success: true };
 
     } catch (error: any) {
-        await client.query('ROLLBACK');
+        if (client && transactionStarted) {
+            await client.query('ROLLBACK');
+        }
         console.error('❌ REOPEN SHIFT TRANSACTION ERROR:', error);
         return { success: false, error: 'Error al reabrir el turno: ' + (error.message || 'Error desconocido') };
     } finally {
-        client.release();
+        client?.release();
     }
 }

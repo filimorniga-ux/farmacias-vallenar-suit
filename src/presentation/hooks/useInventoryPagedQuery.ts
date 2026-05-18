@@ -2,6 +2,7 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { InventoryBatch } from '../../domain/types';
+import { inventoryQueryKeys } from '@/presentation/lib/inventory-query-keys';
 
 export interface InventoryFilters {
     search?: string;
@@ -36,7 +37,7 @@ export const useInventoryPagedQuery = (
     };
 
     const query = useInfiniteQuery<InventoryPagedResponse, Error>({
-        queryKey: ['inventory', 'infinite', locationId, pagination.limit, filters],
+        queryKey: inventoryQueryKeys.infinite(locationId, pagination.limit, filters),
         initialPageParam: 1,
         queryFn: async ({ pageParam = 1 }): Promise<InventoryPagedResponse> => {
             if (!locationId) return emptyResponse;
@@ -58,7 +59,7 @@ export const useInventoryPagedQuery = (
 
     const invalidateInventory = () => {
         if (locationId) {
-            queryClient.invalidateQueries({ queryKey: ['inventory'] });
+            queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.root });
         }
     };
 

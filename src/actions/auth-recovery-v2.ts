@@ -18,6 +18,7 @@ import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
+import { requireAppUrl } from '@/lib/app-url';
 import { logger } from '@/lib/logger';
 import { sendPasswordResetEmail } from '@/lib/mailer';
 
@@ -44,8 +45,6 @@ const UUIDSchema = z.string().uuid('ID inválido');
 const BCRYPT_ROUNDS = 12;
 const TOKEN_EXPIRY_HOURS = 1;
 const RATE_LIMIT_PER_HOUR = 3;
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || process.env.BASE_URL || 'https://farmacias.vallenar.cl';
-
 // Rate limiting en memoria
 const recoveryRateLimit = new Map<string, { count: number; resetAt: number }>();
 
@@ -151,7 +150,7 @@ export async function forgotPasswordSecure(
         );
 
         // Generar link
-        const resetLink = `${BASE_URL}/reset-password/${token}`;
+        const resetLink = `${requireAppUrl()}/reset-password/${token}`;
 
         // Enviar email real via Resend
         const emailResult = await sendPasswordResetEmail(cleanEmail, resetLink, user.name);

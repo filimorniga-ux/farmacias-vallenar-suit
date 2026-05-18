@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
     Download, FileText, Loader, Printer, User, X, Eye
 } from 'lucide-react';
 import { getCashReceipts, getReceiptDetails, CashReceipt, ReceiptDetailItem } from '@/actions/analytics/cash-receipts';
-import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import { useSettingsStore } from '../../store/useSettingsStore';
@@ -21,16 +21,62 @@ interface CashReceiptsReportProps {
 
 export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportProps) {
     const { isMobile } = usePlatform();
-    const [loading, setLoading] = useState(false);
-    const [data, setData] = useState<CashReceipt[]>([]);
-
     // Detail Modal State
     const [selectedReceipt, setSelectedReceipt] = useState<CashReceipt | null>(null);
-    const [detailItems, setDetailItems] = useState<ReceiptDetailItem[]>([]);
-    const [loadingDetail, setLoadingDetail] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const { hardware } = useSettingsStore();
     const { currentLocation } = useLocationStore();
+
+    const receiptsQuery = useQuery({
+        queryKey: ['reports', 'receipts', startDate.toISOString(), endDate.toISOString()],
+        staleTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
+        queryFn: async () => {
+            const res = await getCashReceipts({
+                startDate,
+                endDate,
+            });
+
+            if (!res.success || !res.data) {
+                throw new Error(res.error || 'Error cargando datos');
+            }
+
+            return res.data;
+        },
+    });
+
+    const receiptDetailQuery = useQuery({
+        queryKey: ['reports', 'receipt-details', selectedReceipt?.id ?? 'none'],
+        enabled: selectedReceipt !== null,
+        staleTime: 1000 * 60 * 5,
+        refetchOnWindowFocus: false,
+        queryFn: async (): Promise<ReceiptDetailItem[]> => {
+            const res = await getReceiptDetails(selectedReceipt?.id || '');
+            if (!res.success || !res.data) {
+                throw new Error(res.error || 'Error cargando detalle');
+            }
+
+            return res.data;
+        },
+    });
+
+    useEffect(() => {
+        if (receiptsQuery.error instanceof Error) {
+            toast.error(receiptsQuery.error.message);
+        }
+    }, [receiptsQuery.error]);
+
+    useEffect(() => {
+        if (receiptDetailQuery.error instanceof Error && selectedReceipt) {
+            toast.error(receiptDetailQuery.error.message);
+        }
+    }, [receiptDetailQuery.error, selectedReceipt]);
+
+    const loading = receiptsQuery.isLoading;
+    const data: CashReceipt[] = receiptsQuery.data ?? [];
+    const detailItems: ReceiptDetailItem[] = receiptDetailQuery.data ?? [];
+    const loadingDetail = receiptDetailQuery.isLoading;
 
     async function handleReprint() {
         if (!selectedReceipt) return;
@@ -62,85 +108,54 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
         }
     }
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const res = await getCashReceipts({
-                startDate,
-                endDate
-            });
-
-            if (res.success && res.data) {
-                setData(res.data);
-            } else {
-                toast.error(res.error || 'Error cargando datos');
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error('Error de conexión');
-        } finally {
-            setLoading(false);
-        }
-    }, [startDate, endDate]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    async function handleRowClick(receipt: CashReceipt) {
+    function handleRowClick(receipt: CashReceipt) {
         setSelectedReceipt(receipt);
-        setLoadingDetail(true);
-        try {
-            const res = await getReceiptDetails(receipt.id);
-            if (res.success && res.data) {
-                setDetailItems(res.data);
-            } else {
-                toast.error(res.error || 'Error cargando detalle');
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error('Error al cargar detalle');
-        } finally {
-            setLoadingDetail(false);
-        }
     }
 
-    function handleExportExcel() {
+    async function handleExportExcel() {
         if (data.length === 0) {
             toast.info('No hay datos para exportar');
             return;
         }
 
-        const wb = XLSX.utils.book_new();
-        const wsData = data.map(item => ({
-            'ID Venta': item.id,
-            'Fecha': format(new Date(item.timestamp), 'dd/MM/yyyy HH:mm'),
-            'Cajero': item.user_name,
-            'Items': item.items_summary,
-            'Cantidad Items': item.items_count,
-            'Total': item.total_amount,
-            'Estado': item.status
-        }));
+        setIsExporting(true);
+        try {
+            const XLSX = await import('xlsx');
+            const wb = XLSX.utils.book_new();
+            const wsData = data.map(item => ({
+                'ID Venta': item.id,
+                'Fecha': format(new Date(item.timestamp), 'dd/MM/yyyy HH:mm'),
+                'Cajero': item.user_name,
+                'Items': item.items_summary,
+                'Cantidad Items': item.items_count,
+                'Total': item.total_amount,
+                'Estado': item.status
+            }));
 
-        const ws = XLSX.utils.json_to_sheet(wsData);
+            const ws = XLSX.utils.json_to_sheet(wsData);
 
-        // Add column widths
-        const wscols = [
-            { wch: 36 }, // ID
-            { wch: 20 }, // Fecha
-            { wch: 25 }, // Cajero
-            { wch: 50 }, // Items
-            { wch: 10 }, // Qty
-            { wch: 15 }, // Total
-            { wch: 15 }  // Estado
-        ];
-        ws['!cols'] = wscols;
+            const wscols = [
+                { wch: 36 },
+                { wch: 20 },
+                { wch: 25 },
+                { wch: 50 },
+                { wch: 10 },
+                { wch: 15 },
+                { wch: 15 }
+            ];
+            ws['!cols'] = wscols;
 
-        XLSX.utils.book_append_sheet(wb, ws, "Recibos");
-        const startStr = startDate ? format(startDate, 'yyyy-MM-dd') : 'inicio';
-        const endStr = endDate ? format(endDate, 'yyyy-MM-dd') : 'fin';
-        XLSX.writeFile(wb, `Recibos_Caja_${startStr}_${endStr}.xlsx`);
-        toast.success('Excel descargado');
+            XLSX.utils.book_append_sheet(wb, ws, 'Recibos');
+            const startStr = startDate ? format(startDate, 'yyyy-MM-dd') : 'inicio';
+            const endStr = endDate ? format(endDate, 'yyyy-MM-dd') : 'fin';
+            XLSX.writeFile(wb, `Recibos_Caja_${startStr}_${endStr}.xlsx`);
+            toast.success('Excel descargado');
+        } catch (error) {
+            console.error(error);
+            toast.error('Error al exportar recibos');
+        } finally {
+            setIsExporting(false);
+        }
     }
 
     const totalAmount = data.reduce((sum, item) => sum + item.total_amount, 0);
@@ -161,10 +176,11 @@ export function CashReceiptsReport({ startDate, endDate }: CashReceiptsReportPro
                     </div>
                     <button
                         onClick={handleExportExcel}
+                        disabled={isExporting}
                         className="flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-colors text-sm font-medium"
                     >
                         <Download size={16} />
-                        Excel
+                        {isExporting ? 'Exportando...' : 'Excel'}
                     </button>
                 </div>
             </div>

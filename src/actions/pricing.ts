@@ -3,6 +3,7 @@
 import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
+import { validateSupervisorPin } from '@/actions/auth-v2';
 
 interface AdjustPricesPayload {
     mode: 'SINGLE' | 'ALL';
@@ -16,11 +17,8 @@ export async function adjustPrices(payload: AdjustPricesPayload) {
 
     // 1. Security Check
     // 1. Security Check
-    const correctPin = process.env.ADMIN_ACTION_PIN;
-    const isDevPin = pin === '1213';
-
-    // Allow if matches ENV or if it's the dev/fallback pin 1213
-    if ((!correctPin && !isDevPin) || (correctPin && pin !== correctPin && !isDevPin)) {
+    const authResult = await validateSupervisorPin(pin, ['MANAGER', 'ADMIN', 'GERENTE_GENERAL']);
+    if (!authResult.success) {
         logger.warn('[Pricing] Invalid PIN attempt');
         return { success: false, error: 'PIN incorrecto' };
     }

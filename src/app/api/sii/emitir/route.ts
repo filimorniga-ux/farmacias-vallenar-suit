@@ -13,8 +13,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { buildDteXML, calculateIVA, calculateNetoFromTotal, DteData, DteItem } from '@/domain/logic/sii/dteBuilder';
 import { signXML } from '@/domain/logic/sii/crypto';
+import { getSiiEmissionConfig } from '@/lib/sii-config';
+import { requireApiRoles } from '@/lib/api-auth';
+import { logger } from '@/lib/logger';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 // In production, import DB client:
 // import { db } from '@/domain/db/client';
 
@@ -35,25 +40,83 @@ interface EmitirRequest {
     metodoPago: 'CASH' | 'DEBIT' | 'CREDIT' | 'TRANSFER';
 }
 
-export async function POST(request: NextRequest) {
-    try {
-        const body: EmitirRequest = await request.json();
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+const SII_EMIT_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF'] as const;
+const MAX_SII_EMIT_BODY_BYTES = 256 * 1024;
+const ENABLE_SII_EMISSION_API_FLAG = 'ENABLE_SII_EMISSION_API';
 
-        // STEP 1: Load SII Configuration (MOCK for demo)
-        // In production: const config = await db.query('SELECT * FROM sii_configuration LIMIT 1');
-        const mockConfig = {
-            id: '1',
-            rut_emisor: '76.123.456-7',
-            razon_social: 'FARMACIAS VALLENAR LTDA',
-            giro: 'VENTA AL POR MENOR DE PRODUCTOS FARMACEUTICOS',
-            acteco: 477310,
-            certificado_pfx_base64: 'MOCK_CERT',
-            certificado_password: 'MOCK_PASS',
-            fecha_vencimiento_firma: Date.now() + 365 * 24 * 60 * 60 * 1000,
-            ambiente: 'CERTIFICACION' as const,
-            direccionEmisor: 'Calle Principal 123',
-            comunaEmisor: 'Vallenar'
-        };
+function getDeclaredContentLength(request: NextRequest) {
+    const raw = request.headers.get('content-length');
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function isProductionLikeRuntime() {
+    return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production';
+}
+
+function isSiiEmissionApiEnabled() {
+    return !isProductionLikeRuntime() || process.env[ENABLE_SII_EMISSION_API_FLAG] === 'true';
+}
+
+const EmitirRequestSchema = z.object({
+    tipo: z.union([z.literal(33), z.literal(39)]),
+    items: z.array(z.object({
+        sku: z.string().min(1).max(120),
+        nombre: z.string().min(1).max(255),
+        cantidad: z.number().int().positive(),
+        precio: z.number().positive(),
+    })).min(1, 'Debe incluir al menos un ítem'),
+    cliente: z.object({
+        rut: z.string().min(3).max(32),
+        razonSocial: z.string().min(2).max(255),
+        direccion: z.string().min(2).max(255).optional(),
+        comuna: z.string().min(2).max(120).optional(),
+    }).optional(),
+    metodoPago: z.enum(['CASH', 'DEBIT', 'CREDIT', 'TRANSFER']),
+});
+
+export async function POST(request: NextRequest) {
+    const auth = await requireApiRoles(SII_EMIT_ROLES);
+    if (!auth.ok) {
+        return auth.response;
+    }
+
+    try {
+        if (!isSiiEmissionApiEnabled()) {
+            return NextResponse.json({
+                success: false,
+                error: 'SII_EMISSION_DISABLED',
+                message: 'Emisión SII deshabilitada hasta conectar CAF/SII real',
+            }, { status: 501, headers: API_NO_STORE_HEADERS });
+        }
+
+        const declaredContentLength = getDeclaredContentLength(request);
+        if (declaredContentLength !== null && declaredContentLength > MAX_SII_EMIT_BODY_BYTES) {
+            return NextResponse.json({
+                success: false,
+                error: 'PAYLOAD_TOO_LARGE',
+                message: 'El payload de emisión supera el límite permitido',
+            }, { status: 413, headers: API_NO_STORE_HEADERS });
+        }
+
+        const bodyResult = await request.json().catch(() => null);
+        const parsedBody = EmitirRequestSchema.safeParse(bodyResult);
+        if (!parsedBody.success) {
+            return NextResponse.json({
+                success: false,
+                error: 'INVALID_PAYLOAD',
+                message: parsedBody.error.issues[0]?.message || 'Payload inválido',
+            }, { status: 400, headers: API_NO_STORE_HEADERS });
+        }
+
+        const body: EmitirRequest = parsedBody.data;
+
+        // STEP 1: Load SII Configuration (server-side only)
+        const siiConfig = await getSiiEmissionConfig();
 
         // STEP 2: Get next folio (MOCK)
         // In production: const caf = await db.query('SELECT * FROM sii_cafs WHERE tipo_dte = $1 AND active = true AND folios_usados < (rango_hasta - rango_desde) ORDER BY fecha_carga LIMIT 1', [body.tipo]);
@@ -76,7 +139,7 @@ export async function POST(request: NextRequest) {
                 success: false,
                 error: 'NO_FOLIOS',
                 message: '⛔ No hay folios disponibles. Contacte a Gerencia.'
-            }, { status: 400 });
+            }, { status: 400, headers: API_NO_STORE_HEADERS });
         }
 
         // STEP 3: Build DTE
@@ -97,12 +160,12 @@ export async function POST(request: NextRequest) {
             folio: nextFolio,
             fechaEmision: new Date().toISOString().split('T')[0],
 
-            rutEmisor: mockConfig.rut_emisor,
-            razonSocialEmisor: mockConfig.razon_social,
-            giroEmisor: mockConfig.giro,
-            acteco: mockConfig.acteco,
-            direccionEmisor: mockConfig.direccionEmisor,
-            comunaEmisor: mockConfig.comunaEmisor,
+            rutEmisor: siiConfig.rutEmisor,
+            razonSocialEmisor: siiConfig.razonSocial,
+            giroEmisor: siiConfig.giro,
+            acteco: siiConfig.acteco,
+            direccionEmisor: 'Calle Principal 123',
+            comunaEmisor: 'Vallenar',
 
             rutReceptor: body.cliente?.rut,
             razonSocialReceptor: body.cliente?.razonSocial,
@@ -122,32 +185,32 @@ export async function POST(request: NextRequest) {
         // STEP 4: Sign XML
         const signResult = await signXML(
             dteXml,
-            mockConfig.certificado_pfx_base64,
-            mockConfig.certificado_password
+            siiConfig.certificatePfxBase64,
+            siiConfig.certificatePassword
         );
 
         if (!signResult.success) {
             return NextResponse.json({
                 success: false,
                 error: 'SIGNATURE_ERROR',
-                message: signResult.error
-            }, { status: 500 });
+                message: 'No se pudo firmar el DTE'
+            }, { status: 500, headers: API_NO_STORE_HEADERS });
         }
 
         // STEP 5: Send to SII (MOCK)
-        // In production: const siiResponse = await sendToSII(signResult.signedXml, mockConfig. ambiente);
+        // In production: const siiResponse = await sendToSII(signResult.signedXml, siiConfig.ambiente);
         const mockTrackId = `TRACK_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        console.log('📤 DTE enviado al SII (MOCK):', {
+        logger.info({
             tipo: body.tipo,
             folio: nextFolio,
             trackId: mockTrackId,
             total
-        });
+        }, 'DTE enviado al SII (MOCK)');
 
         // STEP 6: Update stock (MOCK)
         // In production: Update inventory_batches
-        console.log('📦 Stock actualizado (MOCK)');
+        logger.info({ tipo: body.tipo, folio: nextFolio }, 'Stock actualizado por emisión DTE (MOCK)');
 
         // STEP 7: Save DTE to history (MOCK)
         // In production: INSERT INTO dte_documents
@@ -163,17 +226,22 @@ export async function POST(request: NextRequest) {
                 trackId: mockTrackId,
                 fecha: dteData.fechaEmision,
                 total,
-                xml: signResult.signedXml,
+                xmlAvailable: Boolean(signResult.signedXml),
                 pdfUrl: `/api/sii/pdf/${body.tipo}/${nextFolio}` // Future endpoint
             }
-        });
+        }, { headers: API_NO_STORE_HEADERS });
 
     } catch (error) {
-        console.error('Error emitiendo DTE:', error);
+        logger.error(
+            {
+                error: error instanceof Error ? error.message : String(error),
+            },
+            'Error emitiendo DTE'
+        );
         return NextResponse.json({
             success: false,
             error: 'INTERNAL_ERROR',
-            message: error instanceof Error ? error.message : 'Error desconocido'
-        }, { status: 500 });
+            message: 'No se pudo emitir el DTE'
+        }, { status: 500, headers: API_NO_STORE_HEADERS });
     }
 }

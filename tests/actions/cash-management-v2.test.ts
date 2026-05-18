@@ -5,16 +5,19 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as cashV2 from '@/actions/cash-management-v2';
+import { PinRbacError } from '@/lib/pin-rbac';
 
 // Valid UUIDs
 const VALID_UUID_CASHIER = '550e8400-e29b-41d4-a716-446655440010';
 const VALID_UUID_MANAGER = '550e8400-e29b-41d4-a716-446655449999';
 const VALID_UUID_SESSION = '550e8400-e29b-41d4-a716-446655440020';
 const VALID_UUID_TERMINAL = '550e8400-e29b-41d4-a716-446655440030';
+const VALID_UUID_LOCATION = '550e8400-e29b-41d4-a716-446655440040';
 
 // Mock functions at module level (pattern from wms-v2.test.ts)
 const mockQuery = vi.fn();
 const mockRelease = vi.fn();
+const mockGetActorOrFail = vi.fn();
 
 // Mock DB with proper pool.connect pattern
 vi.mock('@/lib/db', () => ({
@@ -29,23 +32,77 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => new Map([
-        ['x-user-id', VALID_UUID_CASHIER],
-        ['x-user-role', 'CASHIER']
-    ]))
-}));
-vi.mock('bcryptjs', () => ({
-    default: { compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`) },
-    compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`)
-}));
-vi.mock('@/lib/rate-limiter', () => ({
-    checkRateLimit: vi.fn(() => ({ allowed: true })),
-    recordFailedAttempt: vi.fn(),
-    resetAttempts: vi.fn()
-}));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => '550e8400-e29b-41d4-a716-446655440999') }));
+vi.mock('@/lib/pin-rbac', () => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    const normalizeRole = (role: string | null | undefined) => String(role || '').trim().toUpperCase();
+
+    const requireRole = (actor: {
+        userId: string;
+        role: string;
+        locationId?: string | null;
+        userName?: string;
+        tokenVersion?: number;
+        sessionToken?: string;
+    }, allowedRoles: readonly string[]) => {
+        const normalizedActor = {
+            ...actor,
+            role: normalizeRole(actor.role),
+        };
+
+        if (!allowedRoles.map(normalizeRole).includes(normalizedActor.role)) {
+            throw new MockPinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+        }
+
+        return normalizedActor;
+    };
+
+    return {
+        PinRbacError: MockPinRbacError,
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+            OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+            TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+        },
+        normalizeRole,
+        requireRole,
+        getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+        validatePinForRoles: vi.fn(async (client, pin: string) => {
+            const res = await client.query('SELECT mock_manager_pin_validation');
+            const user = res.rows[0];
+            if (user && pin === '9999') {
+                return {
+                    valid: true,
+                    authorizedBy: { id: user.id, name: user.name, role: user.role },
+                };
+            }
+            return { valid: false, error: 'PIN de manager inválido' };
+        }),
+        validatePinForUser: vi.fn(async (client, userId: string, pin: string) => {
+            const res = await client.query('SELECT mock_user_pin_validation');
+            const user = res.rows[0];
+            if (user && user.id === userId && pin === '1234') {
+                return {
+                    valid: true,
+                    authorizedBy: { id: user.id, name: user.name, role: user.role },
+                };
+            }
+            return { valid: false, error: 'PIN incorrecto' };
+        }),
+    };
+});
 
 // Data with valid UUIDs
 const mockCashier = {
@@ -74,6 +131,14 @@ const mockSession = {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    mockGetActorOrFail.mockResolvedValue({
+        userId: VALID_UUID_CASHIER,
+        role: 'CASHIER',
+        locationId: VALID_UUID_LOCATION,
+        userName: 'Cajero',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
 });
 
 // Helper to setup mock query responses
@@ -152,7 +217,7 @@ describe('Cash Management V2 - Threshold Adjustments', () => {
     it('should allow large adjustment with MANAGER PIN', async () => {
         setupMockQueries([
             { rows: [mockManager] }, // Manager lookup
-            { rows: [{ id: VALID_UUID_SESSION, terminal_id: VALID_UUID_TERMINAL, user_id: VALID_UUID_CASHIER, location_id: 'loc-1' }] }, // Session
+            { rows: [{ id: VALID_UUID_SESSION, terminal_id: VALID_UUID_TERMINAL, user_id: VALID_UUID_CASHIER, location_id: VALID_UUID_LOCATION }] }, // Session
             { rows: [], rowCount: 1 }, // Movement insert
             { rows: [], rowCount: 1 }, // Audit
         ]);
@@ -292,6 +357,28 @@ describe('Cash Management V2 - Drawer Operations', () => {
         expect(res.summary?.difference).toBe(0);
     });
 
+    it('should ignore payload userId and use actor session when opening drawer', async () => {
+        setupMockQueries([
+            { rows: [{ id: VALID_UUID_TERMINAL, location_id: 'loc-1', current_cashier_id: null, status: 'CLOSED' }], rowCount: 1 },
+            { rows: [], rowCount: 0 },
+            { rows: [{ id: VALID_UUID_CASHIER, name: 'Cajero', role: 'CASHIER' }], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 }
+        ]);
+
+        const result = await cashV2.openCashDrawerSecure({
+            terminalId: VALID_UUID_TERMINAL,
+            userId: VALID_UUID_MANAGER,
+            openingAmount: 50000,
+        });
+
+        expect(result.success).toBe(true);
+        const insertSessionCall = mockQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO cash_register_sessions'));
+        expect(insertSessionCall?.[1][2]).toBe(VALID_UUID_CASHIER);
+    });
+
     it('should handle lock not available on close', async () => {
         setupMockQueries([ // Valid user pin
             { rows: [mockCashier] },
@@ -364,6 +451,14 @@ describe('Cash Management V2 - Refund Integration', () => {
         mockDbQuery
             .mockResolvedValueOnce({
                 rows: [{
+                    id: VALID_UUID_TERMINAL,
+                    location_id: VALID_UUID_LOCATION,
+                    current_cashier_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                }]
+            }) // terminal scope
+            .mockResolvedValueOnce({
+                rows: [{
                     id: VALID_UUID_SESSION,
                     terminal_id: VALID_UUID_TERMINAL,
                     opening_amount: 10000,
@@ -412,6 +507,24 @@ describe('Cash Management V2 - Refund Integration', () => {
         };
 
         mockDbQuery
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_TERMINAL,
+                    location_id: VALID_UUID_LOCATION,
+                    current_cashier_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                }]
+            }) // terminal scope
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_SESSION,
+                    terminal_id: VALID_UUID_TERMINAL,
+                    user_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                    closed_at: null,
+                    location_id: VALID_UUID_LOCATION,
+                }]
+            }) // session scope
             .mockResolvedValueOnce({ rows: [{ has_refunds: true }] }) // hasRefundLedger
             .mockResolvedValueOnce({ rows: [{ total: '1' }] }) // count query
             .mockResolvedValueOnce({
@@ -444,7 +557,143 @@ describe('Cash Management V2 - Refund Integration', () => {
         expect(res.success).toBe(true);
         expect(res.data?.movements[0]?.type).toBe('REFUND');
 
-        const historySql = mockDbQuery.mock.calls[2]?.[0];
+        const historySql = mockDbQuery.mock.calls[4]?.[0];
         expect(String(historySql)).toContain('r.refund_method =');
+        expect(String(historySql)).toContain('LEFT JOIN customers c');
+        expect(String(historySql)).toContain('c.name as customer_name');
+        expect(String(historySql)).not.toContain("s.status != 'VOIDED'");
+        expect(String(historySql)).not.toContain('s.customer_name');
+    });
+
+    it('getCashMovementHistory mantiene ventas anuladas visibles para auditoría', async () => {
+        const { query } = await import('@/lib/db');
+        const mockDbQuery = vi.mocked(query) as unknown as {
+            mockResolvedValueOnce: (value: unknown) => any;
+            mock: { calls: Array<[unknown, ...unknown[]]> };
+        };
+
+        mockDbQuery
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_TERMINAL,
+                    location_id: VALID_UUID_LOCATION,
+                    current_cashier_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                }]
+            }) // terminal scope
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_SESSION,
+                    terminal_id: VALID_UUID_TERMINAL,
+                    user_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                    closed_at: null,
+                    location_id: VALID_UUID_LOCATION,
+                }]
+            }) // session scope
+            .mockResolvedValueOnce({ rows: [{ has_refunds: true }] }) // hasRefundLedger
+            .mockResolvedValueOnce({ rows: [{ total: '1' }] }) // count query
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'sale-void-1',
+                    type: 'SALE',
+                    amount: 12000,
+                    reason: 'Venta #S/N',
+                    timestamp: new Date(),
+                    terminal_id: VALID_UUID_TERMINAL,
+                    session_id: VALID_UUID_SESSION,
+                    user_name: 'Cajero',
+                    authorized_by_name: null,
+                    payment_method: 'CASH',
+                    status: 'VOIDED',
+                    dte_status: null,
+                    dte_folio: null,
+                    customer_name: 'Cliente',
+                }]
+            }); // history query
+
+        const res = await cashV2.getCashMovementHistory({
+            terminalId: VALID_UUID_TERMINAL,
+            sessionId: VALID_UUID_SESSION,
+            page: 1,
+            pageSize: 10,
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.data?.movements[0]?.status).toBe('VOIDED');
+
+        const countSql = mockDbQuery.mock.calls[3]?.[0];
+        const historySql = mockDbQuery.mock.calls[4]?.[0];
+        expect(String(countSql)).not.toContain("s.status != 'VOIDED'");
+        expect(String(historySql)).not.toContain("s.status != 'VOIDED'");
+    });
+
+    it('getShiftMetricsSecure rechaza actor no autenticado', async () => {
+        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida'));
+
+        const res = await cashV2.getShiftMetricsSecure(VALID_UUID_TERMINAL);
+
+        expect(res.success).toBe(false);
+        expect(res.error).toContain('autenticado');
+    });
+
+    it('getCashMovementHistory rechaza terminal fuera del scope del actor', async () => {
+        const { query } = await import('@/lib/db');
+        const mockDbQuery = vi.mocked(query) as unknown as {
+            mockResolvedValueOnce: (value: unknown) => any;
+        };
+
+        mockDbQuery.mockResolvedValueOnce({
+            rows: [{
+                id: VALID_UUID_TERMINAL,
+                location_id: '550e8400-e29b-41d4-a716-446655440099',
+                current_cashier_id: VALID_UUID_CASHIER,
+                status: 'OPEN',
+            }]
+        });
+
+        const res = await cashV2.getCashMovementHistory({
+            terminalId: VALID_UUID_TERMINAL,
+            page: 1,
+            pageSize: 10,
+        });
+
+        expect(res.success).toBe(false);
+        expect(res.error).toContain('otra ubicación');
+    });
+});
+
+describe('Cash Management V2 - Session actor contracts', () => {
+    it('should require authenticated actor for adjustments', async () => {
+        mockGetActorOrFail.mockRejectedValueOnce(new PinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida'));
+
+        const result = await cashV2.adjustCashSecure({
+            sessionId: VALID_UUID_SESSION,
+            userId: VALID_UUID_CASHIER,
+            adjustment: 5000,
+            reason: 'Ajuste menor',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('autenticado');
+    });
+
+    it('should use actor session for cash adjustment audit instead of payload userId', async () => {
+        setupMockQueries([
+            { rows: [{ id: VALID_UUID_SESSION, terminal_id: VALID_UUID_TERMINAL, user_id: VALID_UUID_CASHIER, location_id: VALID_UUID_LOCATION }] },
+            { rows: [], rowCount: 1 },
+            { rows: [], rowCount: 1 },
+        ]);
+
+        const result = await cashV2.adjustCashSecure({
+            sessionId: VALID_UUID_SESSION,
+            userId: VALID_UUID_MANAGER,
+            adjustment: -5000,
+            reason: 'Retiro chico',
+        });
+
+        expect(result.success).toBe(true);
+        const movementInsert = mockQuery.mock.calls.find(([sql]) => String(sql).includes('INSERT INTO cash_movements'));
+        expect(movementInsert?.[1][4]).toBe(VALID_UUID_CASHIER);
     });
 });

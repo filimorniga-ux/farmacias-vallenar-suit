@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Search, ShoppingCart, Trash2, CreditCard, Banknote, Receipt, Printer, Plus, Minus, Wifi, WifiOff, RefreshCw, AlertCircle, FileText } from 'lucide-react';
+import { Suspense, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Search, ShoppingCart, Trash2, CreditCard, Banknote, Receipt, Printer, Plus, Minus, Wifi, WifiOff, RefreshCw, AlertCircle, FileText, Monitor } from 'lucide-react';
 import { emitirBoleta, DTE } from '@/lib/sii-mock';
 import TicketBoleta from '@/components/ticket/TicketBoleta';
 import RouteGuard from '@/components/auth/RouteGuard';
@@ -11,8 +12,11 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cn } from '@/lib/utils';
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
 import QuoteHistoryModal from '@/presentation/components/quotes/QuoteHistoryModal';
+import ShiftManagementModal from '@/presentation/components/pos/ShiftManagementModal';
 import { useAuthStore } from '@/lib/store/useAuthStore'; // Use centralized auth store
 import { usePharmaStore } from '@/presentation/store/useStore'; // Use centralized pharma store for context
+import { useTerminalSession } from '@/hooks/useTerminalSession';
+import { resolvePosBootstrapContext } from '@/presentation/lib/pos-runtime-state';
 
 // Server Actions
 import { getActiveSession } from '@/actions/terminals-v2';
@@ -20,8 +24,34 @@ import { findBestBatchSecure } from '@/actions/inventory-v2';
 import { createSaleSecure } from '@/actions/sales-v2';
 import { getProductsSecure } from '@/actions/get-products-v2';
 import { searchProductsLocal, findBestBatchLocal } from '@/lib/inventory-utils';
+import {
+    getOperationalQuickActionHint,
+    parseOperationalQuickActionParams,
+} from '@/lib/operational-quick-actions';
+import {
+    emitOperationalQuickActionUxEvent,
+    resolveOperationalQuickActionDestinationStatus,
+} from '@/lib/operational-quick-action-telemetry';
+import {
+    OPERATIONAL_AUTHORITY_LABELS,
+    OPERATIONAL_CONTEXT_ORIGIN_LABELS,
+    OPERATIONAL_CONTEXT_STATUS_LABELS,
+    OPERATIONAL_REJECTION_REASON_LABELS,
+} from '@/lib/operational-message-catalog';
+import { getPrescriptionSaleCondition, normalizeSaleCondition } from '@/lib/sale-condition';
 
 export default function CajaPage() {
+    return (
+        <Suspense fallback={<div className="p-6 text-sm text-slate-500">Cargando caja...</div>}>
+            <CajaPageContent />
+        </Suspense>
+    );
+}
+
+function CajaPageContent() {
+    const searchParams = useSearchParams();
+    const quickActionContext = parseOperationalQuickActionParams(searchParams);
+    const quickActionHint = getOperationalQuickActionHint(quickActionContext.alertId);
     const [searchTerm, setSearchTerm] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [lastTicket, setLastTicket] = useState<DTE | null>(null);
@@ -29,6 +59,7 @@ export default function CajaPage() {
     const [syncing, setSyncing] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'DEBIT' | 'CREDIT'>('CASH');
     const [showQuoteHistory, setShowQuoteHistory] = useState(false);
+    const [showShiftManagement, setShowShiftManagement] = useState(false);
 
     // Session State
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -45,40 +76,95 @@ export default function CajaPage() {
 
     // Auth & Context
     const { user } = useAuthStore();
-    const { currentTerminalId, currentLocationId } = usePharmaStore();
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const { getSession, clearSession } = useTerminalSession();
 
-    // LocalStorage Session Recovery Hook
-    const [localTerminalId, setLocalTerminalId] = useState<string | null>(null);
-    const [localLocationId, setLocalLocationId] = useState<string | null>(null);
+    const [storedSession, setStoredSession] = useState<ReturnType<typeof getSession> | null>(null);
+    const [storedLocationId, setStoredLocationId] = useState<string | null>(null);
+    const [contextLocationId, setContextLocationId] = useState<string | null>(null);
 
     // Hydration fix + LocalStorage recovery
     const [isHydrated, setIsHydrated] = useState(false);
     useEffect(() => {
         setIsHydrated(true);
-        // Recover from localStorage if store is empty
         if (typeof window !== 'undefined') {
-            const metadataStr = localStorage.getItem('pos_session_metadata');
-            if (metadataStr) {
-                try {
-                    const metadata = JSON.parse(metadataStr);
-                    if (metadata.terminalId) {
-                        setLocalTerminalId(metadata.terminalId);
-                        console.log('📦 [Caja] Recovered terminalId from localStorage:', metadata.terminalId);
-                    }
-                } catch (e) { /* ignore */ }
+            const session = getSession();
+            if (session?.terminalId) {
+                setStoredSession(session);
+                console.log('📦 [Caja] Recovered terminalId from dedicated session bootstrap:', session.terminalId);
             }
-            // Also check for location from the main context
-            const storedLocation = localStorage.getItem('current_location_id');
-            if (storedLocation) {
-                setLocalLocationId(storedLocation);
-            }
+            setStoredLocationId(localStorage.getItem('current_location_id'));
+            setContextLocationId(localStorage.getItem('context_location_id'));
         }
-    }, []);
+    }, [getSession]);
 
-    // Effective IDs (prefer store, fallback to localStorage)
-    // Effective IDs (prefer store, fallback to localStorage)
-    const effectiveTerminalId = currentTerminalId || localTerminalId;
-    const effectiveLocationId = currentLocationId || localLocationId;
+    const { terminalId: effectiveTerminalId, locationId: effectiveLocationId } = resolvePosBootstrapContext({
+        currentTerminalId,
+        currentLocationId,
+        persistedSession: storedSession,
+        storedLocationId,
+        contextLocationId,
+    });
+    const quickActionLocationMismatch = Boolean(
+        quickActionContext.isOperationalSuggestion
+        && quickActionContext.locationId
+        && effectiveLocationId
+        && quickActionContext.locationId !== effectiveLocationId,
+    );
+    const quickActionContextAccepted = Boolean(
+        quickActionContext.isOperationalSuggestion
+        && !quickActionLocationMismatch
+        && effectiveLocationId,
+    );
+
+    useEffect(() => {
+        if (!isHydrated || !quickActionContext.source) return;
+
+        const destinationStatus = resolveOperationalQuickActionDestinationStatus({
+            source: quickActionContext.source,
+            isOperationalSuggestion: quickActionContext.isOperationalSuggestion,
+            contextAccepted: quickActionContextAccepted,
+        });
+        const contextEvent = destinationStatus === 'contextAccepted'
+            ? 'destination_context_accepted'
+            : destinationStatus === 'contextRejected'
+                ? 'destination_context_rejected'
+                : 'destination_context_ignored';
+        const baseEvent = {
+            alertId: quickActionContext.alertId,
+            targetModule: 'caja',
+            destination: '/caja',
+            destinationStatus,
+            hasDateRange: Boolean(quickActionContext.startDate && quickActionContext.endDate),
+            hasLocationId: Boolean(quickActionContext.locationId),
+            hasWarehouseId: Boolean(quickActionContext.warehouseId),
+        };
+
+        emitOperationalQuickActionUxEvent({
+            event: 'destination_opened',
+            ...baseEvent,
+        });
+        emitOperationalQuickActionUxEvent({
+            event: contextEvent,
+            reason: destinationStatus === 'contextAccepted'
+                ? 'sesión POS validada con contexto compatible'
+                : 'la URL no coincide con la sesión/caja validada',
+            ...baseEvent,
+        });
+    }, [
+        effectiveLocationId,
+        isHydrated,
+        quickActionContext.alertId,
+        quickActionContext.endDate,
+        quickActionContext.isOperationalSuggestion,
+        quickActionContext.locationId,
+        quickActionContext.source,
+        quickActionContext.startDate,
+        quickActionContext.warehouseId,
+        quickActionContextAccepted,
+        quickActionLocationMismatch,
+    ]);
 
     // Security: Clear cart on location switch to prevent cross-branch batches
     useEffect(() => {
@@ -106,10 +192,18 @@ export default function CajaPage() {
                         openedAt: new Date(res.data.openedAt)
                     });
                     setError(null);
+                    if (!currentTerminalId) {
+                        usePharmaStore.setState({ currentTerminalId: effectiveTerminalId });
+                    }
+                    if (!currentLocationId && effectiveLocationId) {
+                        usePharmaStore.setState({ currentLocationId: effectiveLocationId });
+                    }
                 } else {
                     setSessionId(null);
                     setSessionInfo(null);
                     setError(res.error || 'Caja cerrada. Abra turno para comenzar.');
+                    clearSession();
+                    setStoredSession(null);
                 }
             } catch (err) {
                 console.error(err);
@@ -120,7 +214,7 @@ export default function CajaPage() {
         if (isHydrated && effectiveTerminalId) {
             checkSession();
         }
-    }, [isHydrated, effectiveTerminalId]);
+    }, [clearSession, currentLocationId, currentTerminalId, effectiveLocationId, effectiveTerminalId, isHydrated]);
 
     // 2. Búsqueda de Productos (Hybrid: Online -> Offline Fallback)
     useEffect(() => {
@@ -167,14 +261,14 @@ export default function CajaPage() {
                 }
             } else {
                 if (searchTerm.trim().length >= 2 && !effectiveLocationId) {
-                    console.warn('⚠️ [Caja] Búsqueda omitida: sin locationId. Store:', currentLocationId, '| Local:', localLocationId);
+                    console.warn('⚠️ [Caja] Búsqueda omitida: sin locationId. Store:', currentLocationId, '| Bootstrap:', storedLocationId || contextLocationId);
                 }
                 setSearchResults([]);
             }
         }, 500);
 
         return () => clearTimeout(timer);
-    }, [searchTerm, currentLocationId, localLocationId, isOnline]);
+    }, [contextLocationId, currentLocationId, effectiveLocationId, isOnline, searchTerm, storedLocationId]);
 
 
     // 3. Agregar al Carrito (Resolviendo Batch con Fallback)
@@ -207,12 +301,17 @@ export default function CajaPage() {
             }
 
             if (bestBatch) {
+                const batchCondition = (bestBatch as { condition?: unknown }).condition;
+                const productCondition = (product as { condition?: unknown }).condition;
+                const rawCondition = batchCondition ?? productCondition;
+                const condition = normalizeSaleCondition(rawCondition);
                 addToCart({
                     id: product.id, // Keep product ID for display
                     batchId: bestBatch.id, // Store real batch ID
                     name: product.name,
                     price: bestBatch.price, // Use real batch price
                     stock: bestBatch.quantity,
+                    condition,
                     requiresPrescription: false // TODO: Add to DB schema
                 });
                 setSearchTerm(''); // Clear search to be ready for next scan
@@ -350,12 +449,22 @@ export default function CajaPage() {
         setLastTicket(null);
         clearCart();
     };
+    const cajaReadinessHint = sessionId
+        ? cart.length > 0
+            ? `Listo para cobrar: ${cart.length} producto${cart.length === 1 ? '' : 's'} en el carro.`
+            : 'Listo para vender: escanea o busca un producto.'
+        : 'Caja sin sesión validada: abre o recupera una caja antes de vender.';
+    const cajaContextExplanation = quickActionContextAccepted
+        ? `Origen del estado: ${OPERATIONAL_CONTEXT_ORIGIN_LABELS.validatedSession}. Se usó la sucursal efectiva de la caja; la URL solo explica la alerta.`
+        : quickActionLocationMismatch
+            ? `Motivo: ${OPERATIONAL_REJECTION_REASON_LABELS.inconsistent}. La sucursal heredada no coincide con la sesión validada. Se mantiene la caja actual.`
+            : `Motivo: ${OPERATIONAL_REJECTION_REASON_LABELS.incomplete}. Falta sesión o sucursal validada. La URL no habilita operación.`;
 
     if (!isHydrated) return null;
 
     return (
         <RouteGuard allowedRoles={['ADMIN', 'QF', 'CASHIER', 'MANAGER', 'GERENTE_GENERAL']}>
-            <div className="min-h-screen bg-gray-50 p-4">
+            <div data-testid="caja-page" className="min-h-screen bg-gray-50 p-4">
                 <div className="max-w-7xl mx-auto">
                     {/* Header / Status Bar */}
                     <div className="mb-6 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl shadow-sm">
@@ -364,38 +473,86 @@ export default function CajaPage() {
                                 🛒 Punto de Venta
                             </h1>
                             {sessionInfo ? (
-                                <span className="text-sm text-green-600 font-medium flex items-center gap-1">
+                                <span data-testid="caja-status-open" className="text-sm text-green-600 font-medium flex items-center gap-1">
                                     <div className="w-2 h-2 rounded-full bg-green-500"></div>
                                     Caja Abierta: {sessionInfo.terminalName}
                                 </span>
                             ) : (
-                                <span className="text-sm text-red-500 font-medium flex items-center gap-1">
+                                <span data-testid="caja-status-closed" className="text-sm text-red-500 font-medium flex items-center gap-1">
                                     <AlertCircle size={14} />
                                     {error || 'Caja Cerrada'}
                                 </span>
                             )}
                         </div>
 
-                        <div className="flex items-center gap-4">
-                            <div className="relative group">
-                                <button className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors">
-                                    <span>Gestión</span>
-                                </button>
-                                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 hidden group-hover:block z-50 overflow-hidden">
-                                    <button
-                                        onClick={() => setShowQuoteHistory(true)}
-                                        className="w-full text-left px-4 py-3 hover:bg-slate-50 text-slate-700 flex items-center gap-2"
-                                    >
-                                        <FileText size={16} />
-                                        Historial Cotizaciones
-                                    </button>
-                                </div>
-                            </div>
+                        <div className="flex flex-wrap items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                data-testid="caja-shift-management-button"
+                                onClick={() => setShowShiftManagement(true)}
+                                className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
+                            >
+                                <Monitor size={16} />
+                                {sessionId ? 'Gestionar caja' : 'Abrir caja'}
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="caja-quote-history-button"
+                                onClick={() => setShowQuoteHistory(true)}
+                                className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+                            >
+                                <FileText size={16} />
+                                Cotizaciones
+                            </button>
                             <SyncStatusBadge />
                         </div>
                     </div>
 
+                    {quickActionContext.isOperationalSuggestion && (
+                        <div
+                            data-testid="caja-quick-action-context"
+                            className={`mb-6 rounded-xl border px-4 py-3 text-sm ${quickActionContextAccepted
+                                ? 'border-emerald-100 bg-emerald-50 text-emerald-900'
+                                : 'border-amber-100 bg-amber-50 text-amber-900'
+                                }`}
+                        >
+                            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                    <p className="font-semibold">
+                                        {quickActionContextAccepted ? OPERATIONAL_CONTEXT_STATUS_LABELS.accepted : OPERATIONAL_CONTEXT_STATUS_LABELS.rejected}: {quickActionHint?.title || 'revisión de caja'}
+                                    </p>
+                                    <p className={`mt-1 ${quickActionContextAccepted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                        {quickActionHint?.destinationCopy || 'La URL no cambia caja ni sucursal. La sesión visible se valida contra el servidor.'}
+                                    </p>
+                                    {quickActionLocationMismatch && (
+                                        <p className="mt-2 text-xs font-semibold text-amber-700">
+                                            La alerta venía con otra sucursal. Revisa el contexto antes de operar.
+                                        </p>
+                                    )}
+                                    <p
+                                        data-testid="caja-context-explanation"
+                                        className={`mt-2 text-xs ${quickActionContextAccepted ? 'text-emerald-700' : 'text-amber-700'}`}
+                                    >
+                                        {cajaContextExplanation}
+                                    </p>
+                                </div>
+                                <div className={`flex flex-wrap gap-2 text-xs font-semibold ${quickActionContextAccepted ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                    <span className="rounded-full bg-white px-2.5 py-1">
+                                        {quickActionContextAccepted ? OPERATIONAL_CONTEXT_ORIGIN_LABELS.validatedSession : OPERATIONAL_AUTHORITY_LABELS.noUrlAuthority}
+                                    </span>
+                                    {effectiveLocationId && (
+                                        <span className="rounded-full bg-white px-2.5 py-1">Sucursal validada</span>
+                                    )}
+                                    {sessionInfo?.terminalName && (
+                                        <span className="rounded-full bg-white px-2.5 py-1">Caja: {sessionInfo.terminalName}</span>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <QuoteHistoryModal isOpen={showQuoteHistory} onClose={() => setShowQuoteHistory(false)} />
+                    <ShiftManagementModal isOpen={showShiftManagement} onClose={() => setShowShiftManagement(false)} />
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -405,8 +562,9 @@ export default function CajaPage() {
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                                     <input
+                                        data-testid="caja-search-input"
                                         type="text"
-                                        placeholder="Escanear código o buscar nombre..."
+                                        placeholder={sessionId ? 'Escanear código o buscar nombre...' : 'Caja sin sesión: primero abre turno'}
                                         className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
                                         value={searchTerm}
                                         onChange={(e) => setSearchTerm(e.target.value)}
@@ -418,35 +576,56 @@ export default function CajaPage() {
                                         </div>
                                     )}
                                 </div>
+                                <p
+                                    data-testid="caja-readiness-hint"
+                                    className={cn(
+                                        'mt-2 text-xs font-semibold',
+                                        sessionId ? 'text-emerald-700' : 'text-amber-700'
+                                    )}
+                                >
+                                    {cajaReadinessHint}
+                                </p>
                             </div>
 
                             {/* Results Grid */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                {searchResults.map(product => (
-                                    <button
-                                        key={product.id}
-                                        onClick={() => handleAddToCart(product)}
-                                        disabled={isProcessing}
-                                        className="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-all text-left group border border-transparent hover:border-blue-200 flex flex-col gap-1"
-                                    >
-                                        <div className="font-semibold text-gray-900 group-hover:text-blue-600 truncate w-full">
-                                            {product.name}
-                                        </div>
-                                        <div className="flex justify-between items-end w-full">
-                                            <div className="text-gray-500 text-sm">
-                                                SKU: {product.sku}
-                                                {product.stock !== undefined && (
-                                                    <span className={cn("ml-2 font-medium", product.stock > 0 ? "text-green-600" : "text-red-500")}>
-                                                        Stock: {product.stock}
-                                                    </span>
-                                                )}
+                                {searchResults.map(product => {
+                                    const prescriptionCondition = getPrescriptionSaleCondition(product.condition);
+
+                                    return (
+                                        <button
+                                            key={product.id}
+                                            onClick={() => handleAddToCart(product)}
+                                            disabled={isProcessing}
+                                            className="bg-white p-4 rounded-xl shadow-sm hover:shadow-md transition-all text-left group border border-transparent hover:border-blue-200 flex flex-col gap-1"
+                                        >
+                                            <div className="font-semibold text-gray-900 group-hover:text-blue-600 truncate w-full">
+                                                {product.name}
                                             </div>
-                                            <div className="text-lg font-bold text-blue-600">
-                                                ${product.price.toLocaleString()}
+                                            {prescriptionCondition && (
+                                                <span
+                                                    data-testid={`caja-search-prescription-warning-${product.id}`}
+                                                    className="w-fit rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
+                                                >
+                                                    Condición de venta: receta ({prescriptionCondition})
+                                                </span>
+                                            )}
+                                            <div className="flex justify-between items-end w-full">
+                                                <div className="text-gray-500 text-sm">
+                                                    SKU: {product.sku}
+                                                    {product.stock !== undefined && (
+                                                        <span className={cn("ml-2 font-medium", product.stock > 0 ? "text-green-600" : "text-red-500")}>
+                                                            Stock: {product.stock}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="text-lg font-bold text-blue-600">
+                                                    ${product.price.toLocaleString()}
+                                                </div>
                                             </div>
-                                        </div>
-                                    </button>
-                                ))}
+                                        </button>
+                                    );
+                                })}
                                 {searchTerm.length >= 2 && searchResults.length === 0 && !isSearching && (
                                     <div className="col-span-full text-center py-8 text-gray-400">
                                         No se encontraron productos
@@ -471,40 +650,55 @@ export default function CajaPage() {
                                         <p>Escanee productos para comenzar</p>
                                     </div>
                                 ) : (
-                                    cart.map(item => (
-                                        <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-100">
-                                            <div className="flex-1">
-                                                <div className="font-medium text-gray-800">{item.name}</div>
-                                                <div className="text-xs text-gray-400 font-mono mb-1">{item.batchId?.slice(-8)}</div>
-                                                <div className="text-sm text-blue-600 font-bold">
-                                                    ${item.price.toLocaleString()} <span className="text-gray-400 font-normal">x {item.quantity}</span>
+                                    cart.map(item => {
+                                        const prescriptionCondition = getPrescriptionSaleCondition(item.condition);
+
+                                        return (
+                                            <div key={item.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-100">
+                                                <div className="flex-1">
+                                                    <div className="font-medium text-gray-800">{item.name}</div>
+                                                    <div className="text-xs text-gray-400 font-mono mb-1">{item.batchId?.slice(-8)}</div>
+                                                    {prescriptionCondition && (
+                                                        <div
+                                                            data-testid={`caja-prescription-warning-${item.id}`}
+                                                            className="mb-1 w-fit rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700"
+                                                        >
+                                                            Condición de venta: receta ({prescriptionCondition})
+                                                        </div>
+                                                    )}
+                                                    <div className="text-sm text-blue-600 font-bold">
+                                                        ${item.price.toLocaleString()} <span className="text-gray-400 font-normal">x {item.quantity}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex items-center gap-1 bg-white rounded-lg border border-gray-200 shadow-sm">
+                                                        <button
+                                                            onClick={() => updateQuantity(item.id, -1)}
+                                                            aria-label={`Disminuir cantidad de ${item.name}`}
+                                                            className="p-1.5 hover:bg-gray-100 rounded-l-lg text-gray-600"
+                                                        >
+                                                            <Minus size={14} />
+                                                        </button>
+                                                        <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
+                                                        <button
+                                                            onClick={() => updateQuantity(item.id, 1)}
+                                                            aria-label={`Aumentar cantidad de ${item.name}`}
+                                                            className="p-1.5 hover:bg-gray-100 rounded-r-lg text-gray-600"
+                                                        >
+                                                            <Plus size={14} />
+                                                        </button>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => removeFromCart(item.id)}
+                                                        aria-label={`Eliminar ${item.name} del carro`}
+                                                        className="text-red-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex items-center gap-1 bg-white rounded-lg border border-gray-200 shadow-sm">
-                                                    <button
-                                                        onClick={() => updateQuantity(item.id, -1)}
-                                                        className="p-1.5 hover:bg-gray-100 rounded-l-lg text-gray-600"
-                                                    >
-                                                        <Minus size={14} />
-                                                    </button>
-                                                    <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                                                    <button
-                                                        onClick={() => updateQuantity(item.id, 1)}
-                                                        className="p-1.5 hover:bg-gray-100 rounded-r-lg text-gray-600"
-                                                    >
-                                                        <Plus size={14} />
-                                                    </button>
-                                                </div>
-                                                <button
-                                                    onClick={() => removeFromCart(item.id)}
-                                                    className="text-red-400 hover:text-red-600 p-1.5 hover:bg-red-50 rounded-lg transition-colors"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </div>
 
@@ -543,6 +737,7 @@ export default function CajaPage() {
                                 </div>
 
                                 <button
+                                    data-testid="caja-confirm-payment"
                                     onClick={handlePayment}
                                     disabled={cart.length === 0 || isProcessing || !sessionId}
                                     className={cn(

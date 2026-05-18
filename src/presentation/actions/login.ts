@@ -1,4 +1,4 @@
-import { getUsersForLoginSecure } from '@/actions/sync-v2';
+import { findUserForLoginSecure, getUsersForLoginSecure } from '@/actions/sync-v2';
 import * as Sentry from '@sentry/nextjs';
 import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { EmployeeProfile } from '@/domain/types';
@@ -44,6 +44,54 @@ export async function getUsersForLogin(): Promise<LoginUsersResult> {
             retryable: true,
             correlationId,
             userMessage: 'No fue posible cargar usuarios para iniciar sesión.',
+        };
+    }
+}
+
+export type LoginLookupParams = {
+    identifier: string;
+    locationId: string;
+    requiredRoles?: string[];
+    mode?: 'GENERAL' | 'LOGISTICS';
+};
+
+export type LoginLookupResult =
+    | { success: true; data: EmployeeProfile }
+    | ActionFailure;
+
+export async function findUserForLogin(params: LoginLookupParams): Promise<LoginLookupResult> {
+    try {
+        const result = await findUserForLoginSecure(params);
+        if (result.success) {
+            return { success: true, data: result.data as unknown as EmployeeProfile };
+        }
+
+        const failure = result;
+        const correlationId = failure.correlationId || createCorrelationId();
+        const userMessage = failure.userMessage || failure.error || 'No fue posible validar el usuario para iniciar sesión.';
+
+        return {
+            success: false,
+            error: userMessage,
+            code: failure.code || 'AUTH_USER_LOOKUP',
+            retryable: failure.retryable ?? false,
+            correlationId,
+            userMessage,
+        };
+    } catch (error: unknown) {
+        const correlationId = createCorrelationId();
+        Sentry.captureException(error, {
+            tags: { module: 'login-helper', action: 'findUserForLogin' },
+            extra: { correlationId, locationId: params.locationId },
+        });
+
+        return {
+            success: false,
+            error: 'No fue posible validar el usuario para iniciar sesión.',
+            code: 'AUTH_USER_LOOKUP',
+            retryable: true,
+            correlationId,
+            userMessage: 'No fue posible validar el usuario para iniciar sesión.',
         };
     }
 }

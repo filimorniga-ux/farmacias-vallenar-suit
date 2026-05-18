@@ -6,7 +6,8 @@ import { randomUUID } from 'crypto';
 
 const MAX_FILE_SIZE_MB = 15;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-const ALLOWED_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'WAREHOUSE', 'CONTADOR'];
+const ACCOUNT_DOCUMENT_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'CONTADOR'] as const;
+const CATALOG_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'QF', 'WAREHOUSE', 'CONTADOR'] as const;
 
 const UploadAccountDocSchema = z.object({
     supplierId: z.string().uuid(),
@@ -44,6 +45,34 @@ async function getSession() {
     return getSessionSecure();
 }
 
+async function supplierExists(supplierId: string): Promise<boolean> {
+    const result = await query('SELECT id FROM suppliers WHERE id = $1', [supplierId]);
+    return (result.rowCount || 0) > 0;
+}
+
+async function getSupplierDocumentMeta(
+    table: 'supplier_account_documents' | 'supplier_catalog_files',
+    id: string,
+): Promise<{ supplier_id: string; file_name: string; invoice_number?: string | null; file_mime?: string | null; file_data?: string | null } | null> {
+    const result = await query(
+        `
+        SELECT supplier_id, file_name, file_mime, file_data, invoice_number
+        FROM ${table}
+        WHERE id = $1
+    `,
+        [id],
+    );
+
+    if (result.rowCount === 0) return null;
+    return result.rows[0] as {
+        supplier_id: string;
+        file_name: string;
+        invoice_number?: string | null;
+        file_mime?: string | null;
+        file_data?: string | null;
+    };
+}
+
 function decodeBase64(input: string): Buffer {
     const base64 = input.includes(',') ? input.split(',')[1] : input;
     return Buffer.from(base64, 'base64');
@@ -54,7 +83,7 @@ export async function createSupplierAccountDocumentSecure(
 ): Promise<{ success: boolean; data?: { id: string }; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!ACCOUNT_DOCUMENT_ROLES.includes(session.role as typeof ACCOUNT_DOCUMENT_ROLES[number])) {
         return { success: false, error: 'Sin permisos para cargar documentos' };
     }
 
@@ -65,6 +94,10 @@ export async function createSupplierAccountDocumentSecure(
 
     if (parsed.data.fileSize > MAX_FILE_SIZE_BYTES) {
         return { success: false, error: `Archivo supera ${MAX_FILE_SIZE_MB}MB` };
+    }
+
+    if (!(await supplierExists(parsed.data.supplierId))) {
+        return { success: false, error: 'Proveedor no encontrado' };
     }
 
     const fileBuffer = decodeBase64(parsed.data.fileBase64);
@@ -129,13 +162,17 @@ export async function listSupplierAccountDocumentsSecure(
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!ACCOUNT_DOCUMENT_ROLES.includes(session.role as typeof ACCOUNT_DOCUMENT_ROLES[number])) {
         return { success: false, error: 'Sin permisos para ver documentos' };
     }
 
     const parsed = ListDocsSchema.safeParse(params);
     if (!parsed.success) {
         return { success: false, error: parsed.error.issues[0]?.message };
+    }
+
+    if (!(await supplierExists(parsed.data.supplierId))) {
+        return { success: false, error: 'Proveedor no encontrado' };
     }
 
     const conditions: string[] = ['supplier_id = $1'];
@@ -190,7 +227,7 @@ export async function getSupplierAccountDocumentFileSecure(
 ): Promise<{ success: boolean; data?: { base64: string; fileName: string; fileMime: string }; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!ACCOUNT_DOCUMENT_ROLES.includes(session.role as typeof ACCOUNT_DOCUMENT_ROLES[number])) {
         return { success: false, error: 'Sin permisos para descargar documentos' };
     }
 
@@ -198,24 +235,16 @@ export async function getSupplierAccountDocumentFileSecure(
     if (!parsed.success) return { success: false, error: 'ID inválido' };
 
     try {
-        const res = await query(
-            `
-            SELECT file_name, file_mime, file_data
-            FROM supplier_account_documents
-            WHERE id = $1
-        `,
-            [docId]
-        );
-        if (res.rows.length === 0) {
+        const row = await getSupplierDocumentMeta('supplier_account_documents', docId);
+        if (!row) {
             return { success: false, error: 'Documento no encontrado' };
         }
-        const row = res.rows[0];
         return {
             success: true,
             data: {
-                base64: row.file_data?.toString('base64') || '',
+                base64: row.file_data?.toString() || '',
                 fileName: row.file_name,
-                fileMime: row.file_mime
+                fileMime: row.file_mime || ''
             }
         };
     } catch (error: any) {
@@ -229,13 +258,17 @@ export async function deleteSupplierAccountDocumentSecure(
 ): Promise<{ success: boolean; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!ACCOUNT_DOCUMENT_ROLES.includes(session.role as typeof ACCOUNT_DOCUMENT_ROLES[number])) {
         return { success: false, error: 'Sin permisos para eliminar documentos' };
     }
     const parsed = DocIdSchema.safeParse(docId);
     if (!parsed.success) return { success: false, error: 'ID inválido' };
 
     try {
+        const existing = await getSupplierDocumentMeta('supplier_account_documents', docId);
+        if (!existing) {
+            return { success: false, error: 'Documento no encontrado' };
+        }
         const res = await query(
             `
             DELETE FROM supplier_account_documents
@@ -244,9 +277,6 @@ export async function deleteSupplierAccountDocumentSecure(
         `,
             [docId]
         );
-        if (res.rows.length === 0) {
-            return { success: false, error: 'Documento no encontrado' };
-        }
         const row = res.rows[0];
         await query(
             `
@@ -271,7 +301,7 @@ export async function createSupplierCatalogFileSecure(
 ): Promise<{ success: boolean; data?: { id: string }; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!CATALOG_ROLES.includes(session.role as typeof CATALOG_ROLES[number])) {
         return { success: false, error: 'Sin permisos para cargar catálogos' };
     }
 
@@ -282,6 +312,10 @@ export async function createSupplierCatalogFileSecure(
 
     if (parsed.data.fileSize > MAX_FILE_SIZE_BYTES) {
         return { success: false, error: `Archivo supera ${MAX_FILE_SIZE_MB}MB` };
+    }
+
+    if (!(await supplierExists(parsed.data.supplierId))) {
+        return { success: false, error: 'Proveedor no encontrado' };
     }
 
     const fileBuffer = decodeBase64(parsed.data.fileBase64);
@@ -336,13 +370,17 @@ export async function listSupplierCatalogFilesSecure(
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!CATALOG_ROLES.includes(session.role as typeof CATALOG_ROLES[number])) {
         return { success: false, error: 'Sin permisos para ver catálogos' };
     }
 
     const parsed = ListDocsSchema.safeParse(params);
     if (!parsed.success) {
         return { success: false, error: parsed.error.issues[0]?.message };
+    }
+
+    if (!(await supplierExists(parsed.data.supplierId))) {
+        return { success: false, error: 'Proveedor no encontrado' };
     }
 
     const conditions: string[] = ['supplier_id = $1'];
@@ -389,7 +427,7 @@ export async function getSupplierCatalogFileSecure(
 ): Promise<{ success: boolean; data?: { base64: string; fileName: string; fileMime: string }; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!CATALOG_ROLES.includes(session.role as typeof CATALOG_ROLES[number])) {
         return { success: false, error: 'Sin permisos para descargar catálogos' };
     }
 
@@ -397,24 +435,16 @@ export async function getSupplierCatalogFileSecure(
     if (!parsed.success) return { success: false, error: 'ID inválido' };
 
     try {
-        const res = await query(
-            `
-            SELECT file_name, file_mime, file_data
-            FROM supplier_catalog_files
-            WHERE id = $1
-        `,
-            [fileId]
-        );
-        if (res.rows.length === 0) {
+        const row = await getSupplierDocumentMeta('supplier_catalog_files', fileId);
+        if (!row) {
             return { success: false, error: 'Catálogo no encontrado' };
         }
-        const row = res.rows[0];
         return {
             success: true,
             data: {
-                base64: row.file_data?.toString('base64') || '',
+                base64: row.file_data?.toString() || '',
                 fileName: row.file_name,
-                fileMime: row.file_mime
+                fileMime: row.file_mime || ''
             }
         };
     } catch (error: any) {
@@ -428,13 +458,17 @@ export async function deleteSupplierCatalogFileSecure(
 ): Promise<{ success: boolean; error?: string }> {
     const session = await getSession();
     if (!session) return { success: false, error: 'No autenticado' };
-    if (!ALLOWED_ROLES.includes(session.role)) {
+    if (!CATALOG_ROLES.includes(session.role as typeof CATALOG_ROLES[number])) {
         return { success: false, error: 'Sin permisos para eliminar catálogos' };
     }
     const parsed = DocIdSchema.safeParse(fileId);
     if (!parsed.success) return { success: false, error: 'ID inválido' };
 
     try {
+        const existing = await getSupplierDocumentMeta('supplier_catalog_files', fileId);
+        if (!existing) {
+            return { success: false, error: 'Catálogo no encontrado' };
+        }
         const res = await query(
             `
             DELETE FROM supplier_catalog_files
@@ -443,9 +477,6 @@ export async function deleteSupplierCatalogFileSecure(
         `,
             [fileId]
         );
-        if (res.rows.length === 0) {
-            return { success: false, error: 'Catálogo no encontrado' };
-        }
         const row = res.rows[0];
         await query(
             `

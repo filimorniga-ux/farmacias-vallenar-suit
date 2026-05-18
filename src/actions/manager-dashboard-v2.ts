@@ -3,8 +3,13 @@
 import { query } from '@/lib/db';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
-import { headers } from 'next/headers';
 import * as Sentry from "@sentry/nextjs";
+import {
+    ANALYTICS_GLOBAL_ROLES,
+    ANALYTICS_PAGE_ROLES,
+    requireScopedActor,
+    resolveEffectiveLocation,
+} from '@/actions/admin-scope';
 
 // ==========================================
 // TYPES
@@ -77,26 +82,45 @@ export interface ManagerDashboardData {
 // HELPERS
 // ==========================================
 
-async function getSession() {
-    const headersList = await headers();
-    const userId = headersList.get('x-user-id');
-    const role = headersList.get('x-user-role');
-    return { userId, role };
+const AUTHORIZED_ROLES = new Set<string>(ANALYTICS_PAGE_ROLES);
+
+function normalizeRole(role?: string | null) {
+    return String(role || '').trim().toUpperCase();
 }
 
-const AUTHORIZED_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+interface ManagerDashboardActor {
+    userId: string;
+    userName: string;
+    role: string;
+    locationId?: string;
+    tokenVersion: number;
+    sessionToken: string;
+}
 
 // ==========================================
 // MAIN ACTION
 // ==========================================
 
-export async function getManagerRealTimeDataSecure(
+export async function getManagerRealTimeDataForActor(
+    actor: ManagerDashboardActor,
     selectedLocationId?: string
 ): Promise<{ success: boolean; data?: ManagerDashboardData; error?: string }> {
     try {
-        const session = await getSession();
-        if (!session.userId || !session.role || !AUTHORIZED_ROLES.includes(session.role)) {
-            return { success: false, error: 'Acceso denegado: Rol no autorizado' };
+        const normalizedRole = normalizeRole(actor.role);
+        if (!AUTHORIZED_ROLES.has(normalizedRole)) {
+            return { success: false, error: `Acceso denegado: Rol ${normalizedRole || 'desconocido'} no autorizado` };
+        }
+
+        const effectiveLocation = resolveEffectiveLocation(actor, selectedLocationId, ANALYTICS_GLOBAL_ROLES);
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
+
+        const branchParams: string[] = [];
+        const branchFilters = [`l.type = 'STORE'`, 'l.is_active = true'];
+        if (effectiveLocation.locationId) {
+            branchParams.push(effectiveLocation.locationId);
+            branchFilters.push(`l.id::text = $${branchParams.length}::text`);
         }
 
         // 1. Get Branch Summaries (All Stores)
@@ -111,10 +135,10 @@ export async function getManagerRealTimeDataSecure(
             LEFT JOIN sales s ON s.location_id = l.id 
                 AND s.status = 'COMPLETED' 
                 AND DATE(s.timestamp) = CURRENT_DATE
-            WHERE l.type = 'STORE' AND l.is_active = true
+            WHERE ${branchFilters.join(' AND ')}
             GROUP BY l.id, l.name
             ORDER BY total_sales DESC, l.name ASC
-        `);
+        `, branchParams);
 
         const branches: BranchSummary[] = branchRes.rows.map((r: any) => ({
             id: r.id,
@@ -123,8 +147,7 @@ export async function getManagerRealTimeDataSecure(
             transactionCount: Number(r.transaction_count)
         }));
 
-        // Determine target location (selected or first available)
-        const targetId = selectedLocationId || branches[0]?.id;
+        const targetId = effectiveLocation.locationId || selectedLocationId || branches[0]?.id;
 
         if (!targetId) {
             return { success: true, data: { branches } };
@@ -191,7 +214,7 @@ export async function getManagerRealTimeDataSecure(
                         'sessionId', crs.id
                     )
                     FROM cash_register_sessions crs
-                    JOIN users u ON crs.user_id::text = u.id
+                    JOIN users u ON crs.user_id::text = u.id::text
                     WHERE crs.terminal_id = t.id AND crs.closed_at IS NULL
                     ORDER BY crs.opened_at DESC LIMIT 1
                 ) as active_session,
@@ -269,7 +292,7 @@ export async function getManagerRealTimeDataSecure(
                 crs.opened_at,
                 crs.closed_at
             FROM cash_register_sessions crs
-            JOIN users u ON crs.user_id::text = u.id
+            JOIN users u ON crs.user_id::text = u.id::text
             JOIN terminals t ON crs.terminal_id = t.id
             WHERE t.location_id = $1::uuid
               AND DATE(crs.opened_at) = CURRENT_DATE
@@ -312,7 +335,7 @@ export async function getManagerRealTimeDataSecure(
                    ELSE 'SALA' 
                 END as location_area
             FROM LastLogs ll
-            JOIN users u ON ll.user_id = u.id
+            JOIN users u ON ll.user_id::text = u.id::text
             WHERE ll.type IN ('CHECK_IN', 'BREAK_END', 'BREAK_START') 
               AND u.is_active = true
               AND (u.assigned_location_id = $1::uuid OR ll.location_id = $1::uuid) -- Match assigned or current location
@@ -351,4 +374,15 @@ export async function getManagerRealTimeDataSecure(
         Sentry.captureException(error);
         throw error;
     }
+}
+
+export async function getManagerRealTimeDataSecure(
+    selectedLocationId?: string
+): Promise<{ success: boolean; data?: ManagerDashboardData; error?: string }> {
+    const actorResult = await requireScopedActor(ANALYTICS_PAGE_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+    }
+
+    return getManagerRealTimeDataForActor(actorResult.actor, selectedLocationId);
 }

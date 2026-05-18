@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../store/useStore';
-import { useLocationStore } from '../store/useLocationStore';
-import { Ticket, UserPlus, ArrowRight, Settings, Printer, X, Phone, User, MapPin, Check, ChevronLeft, LogOut, QrCode } from 'lucide-react';
+import { Ticket, UserPlus, ArrowRight, Settings, Printer, X, Phone, User, MapPin, Check, ChevronLeft, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PrinterService } from '../../domain/services/PrinterService';
 import { toast } from 'sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/presentation/components/ui/tabs"
 import { getPublicLocationsSecure } from '../../actions/public-network-v2';
 import { createTicketSecure } from '../../actions/queue-v2';
+import {
+    unlockQueueKioskSecure,
+    validatePublicKioskAdminPinSecure,
+    validateQueueKioskExitPinSecure,
+} from '../../actions/kiosk-auth-v2';
+import { findAvailablePublicKioskLocation, isUsablePublicKioskLocationId } from '../lib/publicKioskLocation';
 
 // =============================================================================
 // TYPES
@@ -21,6 +26,8 @@ interface Location {
     name: string;
 }
 
+const QUEUE_KIOSK_TOKEN_KEY = 'queue_kiosk_token';
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -29,16 +36,19 @@ const Keypad = ({ onNumberClick, onBackspace }: { onNumberClick: (n: string) => 
     <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 'K', 0].map((k) => (
             <button
+                type="button"
                 key={k}
                 onClick={() => onNumberClick(k.toString())}
-                className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-all border border-slate-200 shadow-sm"
+                className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-[background-color,color,transform] border border-slate-200 shadow-sm"
             >
                 {k}
             </button>
         ))}
         <button
+            type="button"
+            aria-label="Borrar RUT"
             onClick={onBackspace}
-            className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-all border border-red-100"
+            className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-colors border border-red-100"
         >
             <X size={28} />
         </button>
@@ -49,16 +59,19 @@ const PhoneKeypad = ({ onNumberClick, onBackspace }: { onNumberClick: (n: string
     <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, '+', 0].map((k) => (
             <button
+                type="button"
                 key={k}
                 onClick={() => onNumberClick(k.toString())}
-                className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-all border border-slate-200 shadow-sm"
+                className="h-16 text-2xl font-bold bg-slate-100 text-slate-700 rounded-2xl active:bg-blue-100 active:text-blue-600 transition-[background-color,color,transform] border border-slate-200 shadow-sm"
             >
                 {k}
             </button>
         ))}
         <button
+            type="button"
+            aria-label="Borrar teléfono"
             onClick={onBackspace}
-            className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-all border border-red-100"
+            className="h-16 flex items-center justify-center bg-red-50 text-red-500 rounded-2xl active:bg-red-100 transition-colors border border-red-100"
         >
             <X size={28} />
         </button>
@@ -66,25 +79,30 @@ const PhoneKeypad = ({ onNumberClick, onBackspace }: { onNumberClick: (n: string
 );
 
 const Keyboard = ({ onCharClick, onSpace, onBackspace }: { onCharClick: (c: string) => void, onSpace: () => void, onBackspace: () => void }) => (
-    <div className="grid grid-cols-10 gap-1.5 max-w-2xl mx-auto">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(44px,1fr))] gap-1.5 max-w-2xl mx-auto">
         {'QWERTYUIOPASDFGHJKLÑZXCVBNM'.split('').map(char => (
             <button
+                type="button"
                 key={char}
                 onClick={() => onCharClick(char)}
-                className="h-12 text-lg font-bold bg-slate-100 text-slate-700 rounded-xl active:bg-blue-100 active:text-blue-600 transition-all"
+                className="min-h-11 text-lg font-bold bg-slate-100 text-slate-700 rounded-xl active:bg-blue-100 active:text-blue-600 transition-[background-color,color]"
             >
                 {char}
             </button>
         ))}
         <button
+            type="button"
+            aria-label="Agregar espacio al nombre"
             onClick={onSpace}
-            className="col-span-8 h-12 text-lg font-bold bg-slate-100 text-slate-600 rounded-xl"
+            className="col-span-full sm:col-span-8 min-h-11 text-lg font-bold bg-slate-100 text-slate-600 rounded-xl"
         >
             ESPACIO
         </button>
         <button
+            type="button"
+            aria-label="Borrar nombre"
             onClick={onBackspace}
-            className="col-span-2 h-12 flex items-center justify-center bg-red-50 text-red-500 rounded-xl"
+            className="col-span-full sm:col-span-2 min-h-11 flex items-center justify-center bg-red-50 text-red-500 rounded-xl"
         >
             <X size={20} />
         </button>
@@ -93,10 +111,10 @@ const Keyboard = ({ onCharClick, onSpace, onBackspace }: { onCharClick: (c: stri
 
 const QueueKioskPage: React.FC = () => {
     const { printerConfig, customers } = usePharmaStore();
-    const { kiosks, updateKioskStatus, locations: storeLocations, fetchLocations } = useLocationStore();
 
     // Kiosk Mode State
     const [isKioskActive, setIsKioskActive] = useState(false);
+    const [kioskToken, setKioskToken] = useState('');
     const [activationPin, setActivationPin] = useState('');
     const [exitPin, setExitPin] = useState('');
     const [showExitPrompt, setShowExitPrompt] = useState(false);
@@ -113,6 +131,16 @@ const QueueKioskPage: React.FC = () => {
     // Derived state (safe for server)
     const locationName = locations.find(l => l.id === locationId)?.name || 'Farmacia';
 
+    const clearStoredQueueLocation = useCallback(() => {
+        localStorage.removeItem('preferred_location_id');
+        localStorage.removeItem('preferred_location_name');
+        localStorage.removeItem('preferred_location_type');
+        localStorage.removeItem(QUEUE_KIOSK_TOKEN_KEY);
+        setLocationId('');
+        setKioskToken('');
+        setIsKioskActive(false);
+    }, []);
+
     // Customer Data
     const [rut, setRut] = useState('');
     const [name, setName] = useState('');
@@ -124,11 +152,7 @@ const QueueKioskPage: React.FC = () => {
 
     // Setup Lock (for changing location)
     const [setupPin, setSetupPin] = useState('');
-    const [pairingCode, setPairingCode] = useState(''); // New State for Pairing Code
     const [isSetupUnlocked, setIsSetupUnlocked] = useState(false);
-
-    // Valid PINs (1213 = admin)
-    const ADMIN_PIN = '1213';
 
     // =============================================================================
     // FULLSCREEN HELPERS
@@ -155,30 +179,57 @@ const QueueKioskPage: React.FC = () => {
     // KIOSK ACTIVATION
     // =============================================================================
 
-    const handleActivateKiosk = (pin: string) => {
-        if (pin === ADMIN_PIN) {
-            setIsKioskActive(true);
+    const handleActivateKiosk = async (pin: string) => {
+        if (!locationId) {
             setActivationPin('');
-            enterFullscreen();
-            toast.success('Modo Kiosk Activado');
-        } else {
-            setActivationPin('');
-            toast.error('PIN Incorrecto');
+            toast.error('Seleccione una sucursal antes de activar el totem');
+            return;
         }
+
+        const result = await unlockQueueKioskSecure({
+            locationId,
+            pin,
+        });
+
+        if (!result.success || !result.token) {
+            setActivationPin('');
+            toast.error(result.error || 'PIN incorrecto');
+            return;
+        }
+
+        window.localStorage.setItem(QUEUE_KIOSK_TOKEN_KEY, result.token);
+        setKioskToken(result.token);
+        setIsKioskActive(true);
+        setActivationPin('');
+        enterFullscreen();
+        toast.success('Modo Kiosk Activado');
     };
 
-    const handleExitKiosk = (pin: string) => {
-        if (pin === ADMIN_PIN) {
-            setIsKioskActive(false);
-            setShowExitPrompt(false);
+    const handleExitKiosk = async (pin: string) => {
+        if (!kioskToken) {
             setExitPin('');
-            exitFullscreen();
-            // Navigate back to main app
-            window.location.href = '/';
-        } else {
-            setExitPin('');
-            toast.error('PIN Incorrecto');
+            toast.error('Totem no configurado');
+            return;
         }
+
+        const result = await validateQueueKioskExitPinSecure({
+            pin,
+            kioskToken,
+        });
+
+        if (!result.success) {
+            setExitPin('');
+            toast.error(result.error || 'PIN incorrecto');
+            return;
+        }
+
+        setIsKioskActive(false);
+        setShowExitPrompt(false);
+        setExitPin('');
+        setKioskToken('');
+        window.localStorage.removeItem(QUEUE_KIOSK_TOKEN_KEY);
+        exitFullscreen();
+        window.location.href = '/';
     };
 
     // =============================================================================
@@ -193,12 +244,13 @@ const QueueKioskPage: React.FC = () => {
 
     useEffect(() => {
         setIsMounted(true);
+        const storedToken = localStorage.getItem(QUEUE_KIOSK_TOKEN_KEY);
         // Read from shared location preference (set in ContextSelectionPage)
         const storedLocation = localStorage.getItem('preferred_location_id');
         const storedLocationName = localStorage.getItem('preferred_location_name');
 
         // Pre-set locationId if available (before async fetch completes)
-        if (storedLocation && storedLocation.length > 30) {
+        if (isUsablePublicKioskLocationId(storedLocation)) {
             setLocationId(storedLocation);
             // If we have the name cached, use it for display
             if (storedLocationName) {
@@ -207,22 +259,31 @@ const QueueKioskPage: React.FC = () => {
             setStep('WELCOME'); // Skip SETUP since we have location
         }
 
+        if (storedToken && isUsablePublicKioskLocationId(storedLocation)) {
+            setKioskToken(storedToken);
+            setIsKioskActive(true);
+        }
+
         getPublicLocationsSecure().then((res: any) => {
             if (res.success && res.data) {
                 setLocations(res.data);
 
                 // Validate stored location against available locations
-                if (storedLocation && res.data.some((l: Location) => l.id === storedLocation)) {
-                    setLocationId(storedLocation);
+                const availableLocation = findAvailablePublicKioskLocation(res.data, storedLocation);
+                if (availableLocation) {
+                    setLocationId(availableLocation.id);
+                    localStorage.setItem('preferred_location_name', availableLocation.name);
+                    localStorage.setItem('preferred_location_type', 'STORE');
                     setStep('WELCOME');
-                } else if (!storedLocation) {
-                    // No location stored - go to setup
+                } else {
+                    if (storedLocation || storedToken) {
+                        clearStoredQueueLocation();
+                    }
                     setStep('SETUP');
                 }
-                // If stored location exists but not in list, still use it (might be valid)
             } else {
                 // API failed - still try to use stored location
-                if (storedLocation && storedLocation.length > 30) {
+                if (isUsablePublicKioskLocationId(storedLocation)) {
                     setStep('WELCOME');
                 } else {
                     setStep('SETUP');
@@ -230,13 +291,13 @@ const QueueKioskPage: React.FC = () => {
             }
         }).catch(() => {
             // Network error - try stored location anyway
-            if (storedLocation && storedLocation.length > 30) {
+            if (isUsablePublicKioskLocationId(storedLocation)) {
                 setStep('WELCOME');
             } else {
                 setStep('SETUP');
             }
         });
-    }, []);
+    }, [clearStoredQueueLocation]);
 
     // =============================================================================
     // AUTO PRINT on SUCCESS
@@ -259,54 +320,33 @@ const QueueKioskPage: React.FC = () => {
         if (selectedLoc) {
             localStorage.setItem('preferred_location_name', selectedLoc.name);
         }
+        localStorage.setItem('preferred_location_type', 'STORE');
         setLocationId(id);
         setIsSetupUnlocked(false);
         setStep('WELCOME');
     };
 
-    const unlockSetup = (pin: string) => {
-        if (pin === '1213') {
-            setIsSetupUnlocked(true);
+    const unlockSetup = async (pin: string) => {
+        if (!locationId) {
             setSetupPin('');
-        } else {
+            toast.error('Seleccione una sucursal primero');
+            return;
+        }
+
+        const result = await validatePublicKioskAdminPinSecure({
+            mode: 'QUEUE',
+            locationId,
+            pin,
+        });
+
+        if (!result.success) {
             setSetupPin('');
-            toast.error('PIN Incorrecto');
+            toast.error(result.error || 'PIN incorrecto');
+            return;
         }
-    };
 
-    const handlePairWithCode = (code: string) => {
-        console.log('Attempting to pair with code:', code);
-        const kiosk = kiosks.find(k => k.pairing_code === code);
-
-        if (kiosk) {
-            console.log('Kiosk found:', kiosk);
-            // 1. Set Location
-            setLocationId(kiosk.location_id);
-            localStorage.setItem('preferred_location_id', kiosk.location_id);
-
-            // 2. Find Location Name (Try local state or store)
-            const locName = locations.find(l => l.id === kiosk.location_id)?.name
-                || storeLocations.find(l => l.id === kiosk.location_id)?.name;
-
-            if (locName) {
-                localStorage.setItem('preferred_location_name', locName);
-            }
-
-            // 3. Mark as Active locally and in store
-            updateKioskStatus(kiosk.id, 'ACTIVE');
-
-            // 4. Enter Kiosk Mode
-            setIsKioskActive(true);
-            toast.success(`¡Vinculado a ${locName || 'Sucursal'}!`);
-
-            // 5. Clean up
-            setPairingCode('');
-            enterFullscreen();
-        } else {
-            console.warn('Invalid code. Available kiosks:', kiosks);
-            setPairingCode('');
-            toast.error('Código inválido o expirado');
-        }
+        setIsSetupUnlocked(true);
+        setSetupPin('');
     };
 
     const handleTypeSelect = (type: TicketType) => {
@@ -387,20 +427,19 @@ const QueueKioskPage: React.FC = () => {
     };
 
     const generateTicket = async (finalRut: string, finalName?: string, finalPhone?: string) => {
-        // Get locationId from state OR localStorage as backup
-        const effectiveLocationId = locationId || localStorage.getItem('preferred_location_id') || '';
-
-        console.log('[Totem] === CREATING TICKET ===');
-        console.log('[Totem] stateLocationId:', locationId, '| length:', locationId?.length);
-        console.log('[Totem] localStorageId:', localStorage.getItem('preferred_location_id'));
-        console.log('[Totem] effectiveLocationId:', effectiveLocationId, '| length:', effectiveLocationId?.length);
-        console.log('[Totem] finalRut:', finalRut);
-        console.log('[Totem] ticketType:', ticketType);
+        const effectiveLocationId = locationId;
 
         // Validate locationId
         if (!effectiveLocationId || effectiveLocationId.length < 30) {
             toast.error('Sucursal no configurada. Seleccione una sucursal primero.');
             setStep('SETUP');
+            return;
+        }
+
+        if (!kioskToken) {
+            toast.error('Totem no autorizado. Active el modo kiosk nuevamente.');
+            setIsKioskActive(false);
+            setStep('WELCOME');
             return;
         }
 
@@ -410,13 +449,9 @@ const QueueKioskPage: React.FC = () => {
                 rut: finalRut,
                 type: ticketType,
                 name: finalName,
-                phone: finalPhone
+                phone: finalPhone,
+                kioskToken,
             });
-
-            console.log('[Totem] RAW SERVER RESPONSE:', res);
-            console.log('[Totem] res.success:', res.success);
-            console.log('[Totem] res.ticket:', res.ticket);
-            console.log('[Totem] res.error:', res.error);
 
             if (res.success && res.ticket) {
                 setTicket(res.ticket);
@@ -436,13 +471,15 @@ const QueueKioskPage: React.FC = () => {
                     resetForm();
                 }, 3000);
             } else {
-                console.error('[Totem] Ticket creation failed. Full response:', JSON.stringify(res, null, 2));
                 toast.error(`Error al generar ticket: ${res.error || 'Desconocido'}`);
+                if ((res.error || '').toLowerCase().includes('token') || (res.error || '').toLowerCase().includes('totem')) {
+                    window.localStorage.removeItem(QUEUE_KIOSK_TOKEN_KEY);
+                    setKioskToken('');
+                    setIsKioskActive(false);
+                    setStep('WELCOME');
+                }
             }
         } catch (e: any) {
-            console.error('[Totem] Exception caught:', e);
-            console.error('[Totem] Exception message:', e?.message);
-            console.error('[Totem] Exception stack:', e?.stack);
             toast.error(`Error de conexión: ${e?.message || 'Desconocido'}`);
         }
     };
@@ -532,7 +569,7 @@ const QueueKioskPage: React.FC = () => {
         // Prevent hydration mismatch by rendering null until mounted
         if (!isMounted) {
             return (
-                <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                <div className="min-h-dvh bg-slate-50 flex items-center justify-center overflow-x-hidden">
                     <div className="w-8 h-8 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
             );
@@ -541,14 +578,14 @@ const QueueKioskPage: React.FC = () => {
         const hasLocation = !!locationId;
 
         return (
-            <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+            <div className="min-h-dvh bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 pt-safe pb-safe relative overflow-x-hidden">
                 {/* Background Ambience */}
                 <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-                    <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[128px]" />
-                    <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] bg-teal-100/30 rounded-full blur-[128px]" />
+                    <div className="absolute top-[10%] left-[15%] w-[70vw] max-w-[500px] h-[70vw] max-h-[500px] bg-sky-200/40 rounded-full blur-[128px]" />
+                    <div className="absolute bottom-[10%] right-[15%] w-[70vw] max-w-[500px] h-[70vw] max-h-[500px] bg-teal-100/30 rounded-full blur-[128px]" />
                 </div>
 
-                <div className="relative z-10 bg-white/80 backdrop-blur-xl p-10 rounded-[3rem] border border-sky-100 shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
+                <div className="relative z-10 bg-white/80 backdrop-blur-xl p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] border border-sky-100 shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
                     <div className="w-20 h-20 bg-sky-100 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-sky-200">
                         <Ticket size={40} className="text-sky-600" />
                     </div>
@@ -559,9 +596,9 @@ const QueueKioskPage: React.FC = () => {
                     {!hasLocation && (
                         <div className="mb-8 w-full">
                             <Tabs defaultValue="list" className="w-full">
-                                <TabsList className="grid w-full grid-cols-2 mb-6">
-                                    <TabsTrigger value="list">Lista</TabsTrigger>
-                                    <TabsTrigger value="code">Código</TabsTrigger>
+                                <TabsList className="mb-6 grid h-auto min-h-12 w-full grid-cols-2">
+                                    <TabsTrigger value="list" className="min-h-11">Lista</TabsTrigger>
+                                    <TabsTrigger value="code" className="min-h-11">Código</TabsTrigger>
                                 </TabsList>
 
                                 {/* OPTION A: LIST */}
@@ -570,13 +607,10 @@ const QueueKioskPage: React.FC = () => {
                                     <div className="grid gap-3 max-h-64 overflow-y-auto touch-pan-y overscroll-contain">
                                         {locations.map(loc => (
                                             <button
+                                                type="button"
                                                 key={loc.id}
-                                                onClick={() => {
-                                                    setLocationId(loc.id);
-                                                    localStorage.setItem('preferred_location_id', loc.id);
-                                                    localStorage.setItem('preferred_location_name', loc.name);
-                                                }}
-                                                className="p-4 bg-white border border-slate-100 rounded-2xl text-slate-700 font-bold hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-all flex items-center gap-3 shadow-sm group text-left"
+                                                onClick={() => handleSelectLocation(loc.id)}
+                                                className="min-h-11 p-4 bg-white border border-slate-100 rounded-2xl text-slate-700 font-bold hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 transition-[background-color,border-color,color] flex items-center gap-3 shadow-sm group text-left"
                                             >
                                                 <MapPin size={18} className="text-sky-400 group-hover:text-sky-500" />
                                                 <span className="truncate">{loc.name}</span>
@@ -587,20 +621,12 @@ const QueueKioskPage: React.FC = () => {
 
                                 {/* OPTION B: PAIRING CODE */}
                                 <TabsContent value="code">
-                                    <p className="text-slate-500 mb-6 font-medium">Ingrese código de vinculación</p>
-                                    <input
-                                        type="text"
-                                        maxLength={6}
-                                        placeholder="CÓDIGO"
-                                        className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-6 text-center text-slate-800 text-3xl font-mono font-bold uppercase focus:border-sky-500 outline-none mb-4 transition-all tracking-widest placeholder:text-slate-300"
-                                        value={pairingCode}
-                                        onChange={e => {
-                                            const val = e.target.value.toUpperCase();
-                                            setPairingCode(val);
-                                            if (val.length === 6) handlePairWithCode(val);
-                                        }}
-                                    />
-                                    <p className="text-xs text-slate-400">Genera este código desde Gestión de Red</p>
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-5 text-left">
+                                        <p className="text-sm font-bold text-amber-700 mb-2">Vinculación por código deshabilitada</p>
+                                        <p className="text-xs text-amber-700/80">
+                                            Este totem ahora requiere activación explícita por sucursal y PIN de administración.
+                                        </p>
+                                    </div>
                                 </TabsContent>
                             </Tabs>
                         </div>
@@ -609,15 +635,19 @@ const QueueKioskPage: React.FC = () => {
                     {/* Step 2: Enter PIN (only show if location is set) */}
                     {hasLocation && (
                         <>
-                            <p className="text-slate-500 mb-8">Ingrese PIN de administrador para activar</p>
+                            <label htmlFor="queue-activation-pin" className="block text-slate-500 mb-8">Ingrese PIN de administrador para activar</label>
 
                             <input
+                                id="queue-activation-pin"
+                                name="queue-activation-pin"
                                 type="password"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                autoComplete="off"
                                 maxLength={4}
                                 placeholder="••••"
-                                className="w-full bg-sky-50 border-2 border-sky-100 rounded-2xl px-4 py-6 text-center text-slate-800 text-5xl tracking-[0.8em] focus:border-sky-500 outline-none mb-8 transition-all"
+                                className="w-full min-h-20 bg-sky-50 border-2 border-sky-100 rounded-2xl px-4 py-6 text-center text-slate-800 text-5xl tracking-[0.35em] sm:tracking-[0.8em] focus:border-sky-500 focus:ring-2 focus:ring-sky-100 outline-none mb-8 transition-[border-color,box-shadow]"
                                 value={activationPin}
-                                autoFocus
                                 onChange={e => {
                                     setActivationPin(e.target.value);
                                     if (e.target.value.length === 4) handleActivateKiosk(e.target.value);
@@ -633,8 +663,9 @@ const QueueKioskPage: React.FC = () => {
                         </div>
                         {hasLocation && (
                             <button
-                                onClick={() => { setLocationId(''); localStorage.removeItem('preferred_location_id'); }}
-                                className="text-sky-600 font-bold hover:text-sky-700 text-xs transition-colors"
+                                type="button"
+                                onClick={clearStoredQueueLocation}
+                                className="min-h-11 inline-flex items-center justify-center rounded-xl px-3 text-sky-600 font-bold hover:bg-sky-50 hover:text-sky-700 text-xs transition-colors"
                             >
                                 (cambiar sucursal)
                             </button>
@@ -646,22 +677,26 @@ const QueueKioskPage: React.FC = () => {
     }
 
     return (
-        <div className="min-h-dvh pt-safe pb-safe bg-gradient-to-b from-white to-slate-50 flex flex-col items-center justify-center p-6 relative overflow-hidden select-none">
+        <div className="min-h-dvh pt-safe pb-safe bg-gradient-to-b from-white to-slate-50 flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-x-hidden select-none">
 
             {/* Exit Prompt Modal */}
             {showExitPrompt && (
                 <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6">
                     <div className="bg-white p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
                         <h2 className="text-xl font-bold text-slate-800 mb-2">Salir del Modo Kiosk</h2>
-                        <p className="text-slate-500 mb-6 text-sm">Ingrese PIN de administrador</p>
+                        <label htmlFor="queue-exit-pin" className="block text-slate-500 mb-6 text-sm">Ingrese PIN de administrador</label>
 
                         <input
+                            id="queue-exit-pin"
+                            name="queue-exit-pin"
                             type="password"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            autoComplete="off"
                             maxLength={4}
                             placeholder="••••"
-                            className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-4 text-center text-slate-800 text-3xl tracking-[0.8em] focus:border-blue-500 outline-none mb-6"
+                            className="w-full min-h-11 bg-slate-100 border border-slate-200 rounded-xl px-4 py-4 text-center text-slate-800 text-3xl tracking-[0.8em] focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none mb-6"
                             value={exitPin}
-                            autoFocus
                             onChange={e => {
                                 setExitPin(e.target.value);
                                 if (e.target.value.length === 4) handleExitKiosk(e.target.value);
@@ -669,6 +704,7 @@ const QueueKioskPage: React.FC = () => {
                         />
 
                         <button
+                            type="button"
                             onClick={() => { setShowExitPrompt(false); setExitPin(''); }}
                             className="w-full py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200"
                         >
@@ -717,6 +753,8 @@ const QueueKioskPage: React.FC = () => {
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">Modo Kiosco Activo</p>
                     </div>
                     <button
+                        type="button"
+                        aria-label="Salir del tótem de fila"
                         onClick={() => setShowExitPrompt(true)}
                         className="w-12 h-12 flex items-center justify-center rounded-2xl bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all border border-slate-100"
                     >
@@ -756,25 +794,15 @@ const QueueKioskPage: React.FC = () => {
 
                                     <div className="relative flex py-2 items-center">
                                         <div className="flex-grow border-t border-slate-200"></div>
-                                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase">O Vincular</span>
+                                        <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase">Pairing</span>
                                         <div className="flex-grow border-t border-slate-200"></div>
                                     </div>
 
-                                    {/* Option B: Pairing Code */}
-                                    <div>
-                                        <p className="text-slate-500 mb-2 text-xs font-bold uppercase tracking-wider">Código de Vinculación</p>
-                                        <input
-                                            type="text"
-                                            maxLength={6}
-                                            placeholder="CÓDIGO"
-                                            className="w-full bg-cyan-50 border border-cyan-200 rounded-xl px-4 py-3 text-center text-cyan-800 text-2xl font-mono font-bold uppercase focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none transition-all placeholder:text-cyan-300/50"
-                                            value={pairingCode}
-                                            onChange={e => {
-                                                const val = e.target.value.toUpperCase();
-                                                setPairingCode(val);
-                                                if (val.length === 6) handlePairWithCode(val);
-                                            }}
-                                        />
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-left">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-amber-700 mb-1">Código deshabilitado</p>
+                                        <p className="text-sm text-amber-700/80">
+                                            La activación por código cliente fue retirada. Use selección de sucursal y PIN administrativo.
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -811,6 +839,7 @@ const QueueKioskPage: React.FC = () => {
 
                         <div className="grid gap-6">
                             <button
+                                type="button"
                                 onClick={() => handleTypeSelect('GENERAL')}
                                 className="group relative h-48 bg-white rounded-[40px] p-10 flex flex-col items-center justify-center gap-4 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-2xl shadow-sky-900/5 border border-slate-100 hover:border-sky-300 overflow-hidden"
                             >
@@ -822,6 +851,7 @@ const QueueKioskPage: React.FC = () => {
                             </button>
 
                             <button
+                                type="button"
                                 onClick={() => handleTypeSelect('PREFERENTIAL')}
                                 className="group relative h-32 bg-white rounded-[32px] p-8 flex items-center justify-center gap-6 hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-sky-900/5 border border-slate-100 hover:border-teal-300"
                             >
@@ -834,6 +864,7 @@ const QueueKioskPage: React.FC = () => {
 
                             {/* Quick Ticket Option */}
                             <button
+                                type="button"
                                 onClick={() => { setTicketType('GENERAL'); generateTicket('ANON'); }}
                                 className="h-20 bg-slate-50 border border-slate-200 rounded-[24px] p-4 flex items-center justify-center gap-4 hover:bg-slate-100 transition-all active:scale-[0.98] group"
                             >
@@ -853,7 +884,7 @@ const QueueKioskPage: React.FC = () => {
                 {/* IDENTIFY STEP (RUT) */}
                 {step === 'IDENTIFY' && (
                     <motion.div key="identify" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="z-10 text-center w-full max-w-lg mt-16 px-6">
-                        <button onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
+                        <button type="button" aria-label="Volver al paso anterior" onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
                             <ChevronLeft size={32} />
                         </button>
 
@@ -877,10 +908,11 @@ const QueueKioskPage: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-6 max-w-md mx-auto">
-                            <button onClick={handleSkipIdentify} className="py-6 bg-slate-50 text-slate-400 font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100 active:scale-95">
+                            <button type="button" onClick={handleSkipIdentify} className="py-6 bg-slate-50 text-slate-400 font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100 active:scale-95">
                                 Omitir RUT
                             </button>
                             <button
+                                type="button"
                                 onClick={handleIdentifySubmit}
                                 disabled={rut.length < 8}
                                 className="py-6 bg-sky-600 text-white font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-sky-500 transition-all shadow-xl shadow-sky-600/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale disabled:scale-100 active:scale-95 border-b-4 border-sky-800"
@@ -894,7 +926,7 @@ const QueueKioskPage: React.FC = () => {
                 {/* REGISTER STEP (Name) */}
                 {step === 'REGISTER' && (
                     <motion.div key="register" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="z-10 text-center w-full max-w-4xl mt-16 px-6">
-                        <button onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
+                        <button type="button" aria-label="Volver al paso anterior" onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
                             <ChevronLeft size={32} />
                         </button>
 
@@ -922,6 +954,7 @@ const QueueKioskPage: React.FC = () => {
                         </div>
 
                         <button
+                            type="button"
                             onClick={handleRegisterSubmit}
                             disabled={!name.trim()}
                             className="w-full max-w-md py-6 bg-sky-600 text-white font-black uppercase tracking-widest text-sm rounded-[24px] hover:bg-sky-500 transition-all shadow-2xl shadow-sky-600/20 flex items-center justify-center gap-3 disabled:opacity-50 disabled:grayscale disabled:scale-100 active:scale-95 mx-auto border-b-4 border-sky-800"
@@ -934,7 +967,7 @@ const QueueKioskPage: React.FC = () => {
                 {/* PHONE STEP */}
                 {step === 'PHONE' && (
                     <motion.div key="phone" initial={{ x: 100, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -100, opacity: 0 }} className="z-10 text-center w-full max-w-lg mt-16 px-6">
-                        <button onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
+                        <button type="button" aria-label="Volver al paso anterior" onClick={goBack} className="absolute top-28 left-8 w-14 h-14 bg-white rounded-2xl shadow-xl shadow-sky-900/5 border border-slate-100 text-slate-400 hover:text-sky-600 transition-all flex items-center justify-center active:scale-95">
                             <ChevronLeft size={32} />
                         </button>
 
@@ -961,10 +994,11 @@ const QueueKioskPage: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-6 max-w-md mx-auto">
-                            <button onClick={handleSkipPhone} className="py-6 bg-slate-50 text-slate-400 font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100 active:scale-95">
+                            <button type="button" onClick={handleSkipPhone} className="py-6 bg-slate-50 text-slate-400 font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-slate-100 hover:text-slate-600 transition-all border border-slate-100 active:scale-95">
                                 Omitir
                             </button>
                             <button
+                                type="button"
                                 onClick={handlePhoneSubmit}
                                 className="py-6 bg-emerald-600 text-white font-black uppercase tracking-widest text-xs rounded-[24px] hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-3 active:scale-95 border-b-4 border-emerald-800"
                             >

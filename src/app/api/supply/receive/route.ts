@@ -1,30 +1,38 @@
 import { NextResponse } from 'next/server';
-import { receiveProduct } from '@/lib/data/supply';
 
-export async function POST(request: Request) {
+import { INVENTORY_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
+import { logger } from '@/lib/logger';
+
+const LEGACY_RECEIVE_DISABLED_RESPONSE = {
+    error: 'Recepción legacy deshabilitada. Use el flujo WMS/abastecimiento vigente.',
+    code: 'SUPPLY_RECEIVE_LEGACY_DISABLED',
+} as const;
+
+export async function POST(_request: Request) {
     try {
-        const body = await request.json();
-        const { producto_id, numero_lote, fecha_vencimiento, cantidad, proveedor_id } = body;
-
-        if (!producto_id || !numero_lote || !fecha_vencimiento || !cantidad) {
-            return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+        const auth = await requireApiRoles(INVENTORY_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
         }
 
-        await receiveProduct({
-            producto_id,
-            numero_lote,
-            fecha_vencimiento,
-            cantidad,
-            ubicacion_fisica: 'Bodega Central' // Default
-        });
+        logger.warn(
+            {
+                actorUserId: auth.session.userId,
+                actorRole: auth.session.role,
+            },
+            '[SupplyReceiveRoute] Legacy endpoint disabled',
+        );
 
-        // Optionally link to an order if we implemented full order management
-        // For now just logging the reception linked to supplier
-        console.log(`Received product ${producto_id} from supplier ${proveedor_id}`);
-
-        return NextResponse.json({ success: true });
-    } catch (error: any) {
-        console.error('Error receiving product:', error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        return NextResponse.json(
+            LEGACY_RECEIVE_DISABLED_RESPONSE,
+            { status: 410, headers: API_NO_STORE_HEADERS },
+        );
+    } catch (error: unknown) {
+        logger.error({ error }, '[SupplyReceiveRoute] Receive failed');
+        return NextResponse.json(
+            { error: 'No fue posible registrar la recepción del producto', code: 'SUPPLY_RECEIVE_FAILED' },
+            { status: 500, headers: API_NO_STORE_HEADERS },
+        );
     }
 }

@@ -35,8 +35,6 @@ test.describe('WMS Tabs - Reglas de Destino', () => {
         let loginError = '';
         const loggedIn = await loginAsManager(page, {
             branch: 'Farmacia Vallenar santiago',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch((error: unknown) => {
             loginError = error instanceof Error ? error.message : 'LOGIN_UNKNOWN_ERROR';
             return false;

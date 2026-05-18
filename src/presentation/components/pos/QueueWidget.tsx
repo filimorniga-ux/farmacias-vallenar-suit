@@ -78,7 +78,7 @@ const QueueWidget: React.FC = () => {
         try {
             // We use direct action for simple complete as we didn't add completeTicket to store yet
             // But we can use completeTicketSecure and then nullify current ticket in store
-            const result = await completeTicketSecure(currentTicket.id, user.id);
+            const result = await completeTicketSecure(currentTicket.id);
             if (result.success) {
                 toast.success('Ticket finalizado');
                 setCurrentTicket(null); // Updates store and timestamp
@@ -123,7 +123,7 @@ const QueueWidget: React.FC = () => {
         if (!currentTicket || !user?.id) return;
         setLoading(true);
         try {
-            await recallTicketSecure(currentTicket.id, user.id);
+            await recallTicketSecure(currentTicket.id);
             toast.message('📢 Re-llamando...', { duration: 1000 }); // Keep subtle feedback for recall
             lastActionTimeRef.current = Date.now();
         } finally {
@@ -156,7 +156,7 @@ const QueueWidget: React.FC = () => {
 
         setLoading(true);
         try {
-            const result = await resetQueueSecure(currentLocationId, user.id);
+            const result = await resetQueueSecure(currentLocationId);
             if (result.success) {
                 toast.success('Cola reiniciada correctamente');
                 refreshQueueStatus();

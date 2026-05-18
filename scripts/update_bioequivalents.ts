@@ -3,12 +3,40 @@ import fs from 'fs';
 import path from 'path';
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import { assertScriptDbWriteTargetAllowed } from '../src/scripts/script-db-target-policy';
 
 // Load environment variables
 dotenv.config();
 
+const UPDATE_BIOEQUIVALENTS_ALLOW_NON_LOCAL_ENV = 'UPDATE_BIOEQUIVALENTS_ALLOW_NON_LOCAL';
+const UPDATE_BIOEQUIVALENTS_CONFIRM_ENV = 'UPDATE_BIOEQUIVALENTS_CONFIRM';
+const UPDATE_BIOEQUIVALENTS_CONFIRMATION = 'MARK_BIOEQUIVALENTS_FROM_ISP';
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
+    console.error('❌ DATABASE_URL is required');
+    process.exit(1);
+}
+
+if (process.env[UPDATE_BIOEQUIVALENTS_CONFIRM_ENV] !== UPDATE_BIOEQUIVALENTS_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to update bioequivalent product flags without explicit confirmation. ` +
+        `Set ${UPDATE_BIOEQUIVALENTS_CONFIRM_ENV}=${UPDATE_BIOEQUIVALENTS_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertScriptDbWriteTargetAllowed({
+    scriptName: 'update_bioequivalents',
+    connectionString: dbUrl,
+    allowNonLocalEnv: UPDATE_BIOEQUIVALENTS_ALLOW_NON_LOCAL_ENV,
+});
+
+console.log('🎯 DB target:', redactConnectionString(dbUrl));
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
 });
 

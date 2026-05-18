@@ -1,14 +1,17 @@
+'use client';
+
 /**
  * WMSPage - Página principal del módulo WMS
- * 
+ *
  * Layout adaptativo:
  * - Móvil: Header sticky + Bottom Tab Bar + scroll independiente
  * - Desktop: Header normal + tabs horizontales arriba
- * 
+ *
  * Usa usePlatform() para detectar la plataforma (Capacitor/Electron/Web).
  * Skills: estilo-marca, modo-produccion, arquitecto-offline
  */
 import React, { useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
     Warehouse, Truck, PackageCheck, ArrowLeftRight,
     PackagePlus, MapPin, RefreshCw, Route, History, ClipboardList
@@ -18,20 +21,19 @@ import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useInventoryQuery } from '@/presentation/hooks/useInventoryQuery';
+import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
+import { useBootstrapWms } from '@/presentation/hooks/useBootstrapWms';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
+import { receivePurchaseOrderSecure, finalizePurchaseOrderReviewSecure } from '@/actions/supply-v2';
+import { InventoryBatch, PurchaseOrder, Shipment } from '@/domain/types';
 import { WMSDespachoTab } from '@/presentation/components/wms/tabs/WMSDespachoTab';
-import { WMSRecepcionTab } from '@/presentation/components/wms/tabs/WMSRecepcionTab';
-import { WMSTransferenciaTab } from '@/presentation/components/wms/tabs/WMSTransferenciaTab';
-import { WMSTransitoTab } from '@/presentation/components/wms/tabs/WMSTransitoTab';
-import { WMSPedidosTab } from '@/presentation/components/wms/tabs/WMSPedidosTab';
-import { WMSCrearPedidoTab } from '@/presentation/components/wms/tabs/WMSCrearPedidoTab';
 import { WMSBottomTabBar } from '@/presentation/components/wms/WMSBottomTabBar';
-import { PurchaseOrderReceivingModal } from '@/presentation/components/scm/PurchaseOrderReceivingModal';
-import ManualOrderModal from '@/presentation/components/supply/ManualOrderModal';
-import SupplyKanban from '../components/supply/SupplyKanban';
-import { SupplyChainHistoryTab } from '@/presentation/components/scm/SupplyChainHistoryTab';
-import { MovementDetailModal } from '@/presentation/components/scm/MovementDetailModal';
+import { toast } from 'sonner';
 
 export type WMSTab = 'despacho' | 'recepcion' | 'transferencia' | 'transito' | 'pedidos' | 'suministros' | 'historial' | 'crear-pedido';
+
+const INVENTORY_TABS: WMSTab[] = ['despacho', 'transferencia', 'recepcion', 'pedidos', 'crear-pedido'];
 
 const DESKTOP_TABS: { key: WMSTab; label: string; icon: React.ReactNode; color: string }[] = [
     { key: 'despacho', label: 'Despacho', icon: <Truck size={18} />, color: 'sky' },
@@ -55,6 +57,58 @@ const TAB_COLORS: Record<string, { active: string; ring: string }> = {
     slate: { active: 'bg-slate-700 text-white shadow-slate-700/30', ring: 'ring-slate-300' },
 };
 
+const TabPanelLoader = () => (
+    <div className="rounded-3xl border border-slate-200 bg-white p-6 text-sm font-medium text-slate-500 shadow-sm">
+        Cargando contenido...
+    </div>
+);
+
+const WMSRecepcionTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSRecepcionTab').then((mod) => mod.WMSRecepcionTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSTransferenciaTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSTransferenciaTab').then((mod) => mod.WMSTransferenciaTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSTransitoTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSTransitoTab').then((mod) => mod.WMSTransitoTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSPedidosTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSPedidosTab').then((mod) => mod.WMSPedidosTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const WMSCrearPedidoTab = dynamic(
+    () => import('@/presentation/components/wms/tabs/WMSCrearPedidoTab').then((mod) => mod.WMSCrearPedidoTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const SupplyKanban = dynamic(
+    () => import('@/presentation/components/supply/SupplyKanban'),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const SupplyChainHistoryTab = dynamic(
+    () => import('@/presentation/components/scm/SupplyChainHistoryTab').then((mod) => mod.SupplyChainHistoryTab),
+    { loading: () => <TabPanelLoader /> }
+);
+
+const PurchaseOrderReceivingModal = dynamic(
+    () => import('@/presentation/components/scm/PurchaseOrderReceivingModal').then((mod) => mod.PurchaseOrderReceivingModal)
+);
+
+const ManualOrderModal = dynamic(
+    () => import('@/presentation/components/supply/ManualOrderModal')
+);
+
+const MovementDetailModal = dynamic(
+    () => import('@/presentation/components/scm/MovementDetailModal').then((mod) => mod.MovementDetailModal)
+);
 
 export const WMSPage: React.FC = () => {
     const [activeTab, setActiveTab] = useState<WMSTab>('despacho');
@@ -68,103 +122,81 @@ export const WMSPage: React.FC = () => {
     const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
     const [isMovementDetailOpen, setIsMovementDetailOpen] = useState(false);
 
-    const {
-        currentLocationId,
-        currentWarehouseId,
-        currentTerminalId,
-        setCurrentLocation,
-        locations: pharmaLocations,
-        user,
-        receivePurchaseOrder,
-        finalizePurchaseOrderReview,
-        setInventory,
-        refreshShipments,
-        refreshPurchaseOrders
-    } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const setCurrentLocation = usePharmaStore((state) => state.setCurrentLocation);
+    const user = usePharmaStore((state) => state.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
     const locationStoreLocations = useLocationStore(s => s.locations);
 
-    const resolvedLocation = useMemo(() => {
-        const fromPharma = pharmaLocations.find(loc => loc.id === currentLocationId);
-        if (fromPharma) return fromPharma;
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
 
-        if (locationStoreCurrent) return locationStoreCurrent;
-
-        const fromLocationStore = locationStoreLocations.find(loc => loc.id === currentLocationId);
-        if (fromLocationStore) return fromLocationStore;
-
-        return null;
-    }, [currentLocationId, pharmaLocations, locationStoreCurrent, locationStoreLocations]);
-
-    const currentLocationName = resolvedLocation?.name || 'Sin ubicación';
-    const currentLocationType = resolvedLocation?.type || 'STORE';
+    const currentLocationName = wmsContext.locationName;
+    const currentLocationType = wmsContext.locationType;
     const useMobileLayout = isMobile && !isDesktopLike;
 
     useEffect(() => {
-        const fallbackIds: string[] = [];
-        try {
-            const contextId = localStorage.getItem('context_location_id');
-            const preferredId = localStorage.getItem('preferred_location_id');
-            if (contextId) fallbackIds.push(contextId);
-            if (preferredId) fallbackIds.push(preferredId);
-        } catch {
-            // localStorage may be unavailable in constrained environments
-        }
-
-        const targetId =
-            currentLocationId ||
-            locationStoreCurrent?.id ||
-            user?.assigned_location_id ||
-            fallbackIds.find(Boolean) ||
-            '';
-
-        if (!targetId) return;
-
-        const targetLocation =
-            pharmaLocations.find(loc => loc.id === targetId) ||
-            locationStoreLocations.find(loc => loc.id === targetId) ||
-            (locationStoreCurrent?.id === targetId ? locationStoreCurrent : undefined);
-
-        const targetWarehouseId = currentWarehouseId || targetLocation?.default_warehouse_id || '';
-
-        if (currentLocationId !== targetId || (targetWarehouseId && currentWarehouseId !== targetWarehouseId)) {
-            setCurrentLocation(targetId, targetWarehouseId, currentTerminalId || '');
+        if (wmsContext.shouldSyncStore && wmsContext.locationId) {
+            setCurrentLocation(wmsContext.locationId, wmsContext.warehouseId, currentTerminalId || '');
         }
     }, [
-        currentLocationId,
-        currentWarehouseId,
         currentTerminalId,
         setCurrentLocation,
-        pharmaLocations,
-        locationStoreLocations,
-        locationStoreCurrent,
-        user?.assigned_location_id,
+        wmsContext.locationId,
+        wmsContext.shouldSyncStore,
+        wmsContext.warehouseId,
     ]);
 
     // 🚀 Load inventory via React Query (Same pattern as POSMainScreen for consistency)
-    const activeLocationId = currentLocationId || locationStoreCurrent?.id;
-    const shouldLoadInventory = activeTab === 'despacho' || activeTab === 'transferencia';
+    const activeLocationId = wmsContext.locationId;
+    const shouldBootstrapTransit = activeTab === 'transito';
+    const { bootstrapWms, isBootstrappingWms } = useBootstrapWms({ activeLocationId, auto: false });
+    const shouldLoadInventory = INVENTORY_TABS.includes(activeTab);
     const { data: inventoryData, isLoading: isLoadingInventory } = useInventoryQuery(activeLocationId, {
         mode: 'wms-lite',
         enabled: shouldLoadInventory && !!activeLocationId,
     });
+    const inventory = inventoryData ?? ([] as InventoryBatch[]);
+    const shouldLoadShipments = activeTab === 'transito';
+    const { data: shipmentsData, isLoading: isLoadingShipments } = useShipmentsQuery(activeLocationId, {
+        enabled: shouldLoadShipments && !!activeLocationId,
+    });
+    const shipments = shipmentsData ?? ([] as Shipment[]);
+    const shouldLoadPurchaseOrders = activeTab === 'transito';
+    const { data: purchaseOrdersData, isLoading: isLoadingPurchaseOrders } = usePurchaseOrdersQuery(activeLocationId, {
+        enabled: shouldLoadPurchaseOrders && !!activeLocationId,
+    });
+    const purchaseOrders = purchaseOrdersData ?? ([] as PurchaseOrder[]);
 
-    // Sync React Query data to Zustand Store for compatibility with WMS Tabs
     useEffect(() => {
-        if (inventoryData) {
-            console.log('🔄 [WMS] Syncing Inventory Query -> Zustand');
-            setInventory(inventoryData);
-        }
-    }, [inventoryData, setInventory]);
+        if (!shouldBootstrapTransit) return;
+        void bootstrapWms();
+    }, [bootstrapWms, shouldBootstrapTransit]);
 
     const handleRefresh = async () => {
-        if (activeLocationId) {
-            await Promise.all([
-                refreshShipments(activeLocationId),
-                refreshPurchaseOrders(activeLocationId)
-            ]);
+        const refreshTasks: Promise<unknown>[] = [];
+
+        if (shouldBootstrapTransit && activeLocationId) {
+            refreshTasks.push(bootstrapWms({ force: true }));
         }
-        queryClient.invalidateQueries({ queryKey: ['inventory'] });
+
+        if (INVENTORY_TABS.includes(activeTab) && activeLocationId) {
+            refreshTasks.push(queryClient.invalidateQueries({ queryKey: ['inventory', activeLocationId, 'wms-lite'] }));
+        }
+
+        if (refreshTasks.length > 0) {
+            await Promise.all(refreshTasks);
+        } else if (activeLocationId) {
+            await bootstrapWms({ force: true });
+        }
+
         if ('vibrate' in navigator) navigator.vibrate(10);
     };
 
@@ -172,22 +204,93 @@ export const WMSPage: React.FC = () => {
         setActiveTab(tab);
     };
 
+    const refreshPostPurchaseOrderMutation = async () => {
+        await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+            queryClient.invalidateQueries({ queryKey: ['purchaseOrders'] }),
+        ]);
+
+        if (activeLocationId) {
+            await bootstrapWms({ force: true });
+        }
+    };
+
+    const handleReceivePurchaseOrder = async (
+        orderId: string,
+        items: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]
+    ) => {
+        if (!user?.id) {
+            throw new Error('Sesión inválida');
+        }
+
+        const result = await receivePurchaseOrderSecure({
+            purchaseOrderId: orderId,
+            receivedItems: items.map((item) => ({
+                sku: item.sku,
+                quantity: item.receivedQty,
+                lotNumber: item.lotNumber,
+                expiryDate: item.expiryDate,
+            })),
+        }, user.id);
+
+        if (!result.success) {
+            throw new Error(result.error || 'No se pudo recepcionar la orden');
+        }
+
+        await refreshPostPurchaseOrderMutation();
+        toast.success('Recepción registrada. Orden en revisión');
+    };
+
+    const handleFinalizePurchaseOrderReview = async (
+        orderId: string,
+        reviewNotes?: string,
+        items?: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]
+    ) => {
+        if (!user?.id) {
+            throw new Error('Sesión inválida');
+        }
+
+        const result = await finalizePurchaseOrderReviewSecure({
+            purchaseOrderId: orderId,
+            reviewNotes: reviewNotes || undefined,
+            receivedItems: items?.map((item) => ({
+                sku: item.sku,
+                quantity: item.receivedQty,
+                lotNumber: item.lotNumber,
+                expiryDate: item.expiryDate,
+            })),
+        }, user.id);
+
+        if (!result.success) {
+            throw new Error(result.error || 'No se pudo finalizar la revisión');
+        }
+
+        await refreshPostPurchaseOrderMutation();
+        toast.success('Revisión finalizada. Inventario actualizado');
+    };
+
     const renderTabContent = () => {
         switch (activeTab) {
             case 'despacho':
-                return <WMSDespachoTab isLoading={isLoadingInventory} />;
+                return <WMSDespachoTab inventory={inventory} isLoading={isLoadingInventory} />;
             case 'recepcion':
                 return (
                     <WMSRecepcionTab
+                        inventory={inventory}
                         preselectedShipmentId={preselectedReceptionShipmentId}
                         onPreselectionHandled={() => setPreselectedReceptionShipmentId(null)}
                     />
                 );
             case 'transferencia':
-                return <WMSTransferenciaTab isLoading={isLoadingInventory} />;
+                return <WMSTransferenciaTab inventory={inventory} isLoading={isLoadingInventory} />;
             case 'transito':
                 return (
                     <WMSTransitoTab
+                        purchaseOrders={purchaseOrders}
+                        shipments={shipments}
+                        isLoading={isLoadingShipments || isLoadingPurchaseOrders}
+                        bootstrapOnMount={false}
+                        onRefresh={() => bootstrapWms({ force: true })}
                         onReceiveShipment={(shipmentId) => {
                             setPreselectedReceptionShipmentId(shipmentId);
                             setActiveTab('recepcion');
@@ -200,9 +303,9 @@ export const WMSPage: React.FC = () => {
                     />
                 );
             case 'pedidos':
-                return <WMSPedidosTab />;
+                return <WMSPedidosTab inventory={inventory} />;
             case 'crear-pedido':
-                return <WMSCrearPedidoTab />;
+                return <WMSCrearPedidoTab inventory={inventory} />;
             case 'historial':
                 return <SupplyChainHistoryTab />;
             case 'suministros':
@@ -219,6 +322,7 @@ export const WMSPage: React.FC = () => {
                                 {useMobileLayout ? "Órdenes de compra sincronizadas." : "Visualización en tiempo real de órdenes de compra pendientes y recibidas."}
                             </p>
                             <SupplyKanban
+                                bootstrapOnMount={false}
                                 direction={useMobileLayout ? 'col' : 'row'}
                                 onEditOrder={(po: any) => {
                                     setSelectedOrder(po);
@@ -259,7 +363,7 @@ export const WMSPage: React.FC = () => {
                     <div className="px-4 py-3">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
-                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 
+                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600
                                               flex items-center justify-center shadow-lg shadow-sky-500/20">
                                     <Warehouse size={18} className="text-white" />
                                 </div>
@@ -278,12 +382,14 @@ export const WMSPage: React.FC = () => {
 
                             <button
                                 onClick={handleRefresh}
-                                className="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 
+                                disabled={isBootstrappingWms}
+                                className="h-11 w-11 rounded-xl bg-slate-100 hover:bg-slate-200
                                          text-slate-600 transition-colors flex items-center justify-center
-                                         active:scale-95"
+                                         active:scale-95 disabled:opacity-60"
+                                aria-label="Actualizar WMS"
                                 title="Actualizar"
                             >
-                                <RefreshCw size={16} />
+                                <RefreshCw size={16} className={isBootstrappingWms ? 'animate-spin' : ''} />
                             </button>
                         </div>
                     </div>
@@ -304,42 +410,42 @@ export const WMSPage: React.FC = () => {
                 />
 
                 {/* Modals for Supply Integration */}
-                <PurchaseOrderReceivingModal
-                    isOpen={isReceptionModalOpen}
-                    mode={receptionModalMode}
-                    onClose={() => {
-                        setIsReceptionModalOpen(false);
-                        setReceptionModalMode('RECEIVE');
-                        setSelectedOrder(null);
-                    }}
-                    order={selectedOrder}
-                    onReceive={(orderId, items) => {
-                        return receivePurchaseOrder(
-                            orderId,
-                            items,
-                            selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
-                        );
-                    }}
-                    onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
-                />
+                {isReceptionModalOpen ? (
+                    <PurchaseOrderReceivingModal
+                        isOpen={isReceptionModalOpen}
+                        mode={receptionModalMode}
+                        onClose={() => {
+                            setIsReceptionModalOpen(false);
+                            setReceptionModalMode('RECEIVE');
+                            setSelectedOrder(null);
+                        }}
+                        order={selectedOrder}
+                        onReceive={handleReceivePurchaseOrder}
+                        onFinalizeReview={handleFinalizePurchaseOrderReview}
+                    />
+                ) : null}
 
-                <ManualOrderModal
-                    isOpen={isManualOrderModalOpen}
-                    onClose={() => {
-                        setIsManualOrderModalOpen(false);
-                        setSelectedOrder(null);
-                    }}
-                    initialOrder={selectedOrder}
-                />
+                {isManualOrderModalOpen ? (
+                    <ManualOrderModal
+                        isOpen={isManualOrderModalOpen}
+                        onClose={() => {
+                            setIsManualOrderModalOpen(false);
+                            setSelectedOrder(null);
+                        }}
+                        initialOrder={selectedOrder}
+                    />
+                ) : null}
 
-                <MovementDetailModal
-                    isOpen={isMovementDetailOpen}
-                    onClose={() => {
-                        setIsMovementDetailOpen(false);
-                        setSelectedMovement(null);
-                    }}
-                    movement={selectedMovement}
-                />
+                {isMovementDetailOpen ? (
+                    <MovementDetailModal
+                        isOpen={isMovementDetailOpen}
+                        onClose={() => {
+                            setIsMovementDetailOpen(false);
+                            setSelectedMovement(null);
+                        }}
+                        movement={selectedMovement}
+                    />
+                ) : null}
             </div>
         );
     }
@@ -368,9 +474,10 @@ export const WMSPage: React.FC = () => {
                         </div>
 
                         <button onClick={handleRefresh}
-                            className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                            disabled={isBootstrappingWms}
+                            className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors disabled:opacity-60"
                             title="Actualizar inventario">
-                            <RefreshCw size={18} />
+                            <RefreshCw size={18} className={isBootstrappingWms ? 'animate-spin' : ''} />
                         </button>
                     </div>
 
@@ -418,42 +525,42 @@ export const WMSPage: React.FC = () => {
             </div>
 
             {/* Modals for Supply Integration (Desktop) */}
-            <PurchaseOrderReceivingModal
-                isOpen={isReceptionModalOpen}
-                mode={receptionModalMode}
-                onClose={() => {
-                    setIsReceptionModalOpen(false);
-                    setReceptionModalMode('RECEIVE');
-                    setSelectedOrder(null);
-                }}
-                order={selectedOrder}
-                onReceive={(orderId, items) => {
-                    return receivePurchaseOrder(
-                        orderId,
-                        items,
-                        selectedOrder?.target_warehouse_id || currentWarehouseId || currentLocationId
-                    );
-                }}
-                onFinalizeReview={(orderId, reviewNotes, items) => finalizePurchaseOrderReview(orderId, reviewNotes, items)}
-            />
+            {isReceptionModalOpen ? (
+                <PurchaseOrderReceivingModal
+                    isOpen={isReceptionModalOpen}
+                    mode={receptionModalMode}
+                    onClose={() => {
+                        setIsReceptionModalOpen(false);
+                        setReceptionModalMode('RECEIVE');
+                        setSelectedOrder(null);
+                    }}
+                    order={selectedOrder}
+                    onReceive={handleReceivePurchaseOrder}
+                    onFinalizeReview={handleFinalizePurchaseOrderReview}
+                />
+            ) : null}
 
-            <ManualOrderModal
-                isOpen={isManualOrderModalOpen}
-                onClose={() => {
-                    setIsManualOrderModalOpen(false);
-                    setSelectedOrder(null);
-                }}
-                initialOrder={selectedOrder}
-            />
+            {isManualOrderModalOpen ? (
+                <ManualOrderModal
+                    isOpen={isManualOrderModalOpen}
+                    onClose={() => {
+                        setIsManualOrderModalOpen(false);
+                        setSelectedOrder(null);
+                    }}
+                    initialOrder={selectedOrder}
+                />
+            ) : null}
 
-            <MovementDetailModal
-                isOpen={isMovementDetailOpen}
-                onClose={() => {
-                    setIsMovementDetailOpen(false);
-                    setSelectedMovement(null);
-                }}
-                movement={selectedMovement}
-            />
+            {isMovementDetailOpen ? (
+                <MovementDetailModal
+                    isOpen={isMovementDetailOpen}
+                    onClose={() => {
+                        setIsMovementDetailOpen(false);
+                        setSelectedMovement(null);
+                    }}
+                    movement={selectedMovement}
+                />
+            ) : null}
         </div>
     );
 };

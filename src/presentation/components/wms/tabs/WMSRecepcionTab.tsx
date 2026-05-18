@@ -4,7 +4,8 @@
  * Flujo: Listar envíos pendientes → Seleccionar → Escanear/Verificar productos → Confirmar recepción
  * Soporta escaneo continuo con cámara o lector USB/BT.
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import {
     Truck, Package, CheckCircle, AlertTriangle, Clock, ChevronRight,
     Loader2, ShieldCheck, ArrowDown, ArrowUp, ArrowRight, FileText, X,
@@ -16,12 +17,40 @@ import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { getShipmentsSecure, processReceptionSecure } from '@/actions/wms-v2';
 import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
 import { validateSupervisorPin } from '@/actions/auth-v2';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
-import CameraScanner from '../../ui/CameraScanner';
 import { useBarcodeScanner } from '@/presentation/hooks/useBarcodeScanner';
-import ProductFormModal from '../../inventory/ProductFormModal';
+import { InventoryBatch } from '@/domain/types';
+import {
+    compareWmsPendingPriority,
+    getWmsPendingPriority,
+    type WmsPendingPriority,
+} from '@/presentation/lib/wms-pending-priority';
+
+const CameraScanner = dynamic(
+    () => import('../../ui/CameraScanner'),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 px-6 text-white backdrop-blur-sm">
+                <div className="rounded-3xl border border-slate-700 bg-slate-900 px-6 py-5 text-center shadow-2xl">
+                    <Loader2 size={28} className="mx-auto mb-3 animate-spin text-sky-400" />
+                    <p className="text-sm font-semibold">Abriendo cámara...</p>
+                </div>
+            </div>
+        ),
+    }
+);
+
+const ProductFormModal = dynamic(
+    () => import('../../inventory/ProductFormModal'),
+    {
+        ssr: false,
+        loading: () => null,
+    }
+);
 
 interface PendingShipment {
     id: string;
@@ -43,6 +72,7 @@ interface PendingShipment {
     }>;
     created_at: number;
     notes?: string;
+    priority?: WmsPendingPriority;
 }
 
 interface ReceivedItem {
@@ -59,6 +89,7 @@ interface ReceivedItem {
 }
 
 interface WMSRecepcionTabProps {
+    inventory?: InventoryBatch[];
     preselectedShipmentId?: string | null;
     onPreselectionHandled?: () => void;
 }
@@ -69,14 +100,31 @@ interface ReportFilters {
     movementType?: string;
 }
 
+const PRIORITY_META: Record<WmsPendingPriority['level'], { label: string; badge: string }> = {
+    high: { label: 'Prioridad alta', badge: 'bg-rose-50 text-rose-700 border-rose-200' },
+    medium: { label: 'Prioridad media', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+    low: { label: 'Prioridad baja', badge: 'bg-slate-50 text-slate-600 border-slate-200' },
+};
+
 export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
+    inventory = [],
     preselectedShipmentId,
     onPreselectionHandled
 }) => {
     const queryClient = useQueryClient();
-    const { currentLocationId } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const user = usePharmaStore((state) => state.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
-    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
+    const locationStoreLocations = useLocationStore(s => s.locations);
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
+    const effectiveLocationId = wmsContext.locationId;
 
     // State
     const [pendingShipments, setPendingShipments] = useState<PendingShipment[]>([]);
@@ -94,6 +142,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const [pinError, setPinError] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
     const [authorizedDiffs, setAuthorizedDiffs] = useState<Record<string, number>>({});
+    const [authorizedSupervisorPin, setAuthorizedSupervisorPin] = useState<string | null>(null);
     const pinInputRef = useRef<HTMLInputElement>(null);
 
     // ── Estado escáner ──────────────────────────────────────────────
@@ -154,6 +203,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
             }))
         );
         setAuthorizedDiffs({});
+        setAuthorizedSupervisorPin(null);
         setScanCount(0);
     }, []);
 
@@ -242,10 +292,12 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         try {
             const res = await validateSupervisorPin(pinValue);
             if (res.success) {
+                const approvedPin = pinValue;
                 setReceivedItems(prev =>
                     prev.map(i => i.itemId === pinTarget.itemId ? { ...i, receivedQty: pinTarget.newQty } : i)
                 );
                 setAuthorizedDiffs(prev => ({ ...prev, [pinTarget.itemId]: pinTarget.newQty }));
+                setAuthorizedSupervisorPin(approvedPin);
                 const authorizedBy = 'authorizedBy' in res ? res.authorizedBy?.name : undefined;
                 toast.success(`Cantidad autorizada por ${authorizedBy || 'Supervisor'}`);
                 closePinModal(false);
@@ -275,6 +327,12 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
     const handleConfirmReception = async () => {
         if (!selectedShipment) return;
 
+        const unexpectedList = receivedItems.filter(i => i.unexpected && i.receivedQty > 0);
+        if (unexpectedList.length > 0) {
+            toast.error('La recepción de productos inesperados está deshabilitada en este flujo');
+            return;
+        }
+
         const unauthorizedDiffs = receivedItems.filter(
             (item) => item.receivedQty !== item.expectedQty && authorizedDiffs[item.itemId] !== item.receivedQty
         );
@@ -291,9 +349,8 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
 
         setIsSubmitting(true);
         try {
-            // Split expected vs unexpected items
             const expectedItems = receivedItems.filter(i => !i.unexpected);
-            const unexpectedList = receivedItems.filter(i => i.unexpected && i.receivedQty > 0);
+            const hasDifferences = expectedItems.some((item) => item.receivedQty !== item.expectedQty);
 
             const result = await processReceptionSecure({
                 shipmentId: selectedShipment.id,
@@ -314,6 +371,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                     expiryDate: item.expiryDate || undefined,
                 })),
                 notes: receptionNotes || undefined,
+                supervisorPin: hasDifferences ? authorizedSupervisorPin || undefined : undefined,
             });
 
             if (result.success) {
@@ -322,6 +380,7 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 setReceivedItems([]);
                 setReceptionNotes('');
                 setAuthorizedDiffs({});
+                setAuthorizedSupervisorPin(null);
                 await fetchPending();
                 await queryClient.invalidateQueries({ queryKey: ['inventory'] });
             } else {
@@ -343,6 +402,8 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
         setSelectedShipment(null);
         setReceivedItems([]);
         setReceptionNotes('');
+        setAuthorizedDiffs({});
+        setAuthorizedSupervisorPin(null);
         setScanCount(0);
         setLastScanFlash(null);
     };
@@ -369,59 +430,30 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
             setLastScanFlash(receivedItems[idx].sku);
             setTimeout(() => setLastScanFlash(null), 1200);
         } else {
-            // Check if it's an already-added unexpected item
-            const unexpectedIdx = receivedItems.findIndex(
-                (item) => item.unexpected && item.sku?.toUpperCase() === normalizedCode
+            const product = inventory.find(
+                (p) => p.sku?.toUpperCase() === normalizedCode
             );
 
-            if (unexpectedIdx >= 0) {
-                setReceivedItems(prev => {
-                    const updated = [...prev];
-                    updated[unexpectedIdx] = { ...updated[unexpectedIdx], receivedQty: updated[unexpectedIdx].receivedQty + 1 };
-                    return updated;
-                });
-                setScanCount(prev => prev + 1);
+            if (product) {
+                toast.error(`El producto ${product.name} no pertenece a este despacho`);
             } else {
-                // Search in store inventory by SKU
-                const { inventory } = usePharmaStore.getState();
-                const product = inventory.find(
-                    (p) => p.sku?.toUpperCase() === normalizedCode
-                );
-
-                if (product) {
-                    // Known product but not in this order — add as unexpected
-                    const newItem: ReceivedItem = {
-                        itemId: `unexpected-${Date.now()}`,
-                        sku: product.sku,
-                        name: product.name,
-                        expectedQty: 0,
-                        receivedQty: 1,
-                        condition: 'GOOD',
-                        unexpected: true,
-                        productId: product.id,
-                    };
-                    setReceivedItems(prev => [...prev, newItem]);
-                    setScanCount(prev => prev + 1);
-                    toast.info(`📦 Producto inesperado agregado: ${product.name}`);
-                } else {
-                    // Completely unknown product — offer to create
-                    toast.warning(`⚠️ Código no reconocido: ${normalizedCode}`, {
-                        description: 'No se encontró en el inventario.',
-                        duration: 6000,
-                        action: {
-                            label: 'Crear Producto',
-                            onClick: () => {
-                                setProductModalSku(normalizedCode);
-                                setProductModalOpen(true);
-                            },
+                // Completely unknown product — offer to create
+                toast.warning(`⚠️ Código no reconocido: ${normalizedCode}`, {
+                    description: 'No se encontró en el inventario.',
+                    duration: 6000,
+                    action: {
+                        label: 'Crear Producto',
+                        onClick: () => {
+                            setProductModalSku(normalizedCode);
+                            setProductModalOpen(true);
                         },
-                    });
-                }
+                    },
+                });
             }
             setLastScanFlash(normalizedCode);
             setTimeout(() => setLastScanFlash(null), 1200);
         }
-    }, [selectedShipment, receivedItems]);
+    }, [inventory, receivedItems, selectedShipment]);
 
     // Hook for physical barcode scanners (USB/Bluetooth)
     // useBarcodeScanner doesn't support 'enabled', so we conditionally forward
@@ -462,6 +494,22 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
             hour: '2-digit', minute: '2-digit',
         });
     };
+
+    const prioritizedPendingShipments = useMemo(() => {
+        return pendingShipments
+            .map((shipment) => ({
+                ...shipment,
+                priority: getWmsPendingPriority({
+                    id: shipment.id,
+                    createdAt: shipment.created_at,
+                    direction: shipment.direction || 'INCOMING',
+                    status: shipment.status,
+                    itemCount: shipment.items.length,
+                    totalQuantity: shipment.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+                }),
+            }))
+            .sort(compareWmsPendingPriority);
+    }, [pendingShipments]);
 
     // Vista: Detalle de recepción
     if (selectedShipment) {
@@ -915,9 +963,10 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {pendingShipments.map((shipment) => (
+                    {prioritizedPendingShipments.map((shipment) => (
                         <button
                             key={shipment.id}
+                            data-testid="wms-reception-pending-row"
                             onClick={() => handleSelectShipment(shipment)}
                             className="w-full text-left bg-white border border-slate-200 rounded-2xl p-4
                                      hover:border-sky-300 hover:shadow-md hover:shadow-sky-100/50
@@ -948,6 +997,14 @@ export const WMSRecepcionTab: React.FC<WMSRecepcionTabProps> = ({
                                         {shipment.carrier && (
                                             <><span>•</span><span>{shipment.carrier}</span></>
                                         )}
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                                        <span className={`rounded-full border px-2.5 py-1 font-semibold ${PRIORITY_META[shipment.priority.level].badge}`}>
+                                            {PRIORITY_META[shipment.priority.level].label}
+                                        </span>
+                                        <span className="rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 font-semibold text-sky-700">
+                                            {shipment.priority.reasonLabel}: {shipment.priority.evidenceLabel}
+                                        </span>
                                     </div>
                                 </div>
                                 <div className="shrink-0 flex items-center gap-2">

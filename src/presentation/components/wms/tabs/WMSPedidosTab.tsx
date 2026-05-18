@@ -7,34 +7,48 @@
  * - Cantidades editables en todas las etapas
  * - Soporte para proveedor libre (no registrado)
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     FileText, Loader2, CheckCircle, Building,
     Receipt, Calendar, ScanBarcode, ToggleLeft,
     ToggleRight, UserPlus, AlertCircle
 } from 'lucide-react';
-import { WMSReportPanel } from '../WMSReportPanel';
+import { WMSReportPanel, type ReportFilters } from '../WMSReportPanel';
 import { WMSProductScanner } from '../WMSProductScanner';
 import { WMSProductCart, WMSCartItem } from '../WMSProductCart';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { getSuppliersListSecure } from '@/actions/suppliers-v2';
 import { executeStockMovementSecure } from '@/actions/wms-v2';
 import { exportStockMovementsSecure } from '@/actions/inventory-export-v2';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { InventoryBatch } from '@/domain/types';
 
 interface Supplier { id: string; business_name: string; rut?: string; }
-interface ReportFilters {
-    startDate: string;
-    endDate: string;
-    movementType?: string;
+interface WMSPedidosTabProps {
+    inventory: InventoryBatch[];
 }
 
-export const WMSPedidosTab: React.FC = () => {
+export const WMSPedidosTab: React.FC<WMSPedidosTabProps> = ({ inventory }) => {
     const qc = useQueryClient();
-    const { inventory, currentLocationId, currentWarehouseId } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const user = usePharmaStore((state) => state.user);
+    const locationStoreCurrent = useLocationStore((state) => state.currentLocation);
+    const locationStoreLocations = useLocationStore((state) => state.locations);
+
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
+    const effectiveLocationId = wmsContext.locationId;
+    const effectiveWarehouseId = wmsContext.warehouseId;
 
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [loadingSuppliers, setLoadingSuppliers] = useState(true);
@@ -84,6 +98,7 @@ export const WMSPedidosTab: React.FC = () => {
             toast.success(`${p.name} agregado`);
             return [...prev, {
                 id: p.id,
+                productId: p.product_id || p.id,
                 sku: p.sku,
                 name: p.name,
                 quantity: 1,
@@ -109,6 +124,8 @@ export const WMSPedidosTab: React.FC = () => {
         if (!proveedorValido) return toast.error('Seleccione o ingrese un proveedor');
         if (!invoiceNumber) return toast.error('Ingrese número de factura');
         if (!items.length) return toast.error('Agregue productos');
+        if (!user?.id) return toast.error('Sesión inválida');
+        if (!effectiveWarehouseId) return toast.error('No hay bodega activa para recepcionar el pedido');
 
         // En modo checklist, verificar que todos estén marcados
         if (checklistMode && checkedCount < items.length) {
@@ -120,13 +137,19 @@ export const WMSPedidosTab: React.FC = () => {
         try {
             let success = true;
             for (const item of items) {
+                if (!item.productId) {
+                    toast.error(`No se pudo resolver el producto canónico para ${item.sku}`);
+                    success = false;
+                    break;
+                }
                 const r = await executeStockMovementSecure({
-                    productId: item.id,
-                    warehouseId: currentWarehouseId || currentLocationId,
+                    productId: item.productId,
+                    batchId: item.id,
+                    warehouseId: effectiveWarehouseId,
                     type: 'PURCHASE_ENTRY',
                     quantity: item.quantity,
                     reason: `Factura: ${invoiceNumber} | Proveedor: ${useFreeSupplier ? supplierFree : supplierId} | Fecha: ${invoiceDate}${notes ? ` | Nota: ${notes}` : ''}`,
-                    userId: currentLocationId,
+                    userId: user.id,
                 });
                 if (!r.success) { toast.error(`Error en ${item.sku}: ${r.error}`); success = false; break; }
             }
@@ -149,8 +172,9 @@ export const WMSPedidosTab: React.FC = () => {
         const res = await exportStockMovementsSecure({
             startDate: filters.startDate,
             endDate: filters.endDate,
-            locationId: currentLocationId,
+            locationId: effectiveLocationId,
             movementType: filters.movementType,
+            invoiceNumber: filters.invoiceNumber,
             limit: 5000
         });
         if (res.success && res.data && res.filename) {
@@ -328,7 +352,7 @@ export const WMSPedidosTab: React.FC = () => {
             {showRep && (
                 <WMSReportPanel
                     activeTab="PEDIDOS"
-                    locationId={currentLocationId}
+                    locationId={effectiveLocationId}
                     onClose={() => setShowRep(false)}
                     onExportExcel={handleExportExcel}
                 />

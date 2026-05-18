@@ -12,10 +12,13 @@ npm install sharp
 ```bash
 docker build -t farmacias-vallenar:staging .
 docker run --rm -p 3000:3000 \
+  -e APP_ENV=staging \
   -e NODE_ENV=production \
   -e NEXT_IMAGE_UNOPTIMIZED=true \
   farmacias-vallenar:staging
 ```
+
+`NODE_ENV=production` se mantiene porque Next.js corre optimizado, pero la separación operativa del entorno la define `APP_ENV=staging`.
 
 ## 3) Crear app de staging en DO
 

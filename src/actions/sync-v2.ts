@@ -5,7 +5,7 @@
  * SYNC-V2: Sincronización Segura de Datos Maestros
  * Pharma-Synapse v3.1 - Security Hardened
  * ============================================================================
- * 
+ *
  * CORRECCIONES DE SEGURIDAD:
  * - NUNCA retorna access_pin ni access_pin_hash
  * - Audita cada acceso a datos maestros
@@ -16,12 +16,13 @@
 
 import { query } from '@/lib/db';
 import * as Sentry from '@sentry/nextjs';
-import { headers } from 'next/headers';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { classifyPgError } from '@/lib/db-errors';
 import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { InventoryBatch, Location } from '@/domain/types';
+import { getValidatedSession } from '@/lib/server-session';
+import { headers } from 'next/headers';
 
 // ============================================================================
 // SCHEMAS
@@ -35,22 +36,143 @@ const FetchInventorySchema = z.object({
     pageSize: z.number().int().min(1).max(500).default(200),
 });
 
+const LoginLookupSchema = z.object({
+    identifier: z.string().min(7).max(20),
+    locationId: z.string().min(1).max(64),
+    requiredRoles: z.array(z.string().min(1)).max(10).optional(),
+    mode: z.enum(['GENERAL', 'LOGISTICS']).default('GENERAL'),
+});
+
 // ============================================================================
 // HELPERS
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        if (!userId || !userRole) return null;
-        return { userId, role: userRole, locationId: locationId || undefined };
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+    };
+}
+
+const LOGIN_LOOKUP_LIMIT_PER_MINUTE = 10;
+const loginLookupRateLimit = new Map<string, { count: number; resetAt: number }>();
+
+async function getClientIP(): Promise<string> {
+    try {
+        const headerList = await headers();
+        return (
+            headerList.get('x-forwarded-for')?.split(',')[0]?.trim()
+            || headerList.get('x-real-ip')
+            || 'unknown'
+        );
     } catch {
-        return null;
+        return 'unknown';
     }
+}
+
+function checkLoginLookupRateLimit(ip: string): boolean {
+    const now = Date.now();
+    const entry = loginLookupRateLimit.get(ip);
+
+    if (!entry || now > entry.resetAt) {
+        loginLookupRateLimit.set(ip, { count: 1, resetAt: now + 60_000 });
+        return true;
+    }
+
+    if (entry.count >= LOGIN_LOOKUP_LIMIT_PER_MINUTE) {
+        return false;
+    }
+
+    entry.count += 1;
+    return true;
+}
+
+function normalizeLoginIdentifier(identifier: string) {
+    return identifier.replace(/[^0-9kK]/g, '').toUpperCase();
+}
+
+function isLogisticsCandidate(row: { role?: string; job_title?: string }) {
+    const normalizedRole = String(row.role || '').toUpperCase();
+    const normalizedJobTitle = String(row.job_title || '').toUpperCase();
+    return [
+        'WAREHOUSE',
+        'WAREHOUSE_CHIEF',
+        'DRIVER',
+        'ASISTENTE_BODEGA',
+        'JEFE_BODEGA',
+        'BODEGUERO',
+        'AUXILIAR_FARMACIA',
+    ].includes(normalizedRole) || [
+        'WAREHOUSE',
+        'WAREHOUSE_CHIEF',
+        'DRIVER',
+        'ASISTENTE_BODEGA',
+        'JEFE_BODEGA',
+        'BODEGUERO',
+        'AUXILIAR_FARMACIA',
+    ].includes(normalizedJobTitle);
+}
+
+function hasGlobalSyncScope(role: string) {
+    return ['ADMIN', 'GERENTE_GENERAL'].includes(String(role || '').toUpperCase());
+}
+
+const SUPPLIER_SYNC_ROLES = new Set([
+    'WAREHOUSE',
+    'WAREHOUSE_CHIEF',
+    'MANAGER',
+    'QF',
+    'ADMIN',
+    'GERENTE_GENERAL',
+]);
+
+function canSyncSuppliers(role: string) {
+    return SUPPLIER_SYNC_ROLES.has(String(role || '').trim().toUpperCase());
+}
+
+async function resolveAllowedWarehouseScope(
+    session: { role: string; locationId?: string },
+    requestedWarehouseId?: string,
+): Promise<{ success: true; warehouseId?: string; locationId?: string } | { success: false; error: string }> {
+    if (hasGlobalSyncScope(session.role)) {
+        return {
+            success: true,
+            warehouseId: requestedWarehouseId,
+            locationId: session.locationId,
+        };
+    }
+
+    if (!session.locationId) {
+        return { success: false, error: 'No tienes una ubicación asignada' };
+    }
+
+    if (!requestedWarehouseId) {
+        return { success: true, locationId: session.locationId };
+    }
+
+    const res = await query(
+        'SELECT location_id::text AS location_id FROM warehouses WHERE id::text = $1::text LIMIT 1',
+        [requestedWarehouseId],
+    );
+
+    const warehouseLocationId = String(res.rows[0]?.location_id || '');
+    if (!warehouseLocationId) {
+        return { success: false, error: 'Bodega no encontrada' };
+    }
+
+    if (warehouseLocationId !== session.locationId) {
+        return { success: false, error: 'Acceso denegado a otra bodega' };
+    }
+
+    return {
+        success: true,
+        warehouseId: requestedWarehouseId,
+        locationId: warehouseLocationId,
+    };
 }
 
 async function auditDataAccess(userId: string, action: string, details: Record<string, any>): Promise<void> {
@@ -96,9 +218,14 @@ export async function fetchInventorySecure(
     const offset = (page - 1) * pageSize;
 
     try {
+        const warehouseScope = await resolveAllowedWarehouseScope(session, warehouseId);
+        if (!warehouseScope.success) {
+            return { success: false, error: warehouseScope.error };
+        }
+
         // Construir query
         let sql = `
-            SELECT 
+            SELECT
                 p.id as product_id, p.sku, p.name, p.dci, p.category,
                 p.units_per_box, p.price_sell_box, p.format,
                 ib.id as batch_id, ib.warehouse_id, ib.lot_number,
@@ -109,10 +236,24 @@ export async function fetchInventorySecure(
 
         const params: any[] = [];
         let paramIndex = 1;
+        const whereClauses: string[] = [];
 
-        if (warehouseId) {
-            sql += ` WHERE ib.warehouse_id::text = $${paramIndex++}`;
-            params.push(warehouseId);
+        if (warehouseScope.warehouseId) {
+            whereClauses.push(`ib.warehouse_id::text = $${paramIndex++}`);
+            params.push(warehouseScope.warehouseId);
+        } else if (warehouseScope.locationId) {
+            whereClauses.push(`(
+                ib.location_id::text = $${paramIndex}
+                OR ib.warehouse_id IN (
+                    SELECT id FROM warehouses WHERE location_id::text = $${paramIndex}::text
+                )
+            )`);
+            params.push(warehouseScope.locationId);
+            paramIndex += 1;
+        }
+
+        if (whereClauses.length > 0) {
+            sql += ` WHERE ${whereClauses.join(' AND ')}`;
         }
 
         // Count total
@@ -129,7 +270,7 @@ export async function fetchInventorySecure(
         // Auditar acceso
         await auditDataAccess(session.userId, 'DATA_SYNC', {
             type: 'INVENTORY',
-            warehouse_id: warehouseId || 'ALL',
+            warehouse_id: warehouseScope.warehouseId || 'SCOPED',
             rows_returned: res.rows.length,
             page,
         });
@@ -190,6 +331,7 @@ export interface SafeEmployeeProfile {
     status: string;
     job_title: string;
     is_active: boolean;
+    token_version?: number;
     // NUNCA incluir access_pin ni access_pin_hash
 }
 
@@ -208,27 +350,42 @@ export async function fetchEmployeesSecure(
 
     try {
         // IMPORTANTE: NO seleccionar access_pin ni access_pin_hash
-        const sql = `
-            SELECT 
-                id, rut, name, role, 
-                assigned_location_id, status, job_title, is_active
-            FROM users 
+        let sql = `
+            SELECT
+                id, rut, name, role,
+                assigned_location_id, status, job_title, is_active, token_version
+            FROM users
             WHERE ($1 = true OR is_active = true)
-            ORDER BY 
-                CASE WHEN role = 'ADMIN' THEN 1 
+        `;
+        const params: any[] = [includeInactive];
+
+        if (!hasGlobalSyncScope(session.role)) {
+            if (session.locationId) {
+                sql += ` AND assigned_location_id::text = $2::text`;
+                params.push(session.locationId);
+            } else {
+                sql += ` AND id::text = $2::text`;
+                params.push(session.userId);
+            }
+        }
+
+        sql += `
+            ORDER BY
+                CASE WHEN role = 'ADMIN' THEN 1
                      WHEN role = 'GERENTE_GENERAL' THEN 2
-                     WHEN role = 'MANAGER' THEN 3 
+                     WHEN role = 'MANAGER' THEN 3
                      ELSE 4 END,
                 name ASC
         `;
 
-        const res = await query(sql, [includeInactive]);
+        const res = await query(sql, params);
 
         // Auditar
         await auditDataAccess(session.userId, 'DATA_SYNC', {
             type: 'EMPLOYEES',
             include_inactive: includeInactive,
             rows_returned: res.rows.length,
+            location_id: hasGlobalSyncScope(session.role) ? 'ALL' : session.locationId || session.userId,
         });
 
         logger.info({ userId: session.userId, count: res.rows.length }, '👥 [Sync] Employees fetched');
@@ -242,6 +399,7 @@ export async function fetchEmployeesSecure(
             status: row.status || 'ACTIVE',
             job_title: row.job_title || 'EMPLEADO',
             is_active: row.is_active !== false,
+            token_version: Number(row.token_version) || 0,
             // NO SE INCLUYE access_pin
         }));
 
@@ -266,65 +424,128 @@ export async function fetchEmployeesSecure(
 export async function getUsersForLoginSecure(
     locationId?: string
 ): Promise<{ success: true; data: SafeEmployeeProfile[] } | ActionFailure> {
+    void locationId;
+    return {
+        success: false,
+        error: 'El directorio público de usuarios está deshabilitado',
+        code: 'AUTH_PUBLIC_DIRECTORY_DISABLED',
+        retryable: false,
+        correlationId: createCorrelationId(),
+        userMessage: 'Ingrese su RUT para continuar.',
+    };
+}
+
+export async function findUserForLoginSecure(input: {
+    identifier: string;
+    locationId: string;
+    requiredRoles?: string[];
+    mode?: 'GENERAL' | 'LOGISTICS';
+}): Promise<{ success: true; data: SafeEmployeeProfile } | ActionFailure> {
     const correlationId = createCorrelationId();
+    const ip = await getClientIP();
+
+    if (!checkLoginLookupRateLimit(ip)) {
+        return {
+            success: false,
+            error: 'Demasiadas consultas. Espere un momento.',
+            code: 'AUTH_LOGIN_LOOKUP_RATE_LIMIT',
+            retryable: true,
+            correlationId,
+            userMessage: 'Demasiadas consultas. Espere un momento.',
+        };
+    }
+
+    const validated = LoginLookupSchema.safeParse(input);
+    if (!validated.success) {
+        return {
+            success: false,
+            error: 'Datos inválidos para el inicio de sesión',
+            code: 'AUTH_LOGIN_LOOKUP_INVALID',
+            retryable: false,
+            correlationId,
+            userMessage: 'Ingrese un RUT válido para continuar.',
+        };
+    }
+
+    const normalizedIdentifier = normalizeLoginIdentifier(validated.data.identifier);
+    if (normalizedIdentifier.length < 8) {
+        return {
+            success: false,
+            error: 'RUT inválido',
+            code: 'AUTH_LOGIN_LOOKUP_INVALID',
+            retryable: false,
+            correlationId,
+            userMessage: 'Ingrese un RUT válido para continuar.',
+        };
+    }
+
     try {
-        // No checks de sesión aquí - es público para el login
+        const res = await query(
+            `
+                SELECT
+                    id, rut, name, role, assigned_location_id, status, job_title, is_active
+                FROM users
+                WHERE is_active = true
+                  AND UPPER(REPLACE(REPLACE(rut, '.', ''), '-', '')) = $1
+                LIMIT 5
+            `,
+            [normalizedIdentifier]
+        );
 
-        let sql = `
-            SELECT 
-                id, rut, name, role, 
-                assigned_location_id, status, job_title, is_active
-            FROM users 
-            WHERE is_active = true
-        `;
+        const requiredRoles = new Set((validated.data.requiredRoles || []).map((role) => role.toUpperCase()));
+        const candidate = res.rows.find((row: any) => {
+            const role = String(row.role || '').toUpperCase();
+            const isGlobal = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'].includes(role);
+            const isLocal = String(row.assigned_location_id || '') === validated.data.locationId;
 
-        const params: any[] = [];
+            if (requiredRoles.size > 0) {
+                return requiredRoles.has(role) && (isGlobal || isLocal);
+            }
 
-        // Filtrar por ubicación si se proporciona
-        if (locationId) {
-            sql += ` AND assigned_location_id = $1`;
-            params.push(locationId);
+            if (validated.data.mode === 'LOGISTICS') {
+                return isLogisticsCandidate(row) && (isGlobal || isLocal || !row.assigned_location_id);
+            }
+
+            return isGlobal || isLocal;
+        });
+
+        if (!candidate) {
+            return {
+                success: false,
+                error: 'Usuario no disponible para esta sucursal',
+                code: 'AUTH_LOGIN_USER_NOT_AVAILABLE',
+                retryable: false,
+                correlationId,
+                userMessage: 'Usuario no disponible para esta sucursal.',
+            };
         }
 
-        sql += `
-            ORDER BY 
-                CASE WHEN role = 'ADMIN' THEN 1 
-                     WHEN role = 'GERENTE_GENERAL' THEN 2
-                     WHEN role = 'MANAGER' THEN 3 
-                     ELSE 4 END,
-                name ASC
-        `;
-
-        const res = await query(sql, params);
-
-        // Sin auditoría de usuario porque no hay sesión aún
-
-        const data: SafeEmployeeProfile[] = res.rows.map((row: any) => ({
-            id: row.id.toString(),
-            rut: row.rut || '',
-            name: row.name || '',
-            role: row.role || 'STAFF',
-            assigned_location_id: row.assigned_location_id?.toString(),
-            status: row.status || 'ACTIVE',
-            job_title: row.job_title || 'EMPLEADO',
-            is_active: row.is_active !== false,
-        }));
-
-        return { success: true, data };
-
+        return {
+            success: true,
+            data: {
+                id: candidate.id.toString(),
+                rut: candidate.rut || '',
+                name: candidate.name || '',
+                role: candidate.role || 'STAFF',
+                assigned_location_id: candidate.assigned_location_id?.toString(),
+                status: candidate.status || 'ACTIVE',
+                job_title: candidate.job_title || 'EMPLEADO',
+                is_active: candidate.is_active !== false,
+            },
+        };
     } catch (error) {
         const classified = classifyPgError(error);
 
         Sentry.captureException(error, {
             tags: {
                 module: 'sync-v2',
-                action: 'getUsersForLoginSecure',
+                action: 'findUserForLoginSecure',
                 code: classified.code,
             },
             extra: {
                 correlationId,
-                locationId: locationId || null,
                 retryable: classified.retryable,
+                locationId: validated.data.locationId,
             },
         });
 
@@ -334,9 +555,9 @@ export async function getUsersForLoginSecure(
                 code: classified.code,
                 retryable: classified.retryable,
                 technicalMessage: classified.technicalMessage,
-                locationId: locationId || null,
+                locationId: validated.data.locationId,
             },
-            '[Sync] Get users for login failed'
+            '[Sync] Find login user failed'
         );
 
         return {
@@ -368,11 +589,15 @@ export async function fetchSuppliersSecure(): Promise<{
         return { success: false, error: 'No autenticado' };
     }
 
+    if (!canSyncSuppliers(session.role)) {
+        return { success: false, error: 'Acceso denegado' };
+    }
+
     try {
         const res = await query(`
-            SELECT id, rut, business_name, fantasy_name, contact_email, 
+            SELECT id, rut, business_name, fantasy_name, contact_email,
                    payment_terms, address, phone_1 as phone, is_active
-            FROM suppliers 
+            FROM suppliers
             WHERE is_active = true
             ORDER BY business_name ASC
         `);
@@ -427,8 +652,8 @@ export async function fetchLocationsSecure(): Promise<{
         let sql = 'SELECT * FROM locations WHERE is_active = true';
         const params: any[] = [];
 
-        // Si no es ADMIN/GERENTE/MANAGER, solo ver ubicación asignada
-        if (!['ADMIN', 'GERENTE_GENERAL', 'MANAGER'].includes(session.role) && session.locationId) {
+        // Solo ADMIN/GERENTE_GENERAL ven todas. El resto queda anclado a su ubicación.
+        if (!hasGlobalSyncScope(session.role) && session.locationId) {
             sql += ' AND id = $1';
             params.push(session.locationId);
         }
@@ -440,7 +665,7 @@ export async function fetchLocationsSecure(): Promise<{
         await auditDataAccess(session.userId, 'DATA_SYNC', {
             type: 'LOCATIONS',
             rows_returned: res.rows.length,
-            filtered_by_role: !['ADMIN', 'GERENTE_GENERAL'].includes(session.role),
+            filtered_by_role: !hasGlobalSyncScope(session.role),
         });
 
         logger.info({ userId: session.userId, count: res.rows.length }, '📍 [Sync] Locations fetched');

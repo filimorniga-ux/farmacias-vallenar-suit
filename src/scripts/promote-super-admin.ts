@@ -1,6 +1,7 @@
 
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
+import { DEV_TEST_ACCOUNT } from './dev-account-support';
 
 dotenv.config();
 dotenv.config({ path: '.env.local' });
@@ -25,22 +26,22 @@ async function promoteToGodMode() {
                 continue;
             }
 
-            // 2. Aplicar el Ascenso
-            // Forzamos el rol ADMIN y aseguramos el PIN.
+            // 2. Aplicar el ascenso sin tocar PIN.
             await pool.query(`
         UPDATE users 
-        SET role = 'ADMIN', 
-            access_pin = '1213'
+        SET role = 'GERENTE_GENERAL',
+            assigned_location_id = NULL
         WHERE email = $1
       `, [email]);
 
-            console.log(`✅ ${check.rows[0].name} ahora es SUPER ADMIN (Rol: ADMIN).`);
+            console.log(`✅ ${check.rows[0].name} ahora es GERENTE_GENERAL global.`);
         }
 
         console.log('\n=======================================');
         console.log('🎉 PERMISOS ACTUALIZADOS');
         console.log('=======================================');
         console.log('El Gerente General ahora debería ver "Configuración" y todos los módulos.');
+        console.log(`Si necesitas una credencial conocida de desarrollo, usa ${DEV_TEST_ACCOUNT.ensureCommand}.`);
         console.log('Recuerda refrescar la página (F5) para ver los cambios.');
 
     } catch (error) {

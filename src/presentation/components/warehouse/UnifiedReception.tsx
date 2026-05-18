@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, CheckCircle, AlertTriangle, Package, Camera, FileText, Barcode, Upload, Eye, Truck } from 'lucide-react';
 import { Shipment } from '../../../domain/types';
-import { usePharmaStore } from '../../store/useStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { toast } from 'sonner';
 import CameraScanner from '../ui/CameraScanner';
@@ -13,7 +12,6 @@ interface UnifiedReceptionProps {
 }
 
 const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, shipment }) => {
-    const { confirmReception, uploadLogisticsDocument } = usePharmaStore();
     const [receivedItems, setReceivedItems] = useState<{ itemId: string; quantity: number; condition: 'GOOD' | 'DAMAGED' }[]>([]);
     const [notes, setNotes] = useState('');
     const [photos, setPhotos] = useState<string[]>([]);
@@ -97,10 +95,6 @@ const UnifiedReception: React.FC<UnifiedReceptionProps> = ({ isOpen, onClose, sh
             toast.error('Debes agregar una observación si hay discrepancias');
             return;
         }
-
-        // Upload Documents
-        if (invoiceUrl) uploadLogisticsDocument(shipment.id, 'INVOICE', invoiceUrl);
-        if (guideUrl) uploadLogisticsDocument(shipment.id, 'GUIDE', guideUrl);
 
         const { processReceptionSecure } = await import('@/actions/wms-v2');
 

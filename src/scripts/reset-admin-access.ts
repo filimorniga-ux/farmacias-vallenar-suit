@@ -4,7 +4,7 @@ const { Pool } = pg;
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import crypto from 'crypto';
+import { DEV_TEST_ACCOUNT, printDevAccountSummary } from './dev-account-support';
 
 // Load environment variables
 const __filename = fileURLToPath(import.meta.url);
@@ -21,10 +21,6 @@ const pool = new Pool({
     ssl: { rejectUnauthorized: false }
 });
 
-const hashPin = (pin: string) => {
-    return crypto.createHash('sha256').update(pin).digest('hex');
-};
-
 async function main() {
     const client = await pool.connect();
     try {
@@ -34,45 +30,30 @@ async function main() {
         await client.query("DELETE FROM login_attempts");
         console.log('✅ Login Attempts Cleared.');
 
-        // 2. Find Admin User
-        console.log('🔍 Searching for Admin User...');
-        // Priority: 'Admin Centro', then any 'MANAGER'
-        let userRes = await client.query("SELECT * FROM users WHERE name ILIKE '%Admin Centro%' LIMIT 1");
+        const userRes = await client.query(
+            `
+                SELECT id, name, rut, role, email, assigned_location_id
+                FROM users
+                WHERE email = $1 OR job_title = $2 OR name = $3
+                ORDER BY updated_at DESC NULLS LAST
+                LIMIT 1
+            `,
+            [DEV_TEST_ACCOUNT.email, DEV_TEST_ACCOUNT.jobTitle, DEV_TEST_ACCOUNT.name]
+        );
 
         if (userRes.rowCount === 0) {
-            console.log('⚠️ "Admin Centro" not found by name. Searching for any MANAGER...');
-            userRes = await client.query("SELECT * FROM users WHERE role = 'MANAGER' LIMIT 1");
-        }
-
-        if (userRes.rowCount === 0) {
-            console.error('❌ CRITICAL: No Admin user found in DB.');
+            console.warn('⚠️ No existe la cuenta DEV controlada en este entorno.');
+            console.log(`Usa ${DEV_TEST_ACCOUNT.ensureCommand} para crearla o refrescarla.`);
             return;
         }
 
         const user = userRes.rows[0];
-        console.log(`👤 Found Target User: ${user.name} (${user.rut})`);
-
-        // 3. Reset PIN
-        const newPin = '1213';
-        const newHash = hashPin(newPin);
-
-        await client.query("UPDATE users SET pin_hash = $1 WHERE id = $2", [newHash, user.id]);
-        console.log(`✅ PIN Reset to '${newPin}' for user ${user.name}.`);
-
-        // 4. Reveal Details
-
-        // Fetch Location Name
-        let locName = 'Unknown';
-        if (user.assigned_location_id) {
-            const locRes = await client.query("SELECT name FROM locations WHERE id = $1", [user.assigned_location_id]);
-            if ((locRes.rowCount || 0) > 0) locName = locRes.rows[0].name;
-        }
-
-        console.log('\n--- 🔑 CREDENTIALS REVEALED ---');
-        console.log(`📛 Name:            ${user.name}`);
-        console.log(`🆔 RUT (Exact):     ${user.rut}`);
-        console.log(`📍 Assigned Branch: ${locName}`);
-        console.log(`🔢 PIN:             ${newPin}`);
+        console.log('\n--- 🔑 CUENTA DEV CONTROLADA ---');
+        printDevAccountSummary();
+        console.log(`   🆔 ID: ${user.id}`);
+        console.log(`   📛 Nombre actual: ${user.name}`);
+        console.log(`   🪪 RUT: ${user.rut}`);
+        console.log(`   📧 Email actual: ${user.email}`);
         console.log('-------------------------------');
 
     } catch (e) {

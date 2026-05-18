@@ -1,21 +1,32 @@
 'use server';
 
 import { query } from '@/lib/db';
-import { ProductResult } from './search-products';
-import { parseProductDetails } from '@/lib/product-parser';
+import { logger } from '@/lib/logger';
+import { ProductResult, buildPublicProductResult } from './public-product-result';
+import {
+    enforcePublicSearchGuard,
+    normalizePublicSearchLimit,
+    normalizePublicSearchPage,
+    normalizePublicSearchTerm,
+} from './public-search-guard';
 
 export async function browseProductsAction(
     letter: string,
     page: number = 1,
     limit: number = 50
 ): Promise<ProductResult[]> {
-    if (!letter && letter !== '') return [];
+    if (!await enforcePublicSearchGuard('product-browse')) return [];
 
-    const offset = (page - 1) * limit;
-    const searchPattern = letter ? `${letter}%` : '%'; // If empty, list everything? Usually browsing implies a filter.
+    const normalizedLetter = normalizePublicSearchTerm(letter, 1);
+    if (!normalizedLetter && letter !== '') return [];
+
+    const safePage = normalizePublicSearchPage(page);
+    const safeLimit = normalizePublicSearchLimit(limit);
+    const offset = (safePage - 1) * safeLimit;
+    const searchPattern = normalizedLetter ? `${normalizedLetter}%` : '%'; // If empty, list everything? Usually browsing implies a filter.
 
     try {
-        console.log(`🔍 [Browse] Browsing for letter: "${letter}", Page: ${page}`);
+        logger.info({ page: safePage, limit: safeLimit, hasLetter: normalizedLetter.length > 0 }, '[PublicSearch] Browse started');
 
         const sql = `
             WITH unified_inventory AS (
@@ -77,50 +88,25 @@ export async function browseProductsAction(
             LIMIT $2 OFFSET $3
         `;
 
-        const result = await query(sql, [searchPattern, limit, offset]);
+        const result = await query(sql, [searchPattern, safeLimit, offset]);
 
-        console.log(`✅ [Browse] Found ${result.rows.length} products for letter ${letter}.`);
+        logger.info({ count: result.rows.length }, '[PublicSearch] Browse completed');
 
-        // Debug first result for units
-        if (result.rows.length > 0) {
-            console.log(`🔍 [Browse Sample] ${result.rows[0].name} - Units: ${result.rows[0].units_per_box}`);
-        }
-
-        return result.rows.map(row => {
-            // Enrich data using parser (especially for legacy batches)
-            const details = parseProductDetails(
-                row.name,
-                row.units_per_box,
-                row.dci,
-                row.laboratory,
-                row.format
-            );
-
-            // Log details for debugging just once
-            if (result.rows.indexOf(row) === 0) {
-                console.log(`🔍 [Parser] Parsed: ${row.name} -> Units: ${details.units}, DCI: ${details.dci}`);
-            }
-
-            return {
-                id: row.id,
-                name: row.name,
-                sku: row.sku || 'S/SKU',
-                is_bioequivalent: row.is_bioequivalent || false,
-                stock: Number(row.stock),
-                price: Number(row.price),
-                laboratory: details.lab || 'Generico', // Parsed or Original
-                category: 'Farmacia',
-                action: '',
-                dci: details.dci || '',     // Parsed or Original
-                units_per_box: details.units, // Parsed or Original (Fixes Unit Price!)
-                format: details.format || '', // Parsed or Original
-                isp_register: row.isp_register || '',
-                location_name: ''
-            };
-        });
+        return result.rows.map((row) => buildPublicProductResult({
+            id: row.id,
+            name: row.name,
+            sku: row.sku,
+            is_bioequivalent: row.is_bioequivalent,
+            stock: row.stock,
+            laboratory: row.laboratory,
+            dci: row.dci,
+            format: row.format,
+            isp_register: row.isp_register,
+            units_per_box: row.units_per_box,
+        }));
 
     } catch (error) {
-        console.error('❌ Error in browseProductsAction:', error);
+        logger.error({ error }, '[PublicSearch] Browse failed');
         return [];
     }
 }

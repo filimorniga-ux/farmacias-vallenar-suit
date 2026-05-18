@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { X, FileText, Image as ImageIcon, Trash2, Upload, Eye, ExternalLink } from 'lucide-react';
 import { Shipment } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
@@ -11,9 +11,20 @@ interface DocumentViewerModalProps {
 }
 
 const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ isOpen, onClose, shipment }) => {
-    const { uploadLogisticsDocument, user } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
     const [uploadType, setUploadType] = useState<'INVOICE' | 'GUIDE' | 'PHOTO'>('PHOTO');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [localInvoiceUrl, setLocalInvoiceUrl] = useState<string | null>(null);
+    const [localGuideUrl, setLocalGuideUrl] = useState<string | null>(null);
+    const [localPhotos, setLocalPhotos] = useState<string[]>([]);
+
+    useEffect(() => {
+        if (!shipment) return;
+
+        setLocalInvoiceUrl(shipment.documentation.invoice_url || null);
+        setLocalGuideUrl(shipment.documentation.dispatch_guide_url || null);
+        setLocalPhotos(shipment.documentation.evidence_photos || []);
+    }, [shipment]);
 
     if (!isOpen) return null;
 
@@ -27,7 +38,9 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ isOpen, onClo
         // For this demo, we create a local object URL.
         const url = URL.createObjectURL(file);
 
-        uploadLogisticsDocument(shipment.id, uploadType, url);
+        if (uploadType === 'INVOICE') setLocalInvoiceUrl(url);
+        if (uploadType === 'GUIDE') setLocalGuideUrl(url);
+        if (uploadType === 'PHOTO') setLocalPhotos((current) => [...current, url]);
         toast.success('Documento adjuntado correctamente');
     };
 
@@ -36,23 +49,31 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ isOpen, onClo
             toast.error('Solo administradores pueden eliminar documentos');
             return;
         }
-        // Note: The store action currently only supports "adding/setting". 
-        // To support delete, we might need to update the store or just overwrite with undefined/empty array.
-        // For this demo, we'll just show a toast as the store update is complex for a quick fix.
-        toast.info('Funcionalidad de eliminar pendiente de implementación en store');
+        if (type === 'INVOICE') setLocalInvoiceUrl(null);
+        if (type === 'GUIDE') setLocalGuideUrl(null);
+        if (type === 'PHOTO' && typeof index === 'number') {
+            setLocalPhotos((current) => current.filter((_, currentIndex) => currentIndex !== index));
+        }
+        toast.info('Documento removido de la vista local');
     };
 
-    const documents = [
-        { type: 'Factura', url: shipment.documentation.invoice_url, icon: FileText, key: 'INVOICE' },
-        { type: 'Guía de Despacho', url: shipment.documentation.dispatch_guide_url, icon: FileText, key: 'GUIDE' },
-        ...shipment.documentation.evidence_photos.map((url, idx) => ({
-            type: `Evidencia #${idx + 1}`,
-            url,
-            icon: ImageIcon,
-            key: 'PHOTO',
-            index: idx
-        }))
-    ].filter(doc => doc.url);
+    const documents = useMemo(() => {
+        const baseDocuments = [
+            { type: 'Factura', url: localInvoiceUrl, icon: FileText, key: 'INVOICE' as const },
+            { type: 'Guía de Despacho', url: localGuideUrl, icon: FileText, key: 'GUIDE' as const },
+            ...localPhotos.map((url, idx) => ({
+                type: `Evidencia #${idx + 1}`,
+                url,
+                icon: ImageIcon,
+                key: 'PHOTO' as const,
+                index: idx
+            }))
+        ];
+
+        return baseDocuments
+            .filter((doc) => Boolean(doc.url))
+            .map((doc) => ({ ...doc, url: doc.url as string }));
+    }, [localGuideUrl, localInvoiceUrl, localPhotos]);
 
     return (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">

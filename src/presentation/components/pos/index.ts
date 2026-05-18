@@ -29,3 +29,4 @@ export { ShiftHandoverModal } from './ShiftHandoverModal';
 export { default as ShiftManagementModal } from './ShiftManagementModal';
 export { default as TransactionHistoryModal } from './TransactionHistoryModal';
 export { TransactionListModal } from './TransactionListModal';
+export { default as VoidSaleModal } from './VoidSaleModal';

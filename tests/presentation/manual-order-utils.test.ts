@@ -32,6 +32,17 @@ describe('manualOrderUtils', () => {
         });
     });
 
+    it('prioriza la bodega solicitada por el contexto visible antes que la global del store', () => {
+        expect(resolveManualOrderIds({
+            selectedSupplierId: VALID_UUID,
+            requestedWarehouseId: '550e8400-e29b-41d4-a716-446655440001',
+            currentWarehouseId: VALID_UUID,
+        })).toEqual({
+            supplierId: VALID_UUID,
+            warehouseId: '550e8400-e29b-41d4-a716-446655440001',
+        });
+    });
+
     it('sincroniza costo maestro solo con productId UUID y costo modificado', () => {
         expect(shouldSyncMasterCost({
             productId: VALID_UUID,

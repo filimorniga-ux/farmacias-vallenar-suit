@@ -1,12 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Settings, User, Shield, Save, Receipt, Printer, ToggleLeft, ToggleRight, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet, Bot } from 'lucide-react';
+import { Settings, User, Shield, Save, Receipt, Printer, AlertTriangle, CreditCard, Star, Monitor, Building, Wallet, Bot } from 'lucide-react';
 import SiiSettings from './settings/SiiSettings';
 import HardwarePage from './settings/HardwarePage';
 import InventorySettings from './settings/InventorySettings';
 import LoyaltySettings from './settings/LoyaltySettings';
 import InfrastructureBillingPanel from '../components/settings/InfrastructureBillingPanel';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { usePharmaStore } from '../store/useStore';
 import { UsersList } from '../components/settings/UsersList';
 import { UsersSettingsForm } from '../components/settings/UsersSettingsForm';
@@ -16,21 +15,49 @@ import { GeneralSettings } from '../components/settings/GeneralSettings';
 import { AuditLogTable } from '../components/settings/AuditLogTable';
 import { SecurityPolicyPanel } from '../components/settings/SecurityPolicyPanel';
 import { FinancialAccountsSettings } from '../components/settings/FinancialAccountsSettings';
+import { getOperationalSettingsSecure } from '@/actions/settings-v2';
+import { OPERATIONAL_AUTHORITY_LABELS } from '@/lib/operational-message-catalog';
+
+type SettingsTab = 'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances' | 'ai';
+const settingsTab = (id: SettingsTab, label: string) => ({ id, label });
 
 const SettingsPage: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
-    const activeTab = (searchParams.get('tab') as 'general' | 'users' | 'sii' | 'hardware' | 'inventory' | 'billing' | 'loyalty' | 'terminals' | 'backup' | 'audit' | 'finances' | 'ai') || 'general';
+    const requestedTab = (searchParams.get('tab') as SettingsTab) || 'general';
 
     const setActiveTab = (tab: string) => {
         setSearchParams({ tab });
     };
 
-    const { enable_sii_integration, toggleSiiIntegration } = useSettingsStore();
     const { user } = usePharmaStore();
+    const [operationalSettings, setOperationalSettings] = useState<{
+        sii_enabled: boolean;
+        fiscal_mode: 'FISCAL' | 'INTERNAL';
+        sii_environment: 'CERTIFICACION' | 'PRODUCCION';
+    } | null>(null);
 
     // Estado para gestión de usuarios
     const [usersView, setUsersView] = useState<'list' | 'form'>('list');
     const [selectedUser, setSelectedUser] = useState<EmployeeProfile | null>(null);
+    const canManageSii = user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
+    const canManageAdminPanels = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
+    const settingsTabOptions: Array<{ id: SettingsTab; label: string }> = [
+        settingsTab('general', 'General'),
+        settingsTab('users', 'Gestión de Usuarios'),
+        settingsTab('terminals', 'Cajas / Terminales'),
+        ...(canManageSii ? [settingsTab('sii', 'Conexión SII')] : []),
+        settingsTab('hardware', 'Hardware & Impresión'),
+        settingsTab('inventory', 'Mantenimiento'),
+        ...(canManageAdminPanels ? [
+            settingsTab('audit', 'Seguridad'),
+            settingsTab('finances', 'Finanzas'),
+            settingsTab('loyalty', 'Fidelización'),
+            settingsTab('billing', 'Suscripción & Pagos'),
+        ] : []),
+        settingsTab('backup', 'Respaldo'),
+        ...(canManageAdminPanels ? [settingsTab('ai', 'Inteligencia Artificial')] : []),
+    ];
+    const activeTab = settingsTabOptions.some((tab) => tab.id === requestedTab) ? requestedTab : 'general';
 
     const handleEditUser = (user: EmployeeProfile) => {
         setSelectedUser(user);
@@ -47,6 +74,30 @@ const SettingsPage: React.FC = () => {
         setSelectedUser(null);
     };
 
+    useEffect(() => {
+        let cancelled = false;
+
+        getOperationalSettingsSecure()
+            .then((res) => {
+                if (!cancelled && res.success && res.data) {
+                    setOperationalSettings({
+                        sii_enabled: res.data.sii_enabled,
+                        fiscal_mode: res.data.fiscal_mode,
+                        sii_environment: res.data.sii_environment,
+                    });
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setOperationalSettings(null);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     return (
         <div className="p-4 md:p-6 bg-slate-50 min-h-dvh pb-safe">
             <header className="mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -55,25 +106,48 @@ const SettingsPage: React.FC = () => {
                     <p className="text-slate-500">Administración del Sistema</p>
                 </div>
 
-                {/* Global SII Toggle */}
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex items-center justify-between gap-4 w-full md:w-auto">
                     <div className="text-right">
-                        <p className="text-sm font-bold text-slate-800">Integración SII</p>
-                        <p className="text-xs text-slate-500">{enable_sii_integration ? 'Modo Fiscal (Boleta)' : 'Modo Control Interno'}</p>
+                        <p className="text-sm font-bold text-slate-800">Modo Operativo Fiscal</p>
+                        <p className="text-xs text-slate-500">
+                            {operationalSettings
+                                ? `${operationalSettings.fiscal_mode === 'FISCAL' ? 'Modo Fiscal' : 'Control Interno'} • ${operationalSettings.sii_environment}`
+                                : `${OPERATIONAL_AUTHORITY_LABELS.serverSourceOfTruth}: cargando configuración...`}
+                        </p>
                     </div>
-                    <button
-                        onClick={toggleSiiIntegration}
-                        className={`relative w-14 h-8 rounded-full transition-colors duration-300 ${enable_sii_integration ? 'bg-green-500' : 'bg-slate-300'}`}
+                    <div
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                            operationalSettings?.sii_enabled
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-slate-100 text-slate-600'
+                        }`}
                     >
-                        <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full shadow-md transform transition-transform duration-300 ${enable_sii_integration ? 'translate-x-6' : 'translate-x-0'}`} />
-                    </button>
+                        {operationalSettings?.sii_enabled ? OPERATIONAL_AUTHORITY_LABELS.serverSourceOfTruth : 'Servidor interno'}
+                    </div>
                 </div>
             </header>
 
             {/* Tabs */}
             <div className="bg-white rounded-t-3xl shadow-sm border border-slate-200 overflow-hidden max-w-7xl">
-                <div className="flex border-b border-slate-200 overflow-x-auto touch-pan-x no-scrollbar">
+                <div className="border-b border-slate-200 p-3 md:hidden">
+                    <label htmlFor="settings-mobile-tab" className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                        Sección de configuración
+                    </label>
+                    <select
+                        id="settings-mobile-tab"
+                        aria-label="Sección de configuración"
+                        value={activeTab}
+                        onChange={(event) => setActiveTab(event.target.value)}
+                        className="min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-cyan-500"
+                    >
+                        {settingsTabOptions.map((tab) => (
+                            <option key={tab.id} value={tab.id}>{tab.label}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="hidden border-b border-slate-200 overflow-x-auto touch-pan-x no-scrollbar md:flex">
                     <button
+                        type="button"
                         onClick={() => setActiveTab('general')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'general'
                             ? 'bg-cyan-50 text-cyan-700 border-b-2 border-cyan-600'
@@ -85,6 +159,7 @@ const SettingsPage: React.FC = () => {
                     </button>
 
                     <button
+                        type="button"
                         onClick={() => setActiveTab('users')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'users'
                             ? 'bg-cyan-50 text-cyan-700 border-b-2 border-cyan-600'
@@ -96,6 +171,7 @@ const SettingsPage: React.FC = () => {
                     </button>
 
                     <button
+                        type="button"
                         onClick={() => setActiveTab('terminals')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'terminals'
                             ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
@@ -106,17 +182,21 @@ const SettingsPage: React.FC = () => {
                         Cajas / Terminales
                     </button>
 
+                    {canManageSii && (
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('sii')}
+                            className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'sii'
+                                ? 'bg-green-50 text-green-700 border-b-2 border-green-600'
+                                : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                        >
+                            <Receipt size={20} />
+                            Conexión SII
+                        </button>
+                    )}
                     <button
-                        onClick={() => setActiveTab('sii')}
-                        className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'sii'
-                            ? 'bg-green-50 text-green-700 border-b-2 border-green-600'
-                            : 'text-slate-500 hover:bg-slate-50'
-                            }`}
-                    >
-                        <Receipt size={20} />
-                        Conexión SII
-                    </button>
-                    <button
+                        type="button"
                         onClick={() => setActiveTab('hardware')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'hardware'
                             ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-600'
@@ -127,6 +207,7 @@ const SettingsPage: React.FC = () => {
                         Hardware & Impresión
                     </button>
                     <button
+                        type="button"
                         onClick={() => setActiveTab('inventory')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'inventory'
                             ? 'bg-red-50 text-red-700 border-b-2 border-red-600'
@@ -138,8 +219,9 @@ const SettingsPage: React.FC = () => {
                     </button>
 
                     {/* Security Audit Tab (Manager Only) */}
-                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                    {canManageAdminPanels && (
                         <button
+                            type="button"
                             onClick={() => setActiveTab('audit')}
                             className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'audit'
                                 ? 'bg-indigo-50 text-indigo-700 border-b-2 border-indigo-600'
@@ -152,9 +234,10 @@ const SettingsPage: React.FC = () => {
                     )}
 
                     {/* Loyalty Tab (Manager Only) */}
-                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                    {canManageAdminPanels && (
                         <>
                             <button
+                                type="button"
                                 onClick={() => setActiveTab('finances')}
                                 className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'finances'
                                     ? 'bg-emerald-50 text-emerald-700 border-b-2 border-emerald-600'
@@ -166,6 +249,7 @@ const SettingsPage: React.FC = () => {
                             </button>
 
                             <button
+                                type="button"
                                 onClick={() => setActiveTab('loyalty')}
                                 className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'loyalty'
                                     ? 'bg-amber-50 text-amber-700 border-b-2 border-amber-600'
@@ -179,8 +263,9 @@ const SettingsPage: React.FC = () => {
                     )}
 
                     {/* Infrastructure Billing Tab (Manager Only) */}
-                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+                    {canManageAdminPanels && (
                         <button
+                            type="button"
                             onClick={() => setActiveTab('billing')}
                             className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'billing'
                                 ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-600'
@@ -193,6 +278,7 @@ const SettingsPage: React.FC = () => {
                     )}
                     {/* Backup Tab */}
                     <button
+                        type="button"
                         onClick={() => setActiveTab('backup')}
                         className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'backup'
                             ? 'bg-slate-100 text-slate-800 border-b-2 border-slate-600'
@@ -204,8 +290,9 @@ const SettingsPage: React.FC = () => {
                     </button>
 
                     {/* AI Tab (Manager Only) */}
-                    {(user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL' || user?.role === 'QF') && (
+                    {canManageAdminPanels && (
                         <button
+                            type="button"
                             onClick={() => setActiveTab('ai')}
                             className={`flex-1 py-4 px-6 font-bold transition-colors flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'ai'
                                 ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-600'
@@ -242,31 +329,24 @@ const SettingsPage: React.FC = () => {
             {activeTab === 'terminals' && <TerminalSettings />}
 
             {activeTab === 'sii' && (
-                enable_sii_integration ? (
+                canManageSii ? (
                     <SiiSettings />
                 ) : (
                     <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 p-12 flex flex-col items-center text-center">
                         <div className="bg-slate-100 p-6 rounded-full mb-6">
-                            <Receipt size={48} className="text-slate-400" />
+                            <Shield size={48} className="text-slate-400" />
                         </div>
-                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Integración SII Desactivada</h2>
-                        <p className="text-slate-500 max-w-md mb-8">
-                            El sistema está operando en modo "Control Interno". Las ventas generarán comprobantes no válidos como boleta.
-                            Active la integración en la parte superior para configurar certificados y folios.
+                        <h2 className="text-2xl font-bold text-slate-800 mb-2">Acceso Restringido</h2>
+                        <p className="text-slate-500 max-w-md">
+                            La configuración fiscal del SII se administra solo desde roles globales y usa el servidor como fuente de verdad.
                         </p>
-                        <button
-                            onClick={toggleSiiIntegration}
-                            className="px-8 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition shadow-lg"
-                        >
-                            Activar Integración SII
-                        </button>
                     </div>
                 )
             )}
             {activeTab === 'hardware' && <HardwarePage />}
             {activeTab === 'inventory' && <InventorySettings />}
             {/* Security Audit Tab (Manager Only) */}
-            {(user?.role === 'MANAGER' || user?.role === 'ADMIN') && (
+            {canManageAdminPanels && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
                     {activeTab === 'audit' && (
                         <>
@@ -278,13 +358,13 @@ const SettingsPage: React.FC = () => {
             )}
 
             {/* Loyalty Tab Content */}
-            {activeTab === 'loyalty' && <LoyaltySettings />}
+            {activeTab === 'loyalty' && canManageAdminPanels && <LoyaltySettings />}
 
             {/* Finances Tab Content */}
-            {activeTab === 'finances' && <FinancialAccountsSettings />}
+            {activeTab === 'finances' && canManageAdminPanels && <FinancialAccountsSettings />}
 
             {/* Billing Tab Content */}
-            {activeTab === 'billing' && (
+            {activeTab === 'billing' && canManageAdminPanels && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 overflow-hidden max-w-7xl p-8">
                     <InfrastructureBillingPanel />
                 </div>
@@ -341,7 +421,7 @@ const SettingsPage: React.FC = () => {
             )}
 
             {/* AI Tab Content */}
-            {activeTab === 'ai' && (
+            {activeTab === 'ai' && canManageAdminPanels && (
                 <div className="bg-white rounded-b-3xl shadow-sm border border-t-0 border-slate-200 p-8">
                     <div className="flex flex-col items-center max-w-2xl mx-auto text-center space-y-6">
                         <div className="bg-violet-100 p-6 rounded-full">
@@ -370,7 +450,7 @@ const SettingsPage: React.FC = () => {
                         </div>
 
                         <Link
-                            to="/settings/ai"
+                            to="/settings?tab=ai"
                             className="flex items-center gap-3 px-8 py-4 bg-violet-600 text-white font-bold rounded-xl hover:bg-violet-700 transition shadow-lg mt-4"
                         >
                             <Bot size={20} />

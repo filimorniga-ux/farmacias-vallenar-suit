@@ -20,7 +20,8 @@ import { useCalculatorStore } from '../hooks/useCalculator';
 import { brand } from '@/config/brand.config';
 
 const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
-    const { user, logout } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const logout = usePharmaStore((state) => state.logout);
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -42,14 +43,14 @@ const SidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'REPORTS', color: 'sky' as AppThemeColor },
         { icon: Truck, label: 'Abastecimiento (IA)', path: '/procurement/smart-invoice', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'PROCUREMENT', color: 'teal' as AppThemeColor },
         { icon: Sparkles, label: 'Pedido Sugerido (IA)', path: '/supply-chain', roles: ['MANAGER', 'QF', 'ADMIN', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'GERENTE_GENERAL'], moduleId: 'SUGGESTED_ORDER', color: 'teal' as AppThemeColor },
-        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'CRM', color: 'slate' as AppThemeColor },
+        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['ADMIN', 'GERENTE_GENERAL'], moduleId: 'CRM', color: 'slate' as AppThemeColor },
         { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], moduleId: 'HR', color: 'slate' as AppThemeColor },
         { icon: Clock, label: 'Gestor Horario', path: '/rrhh/horarios', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], moduleId: 'SCHEDULING', color: 'rose' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'NETWORK', color: 'slate' as AppThemeColor },
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], moduleId: 'TREASURY', color: 'sky' as AppThemeColor },
-        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'COST_MONITOR', color: 'amber' as AppThemeColor, isExternal: true },
+        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'COST_MONITOR', color: 'amber' as AppThemeColor, isExternal: true },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'MONTHLY_CLOSING', color: 'slate' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], moduleId: 'SETTINGS', color: 'slate' as AppThemeColor },
     ];

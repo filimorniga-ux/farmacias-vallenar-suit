@@ -30,6 +30,9 @@ jobs:
         
     - name: Install Dependencies
       run: npm ci
+
+    - name: Guardrail - No Legacy Universal PIN
+      run: npm run guard:legacy-pin
       
     - name: Lint
       run: npm run lint
@@ -103,6 +106,9 @@ jobs:
         
     - name: Install Dependencies
       run: npm ci
+
+    - name: Install Playwright Chromium
+      run: npx playwright install --with-deps chromium
       
     - name: Run Seeder
       run: npm run seed:demo
@@ -113,6 +119,37 @@ jobs:
       run: npm run test -- tests/integration
       env:
         POSTGRES_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+
+    - name: Refresh Seed for Release-Critical E2E
+      run: npm run seed:demo
+      env:
+        POSTGRES_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+
+    - name: Release-Critical E2E Gate
+      run: npm run test:e2e:release:critical
+      env:
+        DATABASE_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+        POSTGRES_URL_NON_POOLING: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+        APP_URL: http://localhost:3000
+        NEXT_PUBLIC_APP_URL: http://localhost:3000
+        CONFIG_ENCRYPTION_KEY: ci-config-encryption-key-32-bytes-minimum
+        HEALTHCHECK_TOKEN: ci-healthcheck-token
+
+    - name: Prepare CI DB for Pre-Deploy Check
+      run: npm run guard:predeploy:ci-db
+      env:
+        DATABASE_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+
+    - name: Pre-Deploy Check (production context)
+      run: npm run guard:predeploy
+      env:
+        APP_ENV: production
+        VERCEL_ENV: production
+        DATABASE_URL: postgres://postgres:farmacia123@localhost:5432/farmacia_vallenar
+        APP_URL: https://ci.example.invalid
+        NEXT_PUBLIC_APP_URL: https://ci.example.invalid
+        CONFIG_ENCRYPTION_KEY: ci-config-encryption-key-32-bytes-minimum
+        HEALTHCHECK_TOKEN: ci-healthcheck-token
 
   build:
     name: Build Verification

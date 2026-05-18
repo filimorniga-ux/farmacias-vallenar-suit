@@ -211,7 +211,6 @@ export const createMockLocationStore = (overrides = {}) => ({
 // =====================================================
 
 export const createMockSettingsStore = (overrides = {}) => ({
-    enable_sii_integration: false,
     hardware: {
         printer_type: 'thermal',
         printer_width: 80,

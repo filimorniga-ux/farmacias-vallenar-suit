@@ -1,17 +1,15 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
+import dynamic from 'next/dynamic';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import {
     Filter, AlertTriangle, Search, Plus, FileSpreadsheet,
-    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent, Scissors, Globe
+    ChevronDown, ChevronUp, MoreHorizontal, History, RefreshCcw, Package, ScanBarcode, ArrowRightLeft, Edit, Trash2, Zap, Sparkles, Percent, Scissors, Globe, Database, X
 } from 'lucide-react';
-import { MobileScanner } from '../../components/shared/MobileScanner';
 import StockEntryModal from '../components/inventory/StockEntryModal';
 import StockTransferModal from '../components/inventory/StockTransferModal';
 import ProductFormModal from '../components/inventory/ProductFormModal';
-import BulkImportModal from '../components/inventory/BulkImportModal';
-import InventoryExportModal from '../components/inventory/InventoryExportModal';
 import QuickStockModal from '../components/inventory/QuickStockModal';
 import ProductDeleteConfirm from '../components/inventory/ProductDeleteConfirm';
 import PriceAdjustmentModal from '../components/inventory/PriceAdjustmentModal';
@@ -27,6 +25,32 @@ import { useInventoryPagedQuery } from '../hooks/useInventoryPagedQuery';
 import { formatSku, getEffectiveUnits } from '../../lib/utils/inventory-utils';
 import { getTransferLotVisualTag } from '../../lib/wms-batch-lot';
 import { getLastVisibleVirtualIndex, scheduleDeferredTask } from '../utils/virtualization';
+
+const MobileScanner = dynamic(
+    () => import('../../components/shared/MobileScanner').then((mod) => mod.MobileScanner),
+    { ssr: false }
+);
+
+const BulkImportModal = dynamic(
+    () => import('../components/inventory/BulkImportModal'),
+    { loading: () => null }
+);
+
+const InventoryExportModal = dynamic(
+    () => import('../components/inventory/InventoryExportModal'),
+    { loading: () => null }
+);
+
+const InventoryDuplicates = dynamic(
+    () => import('../components/settings/InventoryDuplicates'),
+    {
+        loading: () => (
+            <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-medium text-slate-500">
+                Cargando diagnóstico...
+            </div>
+        ),
+    }
+);
 
 const getBatchTag = (batch: any): { label: string; className: string } | null => {
     const sourceSystem = String(batch?.source_system || '').toUpperCase();
@@ -55,6 +79,33 @@ const getBatchTag = (batch: any): { label: string; className: string } | null =>
     }
 
     return null;
+};
+
+const getConfiguredStockMinimum = (stockMin: unknown): number | null => {
+    if (stockMin === null || stockMin === undefined || stockMin === '') return null;
+
+    const numericStockMin = Number(stockMin);
+    return Number.isFinite(numericStockMin) ? numericStockMin : null;
+};
+
+const getStockQuantity = (stockActual: unknown): number => {
+    const numericStock = Number(stockActual ?? 0);
+    return Number.isFinite(numericStock) ? numericStock : 0;
+};
+
+const getStockMinimumLabel = (stockMin: unknown): string => {
+    const configuredMinimum = getConfiguredStockMinimum(stockMin);
+    return configuredMinimum === null ? 'Mínimo no configurado' : `Mínimo: ${configuredMinimum}`;
+};
+
+const getStockDisplayClass = (item: { stock_actual?: unknown; stock_min?: unknown }): string => {
+    const stock = getStockQuantity(item.stock_actual);
+    const configuredMinimum = getConfiguredStockMinimum(item.stock_min);
+
+    if (stock <= 0) return 'text-red-600';
+    if (configuredMinimum !== null && stock <= configuredMinimum) return 'text-red-600';
+
+    return 'text-slate-800';
 };
 
 // --- Internal Component for Virtualized List ---
@@ -207,6 +258,8 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                         const isExpanded = !!expandedGroups[item.id];
                         const batchCount = item.batches?.length || 0;
                         const hasBatches = batchCount > 0;
+                        const stockDisplayClass = getStockDisplayClass(item);
+                        const stockMinimumLabel = getStockMinimumLabel(item.stock_min);
 
                         // Find nearest expiry date
                         const nearestExpiryBatch = item.batches?.length
@@ -268,10 +321,10 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                         <div className="grid grid-cols-2 gap-2 py-1.5 border-y border-slate-50">
                                             <div>
                                                 <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Stock</p>
-                                                <p className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
+                                                <p className={`text-lg font-bold ${stockDisplayClass}`}>
                                                     {item.stock_actual || 0}
                                                 </p>
-                                                <p className="text-[9px] text-slate-400">Min: {item.stock_min || 5}</p>
+                                                <p className="text-[9px] text-slate-400">{stockMinimumLabel}</p>
                                             </div>
                                             <div className="text-right">
                                                 <p className="text-[9px] text-slate-400 uppercase font-bold tracking-wider">Precio</p>
@@ -391,8 +444,11 @@ export const InventoryList: React.FC<InventoryListProps> = React.memo(({
                                             </div>
                                             <div className="px-4 w-[15%] py-4">
                                                 <div className="flex flex-col items-start">
-                                                    <span className={`text-lg font-bold ${item.stock_actual <= (item.stock_min || 5) ? 'text-red-600' : 'text-slate-800'}`}>
+                                                    <span className={`text-lg font-bold ${stockDisplayClass}`}>
                                                         {item.stock_actual} un.
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-400">
+                                                        {stockMinimumLabel}
                                                     </span>
                                                     {hasBatches && (
                                                         <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
@@ -641,6 +697,7 @@ const InventoryPage: React.FC = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
     const [isQuickStockModalOpen, setIsQuickStockModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<any>(null);
     const [entryInitialProduct, setEntryInitialProduct] = useState<any>(null);
@@ -666,6 +723,7 @@ const InventoryPage: React.FC = () => {
     const canManageInventory = hasPermission(user, 'MANAGE_INVENTORY');
     const canDelete = user?.role === 'MANAGER' || user?.role === 'ADMIN';
     const canQuickAdjust = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
+    const canRunInventoryDiagnostics = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'].includes(String(user?.role || ''));
 
     // Mobile Detection — mobile-first (true por defecto para evitar flash de vista desktop en Android)
     // En landscape ancho (≥768px) → vista desktop; en portrait siempre → vista mobile
@@ -825,6 +883,14 @@ const InventoryPage: React.FC = () => {
                                 >
                                     <FileSpreadsheet size={18} /> Importar Excel
                                 </button>
+                                {canRunInventoryDiagnostics && (
+                                    <button
+                                        onClick={() => setIsDiagnosticsOpen(true)}
+                                        className="px-6 py-3 bg-white text-amber-700 font-bold rounded-full border border-amber-200 hover:bg-amber-50 transition flex items-center gap-2 whitespace-nowrap"
+                                    >
+                                        <Database size={18} /> Diagnóstico
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => setIsEntryModalOpen(true)}
                                     className="px-6 py-3 bg-white text-slate-700 font-bold rounded-full border border-slate-200 hover:bg-slate-50 transition flex items-center gap-2 whitespace-nowrap"
@@ -988,6 +1054,7 @@ const InventoryPage: React.FC = () => {
             <div className="md:hidden fixed bottom-24 right-4 z-40">
                 <button
                     onClick={() => setIsScannerOpen(true)}
+                    aria-label="Abrir scanner de inventario"
                     className="bg-cyan-600 text-white p-4 rounded-full shadow-lg shadow-cyan-200 hover:bg-cyan-700 transition-colors"
                 >
                     <ScanBarcode size={24} />
@@ -1010,7 +1077,13 @@ const InventoryPage: React.FC = () => {
                 isOpen={isEntryModalOpen}
                 onClose={() => { setIsEntryModalOpen(false); setEntryInitialProduct(null); }}
                 initialProduct={entryInitialProduct}
-            /><StockTransferModal isOpen={isTransferModalOpen} onClose={() => setIsTransferModalOpen(false)} />
+                inventoryItems={inventoryData}
+            />
+            <StockTransferModal
+                isOpen={isTransferModalOpen}
+                onClose={() => setIsTransferModalOpen(false)}
+                inventoryItems={inventoryData}
+            />
             {isEditModalOpen && (
                 <ProductFormModal
                     product={editingItem}
@@ -1024,9 +1097,41 @@ const InventoryPage: React.FC = () => {
                     }}
                 />
             )}
-            <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+            {isImportModalOpen && (
+                <BulkImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} />
+            )}
 
-            <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
+            {isExportModalOpen && (
+                <InventoryExportModal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} />
+            )}
+
+            {isDiagnosticsOpen && (
+                <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/55 p-3 pt-safe backdrop-blur-sm sm:p-6">
+                    <div className="my-4 w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10">
+                        <div className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
+                            <div>
+                                <h2 className="text-lg font-black text-slate-900 sm:text-xl">
+                                    Diagnóstico de calidad de inventario
+                                </h2>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    Consulta duplicados de productos y lotes. Esta vista no modifica datos.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsDiagnosticsOpen(false)}
+                                aria-label="Cerrar diagnóstico de inventario"
+                                className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-500 transition hover:bg-white hover:text-slate-800"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="bg-slate-50 p-3 sm:p-6">
+                            <InventoryDuplicates />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <QuickStockModal isOpen={isQuickStockModalOpen} onClose={() => { setIsQuickStockModalOpen(false); setEditingItem(null); }} product={editingItem} />
 

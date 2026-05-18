@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { usePharmaStore } from '../store/useStore';
+import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
 import {
     ArrowLeft, Building2, Mail, Phone, Globe,
     FileText, CreditCard, History, Package, Bot, Eye
@@ -13,7 +14,11 @@ import { SupplierAccountDocument, SupplierCatalogFile } from '../../domain/types
 
 export const SupplierProfile = () => {
     const { id } = useParams();
-    const { suppliers, purchaseOrders } = usePharmaStore();
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const { data: purchaseOrders = [] } = usePurchaseOrdersQuery(currentLocationId || undefined, {
+        enabled: !!id,
+    });
     const [activeTab, setActiveTab] = useState<'PROFILE' | 'HISTORY' | 'ACCOUNT' | 'ACCOUNT_AI' | 'PRODUCTS'>('PROFILE');
     const [accountDocs, setAccountDocs] = useState<SupplierAccountDocument[]>([]);
     const [invoiceParsings, setInvoiceParsings] = useState<any[]>([]);

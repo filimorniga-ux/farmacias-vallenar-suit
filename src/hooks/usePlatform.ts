@@ -1,43 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
 
-export function usePlatform() {
-    const detectNative = () => {
-        // Fallback Web-only detection para despliegues móviles 
-        // Ya no requerimos Capacitor nativo (Removido para estabilizar NextJS Web)
-        if (typeof navigator === 'undefined') return false;
-        return /android|ipad|iphone|ipod/i.test(navigator.userAgent.toLowerCase());
+type ViewportSnapshot = {
+    width: number;
+    height: number;
+};
+
+type RuntimeSnapshot = {
+    isNative: boolean;
+    isElectron: boolean;
+};
+
+const SERVER_VIEWPORT_SNAPSHOT: ViewportSnapshot = { width: 0, height: 0 };
+const SERVER_RUNTIME_SNAPSHOT: RuntimeSnapshot = { isNative: false, isElectron: false };
+
+let lastViewportSnapshot = SERVER_VIEWPORT_SNAPSHOT;
+let lastRuntimeSnapshot = SERVER_RUNTIME_SNAPSHOT;
+
+function getViewportSnapshot(): ViewportSnapshot {
+    if (typeof window === 'undefined') return SERVER_VIEWPORT_SNAPSHOT;
+
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    if (lastViewportSnapshot.width === width && lastViewportSnapshot.height === height) {
+        return lastViewportSnapshot;
+    }
+
+    lastViewportSnapshot = { width, height };
+    return lastViewportSnapshot;
+}
+
+function getRuntimeSnapshot(): RuntimeSnapshot {
+    if (typeof navigator === 'undefined') return SERVER_RUNTIME_SNAPSHOT;
+
+    const userAgent = navigator.userAgent.toLowerCase();
+    const nextSnapshot = {
+        isNative: /android|ipad|iphone|ipod/i.test(userAgent),
+        isElectron: userAgent.includes(' electron/'),
     };
 
-    const detectElectron = () =>
-        typeof navigator !== 'undefined'
-        && navigator.userAgent.toLowerCase().includes(' electron/');
+    if (
+        lastRuntimeSnapshot.isNative === nextSnapshot.isNative
+        && lastRuntimeSnapshot.isElectron === nextSnapshot.isElectron
+    ) {
+        return lastRuntimeSnapshot;
+    }
 
-    const [viewport, setViewport] = useState(() => ({
-        width: typeof window !== 'undefined' ? window.innerWidth : 0,
-        height: typeof window !== 'undefined' ? window.innerHeight : 0,
-    }));
-    const [isNative] = useState(detectNative);
-    const [isElectron] = useState(detectElectron);
+    lastRuntimeSnapshot = nextSnapshot;
+    return lastRuntimeSnapshot;
+}
 
-    useEffect(() => {
-        const handleResize = () => {
-            setViewport({
-                width: window.innerWidth,
-                height: window.innerHeight,
-            });
-        };
-        // Orientation change fires before the viewport updates,
-        // so we delay the measurement to let the OS finish layout.
-        const handleOrientation = () => setTimeout(handleResize, 100);
+function subscribeToViewport(onStoreChange: () => void) {
+    if (typeof window === 'undefined') return () => undefined;
 
-        window.addEventListener('resize', handleResize);
-        window.addEventListener('orientationchange', handleOrientation);
+    const handleResize = () => onStoreChange();
+    const handleOrientation = () => {
+        window.setTimeout(onStoreChange, 100);
+    };
 
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            window.removeEventListener('orientationchange', handleOrientation);
-        };
-    }, []);
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleOrientation);
+
+    return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('orientationchange', handleOrientation);
+    };
+}
+
+function subscribeToRuntime() {
+    return () => undefined;
+}
+
+export function usePlatform() {
+    const viewport = useSyncExternalStore(
+        subscribeToViewport,
+        getViewportSnapshot,
+        () => SERVER_VIEWPORT_SNAPSHOT,
+    );
+    const { isNative, isElectron } = useSyncExternalStore(
+        subscribeToRuntime,
+        getRuntimeSnapshot,
+        () => SERVER_RUNTIME_SNAPSHOT,
+    );
 
     const isLandscape = viewport.width > viewport.height;
     const isDesktopLike = viewport.width >= 1024 || (isLandscape && viewport.width >= 740);

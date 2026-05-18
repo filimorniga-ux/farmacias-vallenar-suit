@@ -1,3 +1,5 @@
+import { resolveAppUrl } from '@/lib/app-url';
+
 const INTERNAL_DEEPSEEK_OCR_PATH = '/api/ai/deepseek-ocr';
 
 function asAbsoluteHttpUrl(value: string | null | undefined): string | null {
@@ -17,23 +19,8 @@ function asAbsoluteHttpUrl(value: string | null | undefined): string | null {
     }
 }
 
-function resolvePublicAppUrl(): string | null {
-    const candidates = [
-        process.env.NEXT_PUBLIC_APP_URL,
-        process.env.APP_URL,
-        process.env.PUBLIC_APP_URL,
-    ];
-
-    for (const candidate of candidates) {
-        const valid = asAbsoluteHttpUrl(candidate ?? null);
-        if (valid) return valid;
-    }
-
-    return null;
-}
-
 export function getDeepSeekInternalEndpoint(): string | null {
-    const appUrl = resolvePublicAppUrl();
+    const appUrl = resolveAppUrl();
     if (!appUrl) return null;
 
     try {
@@ -74,4 +61,3 @@ export function isInternalDeepSeekRoute(endpoint: string): boolean {
         return false;
     }
 }
-

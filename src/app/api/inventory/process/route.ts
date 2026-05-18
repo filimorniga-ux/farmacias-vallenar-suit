@@ -1,26 +1,31 @@
-
 import { NextResponse } from 'next/server';
-import { processImportBatch } from '@/services/inventory-matcher';
 
-export async function POST(req: Request) {
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
+
+export async function POST(_req: Request) {
     try {
-        const body = await req.json().catch(() => ({}));
-        const batchSize = body.batchSize || 20; // Default smaller for web request timeout safety
+        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
+        }
 
-        // Execute batch process
-        const result = await processImportBatch(batchSize);
-
-        return NextResponse.json({
-            success: true,
-            processed: result.processed,
-            message: result.message || "Batch processed successfully"
-        });
-
-    } catch (error: any) {
-        console.error("API Error processing inventory:", error);
         return NextResponse.json(
-            { success: false, error: error.message },
-            { status: 500 }
+            {
+                success: false,
+                error: 'Procesamiento legacy de inventario deshabilitado. Use flujos canónicos de importación y diagnóstico.',
+                code: 'INVENTORY_PROCESS_LEGACY_DISABLED',
+            },
+            { status: 410, headers: API_NO_STORE_HEADERS },
+        );
+    } catch {
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'No fue posible validar el endpoint legacy de inventario',
+                code: 'INVENTORY_PROCESS_LEGACY_FAILED',
+            },
+            { status: 500, headers: API_NO_STORE_HEADERS },
         );
     }
 }

@@ -30,10 +30,20 @@ const CustomerSelectModal: React.FC<CustomerSelectModalProps> = ({ isOpen, onClo
             setNewRut('');
             setNewName('');
             setNewPhone('');
-            // Fetch customers from DB when modal opens
-            fetchCustomers();
         }
     }, [isOpen, fetchCustomers]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            return;
+        }
+
+        const handle = window.setTimeout(() => {
+            fetchCustomers(searchTerm.trim() || undefined);
+        }, searchTerm.trim().length >= 3 ? 200 : 0);
+
+        return () => window.clearTimeout(handle);
+    }, [fetchCustomers, isOpen, searchTerm]);
 
     const filteredCustomers = useMemo(() => {
         if (!searchTerm) return customers.slice(0, 10); // Show first 10 if no search

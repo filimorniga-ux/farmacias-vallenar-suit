@@ -5,8 +5,12 @@ import { usePharmaStore } from '../../store/useStore';
 import { MapPin, Monitor, Package } from 'lucide-react';
 
 const ContextBadge = () => {
-    const { locations, currentLocation } = useLocationStore();
-    const { currentLocationId, currentTerminalId, terminals, currentShift } = usePharmaStore();
+    const locations = useLocationStore((state) => state.locations);
+    const currentLocation = useLocationStore((state) => state.currentLocation);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const terminals = usePharmaStore((state) => state.terminals);
+    const currentShift = usePharmaStore((state) => state.currentShift);
     const pathname = usePathname();
 
     // Resolve comprehensive location object

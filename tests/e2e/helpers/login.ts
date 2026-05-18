@@ -1,46 +1,81 @@
 import { Page } from '@playwright/test';
+import { DEV_TEST_LOGIN } from '../../support/dev-test-account';
 
 export interface LoginOptions {
     branch?: string;
     module?: string;
     user?: string;
+    rut?: string;
     pin?: string;
+    strictBranchMatch?: boolean;
+    strictUserMatch?: boolean;
 }
 
 const DEFAULT_OPTIONS: Required<LoginOptions> = {
     branch: 'Farmacia Vallenar santiago',
     module: 'Administración',
-    user: 'Gerente General 1',
-    pin: '1213',
+    user: DEV_TEST_LOGIN.user,
+    rut: DEV_TEST_LOGIN.rut,
+    pin: DEV_TEST_LOGIN.pin,
+    strictBranchMatch: false,
+    strictUserMatch: false,
 };
+
+const MODULE_TEST_IDS: Record<string, string> = {
+    'Administración': 'landing-module-administracion',
+    'Punto de Venta': 'landing-module-pos',
+    'Logística': 'landing-module-logistica',
+};
+
+function escapeRegExp(value: string) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 async function waitInitialSurface(page: Page): Promise<void> {
     await Promise.race([
-        page.getByRole('button', { name: /Seleccionar/i }).first().waitFor({ state: 'visible', timeout: 90000 }),
-        page.getByText('Administración', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
-        page.getByText('Punto de Venta', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
-        page.getByText('Logística', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByTestId('public-context-page').waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByTestId('landing-module-administracion').waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByTestId('landing-module-pos').waitFor({ state: 'visible', timeout: 90000 }),
+        page.getByTestId('landing-module-logistica').waitFor({ state: 'visible', timeout: 90000 }),
         page.getByText('Resumen General', { exact: true }).first().waitFor({ state: 'visible', timeout: 90000 }),
         page.getByText(/No hay sucursales configuradas/i).first().waitFor({ state: 'visible', timeout: 90000 }),
     ]);
 }
 
-async function selectBranchIfPresent(page: Page, branch: string): Promise<void> {
-    const selectButtons = page.getByRole('button', { name: /Seleccionar/i });
-    if (!(await selectButtons.first().isVisible().catch(() => false))) {
+async function selectBranchIfPresent(page: Page, branch: string, strictBranchMatch: boolean): Promise<void> {
+    const contextPage = page.getByTestId('public-context-page');
+    if (!(await contextPage.isVisible().catch(() => false))) {
         return;
     }
 
+    const noBranchesMessage = page.getByText(/No hay sucursales configuradas/i).first();
+    const branchCards = page.getByTestId('public-context-card');
+
+    await branchCards.first().waitFor({ state: 'visible', timeout: 45000 }).catch(() => undefined);
+
+    const firstBranchVisible = await branchCards.first().isVisible().catch(() => false);
+    if ((await noBranchesMessage.isVisible().catch(() => false)) && !firstBranchVisible) {
+        throw new Error('LOGIN_NO_BRANCHES_CONFIGURED');
+    }
+
     const normalizedTarget = branch.toLowerCase();
-    const buttonCount = await selectButtons.count();
+    const directBranchButton = page.locator('button[data-location-name]').filter({ hasText: new RegExp(escapeRegExp(branch), 'i') }).first();
+    const buttonCount = await branchCards.count();
+
+    if (buttonCount === 0) {
+        throw new Error('LOGIN_BRANCHES_NOT_LOADED');
+    }
 
     let selected = false;
+    if (await directBranchButton.isVisible().catch(() => false)) {
+        await directBranchButton.click();
+        selected = true;
+    }
+
     for (let i = 0; i < buttonCount; i += 1) {
-        const button = selectButtons.nth(i);
-        const cardText = (await button
-            .locator('xpath=ancestor::*[self::article or self::section or self::div][1]')
-            .innerText()
-            .catch(() => '')).toLowerCase();
+        if (selected) break;
+        const button = branchCards.nth(i);
+        const cardText = ((await button.innerText().catch(() => '')) || '').toLowerCase();
 
         if (cardText.includes(normalizedTarget)) {
             await button.click();
@@ -50,11 +85,21 @@ async function selectBranchIfPresent(page: Page, branch: string): Promise<void> 
     }
 
     if (!selected) {
+        if (strictBranchMatch) {
+            throw new Error(`LOGIN_BRANCH_NOT_FOUND:${branch}`);
+        }
         // Fallback seguro: primer destino disponible
-        await selectButtons.first().click();
+        await branchCards.first().click();
     }
 
-    await page.waitForLoadState('networkidle');
+    await Promise.race([
+        contextPage.waitFor({ state: 'hidden', timeout: 15000 }),
+        page.getByTestId('landing-module-administracion').waitFor({ state: 'visible', timeout: 15000 }),
+        page.getByTestId('landing-module-pos').waitFor({ state: 'visible', timeout: 15000 }),
+        page.getByTestId('landing-module-logistica').waitFor({ state: 'visible', timeout: 15000 }),
+    ]).catch(() => undefined);
+
+    await page.waitForLoadState('networkidle').catch(() => undefined);
 }
 
 async function alreadyAuthenticated(page: Page): Promise<boolean> {
@@ -64,6 +109,15 @@ async function alreadyAuthenticated(page: Page): Promise<boolean> {
 }
 
 async function openModuleForLogin(page: Page, module: string): Promise<void> {
+    const moduleTestId = MODULE_TEST_IDS[module];
+    if (moduleTestId) {
+        const moduleCard = page.getByTestId(moduleTestId);
+        if (await moduleCard.isVisible().catch(() => false)) {
+            await moduleCard.click();
+            return;
+        }
+    }
+
     const moduleHeading = page.getByRole('heading', { name: module }).first();
     if (await moduleHeading.isVisible().catch(() => false)) {
         await moduleHeading.click();
@@ -92,7 +146,39 @@ async function waitLoginModal(page: Page): Promise<void> {
     ]);
 }
 
-async function chooseUser(page: Page, user: string): Promise<void> {
+async function lookupUserByRutIfPresent(page: Page, rut: string): Promise<void> {
+    const rutInput = page.getByPlaceholder(/Ingrese su RUT/i).first();
+    if (!(await rutInput.isVisible().catch(() => false))) {
+        return;
+    }
+
+    await rutInput.fill(rut);
+
+    const searchButton = page.getByRole('button', { name: /Buscar por RUT/i }).first();
+    await searchButton.waitFor({ state: 'visible', timeout: 15000 });
+    await searchButton.click();
+
+    const userButtons = page
+        .locator('button')
+        .filter({ hasText: /ADMIN|GERENTE|CAJERO|BODEGA|SUPERVISOR|DEV_TEST_ACCOUNT/i });
+    const lookupError = page
+        .getByText(/No se encontr[oó]|Usuario no disponible|Ingrese un RUT v[aá]lido|No fue posible/i)
+        .first();
+
+    await page.getByRole('button', { name: /Buscando/i }).first()
+        .waitFor({ state: 'hidden', timeout: 15000 })
+        .catch(() => undefined);
+    await userButtons.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
+
+    if (!(await userButtons.first().isVisible().catch(() => false))) {
+        const errorText = (await lookupError.innerText().catch(() => '')).trim();
+        throw new Error(errorText ? `LOGIN_RUT_LOOKUP_FAILED:${errorText}` : `LOGIN_RUT_LOOKUP_FAILED:${rut}`);
+    }
+}
+
+async function chooseUser(page: Page, user: string, rut: string, strictUserMatch: boolean): Promise<void> {
+    await lookupUserByRutIfPresent(page, rut);
+
     const noUsersVisible = () => page.getByText(/No se encontraron usuarios/i).first().isVisible().catch(() => false);
     const retryButton = page.getByRole('button', { name: /Reintentar carga|Reintentando/i }).first();
 
@@ -118,10 +204,14 @@ async function chooseUser(page: Page, user: string): Promise<void> {
         .filter({ hasText: /ADMIN|GERENTE|CAJERO|BODEGA|SUPERVISOR/i });
     await userButtons.first().waitFor({ state: 'visible', timeout: 15000 });
 
-    const exactUser = page.getByRole('button', { name: new RegExp(user, 'i') }).first();
+    const exactUser = page.getByRole('button', { name: new RegExp(escapeRegExp(user), 'i') }).first();
     if (await exactUser.isVisible().catch(() => false)) {
         await exactUser.click();
         return;
+    }
+
+    if (strictUserMatch) {
+        throw new Error(`LOGIN_USER_NOT_FOUND:${user}`);
     }
 
     if (await userButtons.first().isVisible().catch(() => false)) {
@@ -140,12 +230,18 @@ async function fillPinAndSubmit(page: Page, pin: string): Promise<void> {
     await pinInput.waitFor({ state: 'visible', timeout: 15000 });
     await pinInput.fill(pin);
 
-    const submit = page.getByRole('button', { name: /Entrar|Ingresar|Acceder/i }).first();
+    const modal = page.locator('.fixed.inset-0').filter({ has: pinInput }).last();
+    const submitScope = await modal.isVisible().catch(() => false) ? modal : page;
+    const submit = submitScope.getByRole('button', { name: /^Entrar$|Ingresar/i }).last();
     if (await submit.isVisible().catch(() => false)) {
+        const submitHandle = await submit.elementHandle().catch(() => null);
+        if (submitHandle) {
+            await page.waitForFunction((button) => !(button as HTMLButtonElement).disabled, submitHandle, { timeout: 5000 }).catch(() => undefined);
+        }
         await submit.click();
     } else {
         // Algunos modales usan botón genérico ("..."), por eso usamos fallback de botón habilitado.
-        const enabledFallback = page
+        const enabledFallback = submitScope
             .locator('button:not([disabled])')
             .filter({ hasNotText: /Atrás|Volver|Cerrar/i })
             .last();
@@ -162,12 +258,12 @@ async function submitLoginWithRetry(page: Page, pin: string, maxAttempts = 3): P
         await fillPinAndSubmit(page, pin);
 
         const successPromise = Promise.race([
-            page.waitForURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 12000 }),
-            page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 12000 }),
+            page.waitForURL(/dashboard|pos|caja|warehouse|inventory|finance|supply-chain/i, { timeout: 30000 }),
+            page.getByText('Resumen General', { exact: true }).waitFor({ state: 'visible', timeout: 30000 }),
         ]).then(() => 'success').catch(() => null);
 
         const errorLocator = page.locator('p.text-red-500, .text-red-500').first();
-        const errorPromise = errorLocator.waitFor({ state: 'visible', timeout: 12000 })
+        const errorPromise = errorLocator.waitFor({ state: 'visible', timeout: 30000 })
             .then(async () => (await errorLocator.innerText().catch(() => '')).trim())
             .catch(() => '');
 
@@ -176,6 +272,11 @@ async function submitLoginWithRetry(page: Page, pin: string, maxAttempts = 3): P
 
         const normalized = (errorText || '').toLowerCase();
         const transient = /timeout|temporalmente|no disponible|conexi[oó]n|servidor|reintento/.test(normalized);
+
+        if (!errorText && attempt < maxAttempts) {
+            await page.waitForTimeout(2000 * attempt);
+            continue;
+        }
 
         if (!transient) {
             throw new Error(errorText || 'LOGIN_FAILED_NO_RETRY');
@@ -202,11 +303,7 @@ export async function loginAsManager(page: Page, options?: LoginOptions): Promis
         await waitInitialSurface(page);
     }
 
-    if (await page.getByText(/No hay sucursales configuradas/i).first().isVisible().catch(() => false)) {
-        throw new Error('LOGIN_NO_BRANCHES_CONFIGURED');
-    }
-
-    await selectBranchIfPresent(page, cfg.branch);
+    await selectBranchIfPresent(page, cfg.branch, cfg.strictBranchMatch);
 
     if (await alreadyAuthenticated(page)) {
         return true;
@@ -215,7 +312,7 @@ export async function loginAsManager(page: Page, options?: LoginOptions): Promis
     await page.waitForLoadState('networkidle');
     await openModuleForLogin(page, cfg.module);
     await waitLoginModal(page);
-    await chooseUser(page, cfg.user);
+    await chooseUser(page, cfg.user, cfg.rut, cfg.strictUserMatch);
     await submitLoginWithRetry(page, cfg.pin);
 
     await page.waitForLoadState('networkidle').catch(() => undefined);

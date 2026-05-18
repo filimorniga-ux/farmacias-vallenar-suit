@@ -4,6 +4,10 @@ import { getClient } from '@/lib/db';
 import { XMLParser } from 'fast-xml-parser';
 import { matchProduct, type MatchResult } from '../../services/inventory-matcher';
 import { InvoiceMapperService, InvoiceItemCandidate } from '../../services/invoice-mapper';
+import {
+    PROCUREMENT_GLOBAL_ROLES,
+    requireProcurementActor,
+} from '../procurement-scope';
 
 
 export interface ProcessedInvoiceItem {
@@ -29,6 +33,18 @@ export interface InvoiceProcessResult {
 }
 
 export async function processInvoiceXML(xmlContent: string): Promise<InvoiceProcessResult> {
+    const auth = await requireProcurementActor(PROCUREMENT_GLOBAL_ROLES, 'legacy-procurement-process-invoice');
+    if (!auth.success) {
+        return { success: false, message: auth.error };
+    }
+
+    if (process.env.ENABLE_LEGACY_PROCUREMENT_XML !== 'true') {
+        return {
+            success: false,
+            message: 'El procesador XML legado está deshabilitado. Usa el flujo moderno de abastecimiento.',
+        };
+    }
+
     const client = await getClient();
 
     try {

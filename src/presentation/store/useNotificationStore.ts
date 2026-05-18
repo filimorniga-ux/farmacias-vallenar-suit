@@ -32,6 +32,11 @@ export interface Notification {
 
 export type NotificationCategory = 'INVENTORY' | 'CASH' | 'HR' | 'WMS' | 'SYSTEM' | 'ALL';
 
+const NOTIFICATION_FRESH_WINDOW_MS = 30_000;
+
+let inFlightNotificationKey: string | null = null;
+let inFlightNotificationPromise: Promise<void> | null = null;
+
 interface NotificationState {
     notifications: Notification[];
     unreadCount: number;
@@ -40,6 +45,8 @@ interface NotificationState {
     isLoading: boolean;
     error: string | null;
     activeCategory: NotificationCategory;
+    lastFetchedKey: string | null;
+    lastFetchedAt: number | null;
 
     /** IDs de notificaciones seleccionadas (para acciones en lote) */
     selectedIds: Set<string>;
@@ -56,7 +63,7 @@ interface NotificationState {
     setActiveCategory: (cat: NotificationCategory) => void;
 
     // ── Fetch ────────────────────────────────────────────────────────────────
-    fetchNotifications: (locationId?: string) => Promise<void>;
+    fetchNotifications: (locationId?: string, options?: { force?: boolean }) => Promise<void>;
 
     // ── Mark as read ─────────────────────────────────────────────────────────
     markAsRead: (id: string) => Promise<void>;
@@ -102,6 +109,8 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     isLoading: false,
     error: null,
     activeCategory: 'ALL',
+    lastFetchedKey: null,
+    lastFetchedAt: null,
     selectedIds: new Set(),
 
     // ── Open/close ────────────────────────────────────────────────────────────
@@ -114,9 +123,26 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     setActiveCategory: (cat) => set({ activeCategory: cat, selectedIds: new Set() }),
 
     // ── Fetch ─────────────────────────────────────────────────────────────────
-    fetchNotifications: async (locationId) => {
+    fetchNotifications: async (locationId, options) => {
+        const fetchKey = locationId || 'all';
+        const { lastFetchedKey, lastFetchedAt, notifications } = get();
+        const isFresh =
+            !options?.force
+            && lastFetchedKey === fetchKey
+            && lastFetchedAt !== null
+            && Date.now() - lastFetchedAt < NOTIFICATION_FRESH_WINDOW_MS;
+
+        if (isFresh) {
+            return;
+        }
+
+        if (inFlightNotificationPromise && inFlightNotificationKey === fetchKey) {
+            return inFlightNotificationPromise;
+        }
+
         set({ isLoading: true, error: null });
-        try {
+
+        const request = (async () => {
             const res = await getNotificationsSecure(locationId);
             if (res.success && res.data) {
                 const mapped = res.data.map(mapServerNotification);
@@ -124,13 +150,29 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
                     notifications: mapped,
                     unreadCount: res.unreadCount ?? mapped.filter((n) => !n.read).length,
                     isLoading: false,
+                    lastFetchedKey: fetchKey,
+                    lastFetchedAt: Date.now(),
                 });
             } else {
                 set({ isLoading: false, error: res.error ?? 'Error al cargar notificaciones' });
             }
-        } catch (e: any) {
-            set({ isLoading: false, error: e.message ?? 'Error de conexión' });
-        }
+        })()
+            .catch((e: any) => {
+                set({
+                    isLoading: false,
+                    error: e.message ?? 'Error de conexión',
+                    notifications,
+                });
+            })
+            .finally(() => {
+                inFlightNotificationKey = null;
+                inFlightNotificationPromise = null;
+            });
+
+        inFlightNotificationKey = fetchKey;
+        inFlightNotificationPromise = request;
+
+        return request;
     },
 
     // ── Mark as read ──────────────────────────────────────────────────────────
@@ -142,7 +184,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         try {
             await markAsReadSecure([id]);
         } catch {
-            get().fetchNotifications();
+            get().fetchNotifications(undefined, { force: true });
         }
     },
 
@@ -154,7 +196,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         try {
             await markAllAsReadSecure(locationId);
         } catch {
-            get().fetchNotifications();
+            get().fetchNotifications(locationId, { force: true });
         }
     },
 
@@ -169,7 +211,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         try {
             await markAsReadSecure(ids);
         } catch {
-            get().fetchNotifications();
+            get().fetchNotifications(undefined, { force: true });
         }
     },
 
@@ -183,7 +225,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         try {
             await deleteNotificationSecure([id]);
         } catch {
-            get().fetchNotifications();
+            get().fetchNotifications(undefined, { force: true });
         }
     },
 
@@ -199,7 +241,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         try {
             await deleteNotificationSecure(ids);
         } catch {
-            get().fetchNotifications();
+            get().fetchNotifications(undefined, { force: true });
         }
     },
 

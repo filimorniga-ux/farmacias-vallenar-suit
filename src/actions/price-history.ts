@@ -3,7 +3,7 @@
 import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import { getSessionSecure } from '@/actions/auth-v2';
+import { getSessionSecure, validateSupervisorPin } from '@/actions/auth-v2';
 
 export interface PriceAdjustmentBatch {
     id: number;
@@ -86,12 +86,8 @@ export async function getRecentAdjustments(limit = 10): Promise<{ success: boole
 
 // 4. Revert (Undo) Logic
 export async function revertPriceAdjustment(batchId: number, pin: string) {
-    // Basic Security Check (reusing same PIN as creation for now)
-    // Basic Security Check
-    const correctPin = process.env.ADMIN_ACTION_PIN;
-    const isDevPin = pin === '1213';
-
-    if ((correctPin && pin !== correctPin && !isDevPin) || (!correctPin && !isDevPin)) {
+    const authResult = await validateSupervisorPin(pin, ['MANAGER', 'ADMIN', 'GERENTE_GENERAL']);
+    if (!authResult.success) {
         return { success: false, error: 'PIN incorrecto' };
     }
 

@@ -19,21 +19,17 @@ import HRPage from './presentation/pages/HRPage';
 import SettingsPage from './presentation/pages/SettingsPage';
 import ClientsPage from './presentation/pages/ClientsPage';
 import InventoryPage from './presentation/pages/InventoryPage';
-import ReportsPage from './presentation/pages/ReportsPage';
 import AttendanceKioskPage from './presentation/pages/AttendanceKioskPage';
 // import { WarehouseOps } from './presentation/pages/WarehouseOps'; // Archived: replaced by WMSPage
 import { WMSPage } from './presentation/pages/WMSPage';
 import { SuppliersPage } from './presentation/pages/SuppliersPage';
 import { SupplierProfile } from './presentation/pages/SupplierProfile';
 import NetworkPage from './presentation/pages/NetworkPage';
-import PriceCheckPage from './presentation/pages/PriceCheckPage';
 import InventorySettings from './presentation/pages/settings/InventorySettings';
 import ContextSelectionPage from './presentation/pages/ContextSelectionPage';
 import PrintingSettingsPage from './presentation/pages/settings/PrintingSettingsPage';
-import AISettingsPage from './app/settings_deprecated/ai/page';
 import TreasuryPage from './app/finance/treasury/page';
 import MonthlyClosingPage from './app/finance/monthly-closing/page';
-import { ProductSalesReportPage } from './presentation/pages/reports/ProductSalesReportPage';
 import SmartInvoicePage from './app/procurement/smart-invoice/page';
 import InvoiceListPage from './app/procurement/smart-invoice/list/page';
 import SchedulerPage from './presentation/pages/SchedulerPage';
@@ -70,22 +66,20 @@ function App({ forceContextSelection }: { forceContextSelection?: boolean }) {
                 <Route path="/queue" element={<QueueKioskPage />} />
                 <Route path="/totem" element={<QueueKioskPage />} />
                 <Route path="/totem/setup" element={<QueueKioskPage />} /> {/* Protected by Internal UI Lock */}
-                <Route path="/price-check" element={<PriceCheckPage />} />
+                <Route path="/price-check" element={<Navigate to="/" replace />} />
                 <Route path="/select-context" element={<ContextSelectionPage />} />
 
                 {/* Protected Routes */}
                 <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
                 <Route path="/board" element={<ProtectedRoute><BoardPage /></ProtectedRoute>} />
                 <Route path="/settings/printing" element={<ProtectedRoute><PrintingSettingsPage /></ProtectedRoute>} />
-                <Route path="/settings/ai" element={<ProtectedRoute><AISettingsPage /></ProtectedRoute>} />
+                <Route path="/settings/ai" element={<ProtectedRoute><Navigate to="/settings" replace /></ProtectedRoute>} />
                 <Route path="/pos" element={<ProtectedRoute><POSMainScreen /></ProtectedRoute>} />
                 <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
                 <Route path="/inventory/maintenance" element={<ProtectedRoute><InventorySettings /></ProtectedRoute>} />
                 <Route path="/warehouse" element={<ProtectedRoute><WMSPage /></ProtectedRoute>} />
                 <Route path="/suppliers" element={<ProtectedRoute><SuppliersPage /></ProtectedRoute>} />
                 <Route path="/suppliers/:id" element={<ProtectedRoute><SupplierProfile /></ProtectedRoute>} />
-                <Route path="/reports" element={<ProtectedRoute><ReportsPage /></ProtectedRoute>} />
-                <Route path="/reports/sales-by-product" element={<ProtectedRoute><ProductSalesReportPage /></ProtectedRoute>} />
                 <Route path="/supply-chain" element={<ProtectedRoute><SupplyChainPage /></ProtectedRoute>} />
                 <Route path="/procurement/smart-invoice" element={<ProtectedRoute><SmartInvoicePage /></ProtectedRoute>} />
                 <Route path="/procurement/smart-invoice/list" element={<ProtectedRoute><InvoiceListPage /></ProtectedRoute>} />

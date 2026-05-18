@@ -1,6 +1,7 @@
-import Page from '../page';
+import { notFound } from 'next/navigation';
 
-// Force Rebuild
 export const dynamic = 'force-dynamic';
 
-export default Page;
+export default function LegacyCatchAllPage() {
+    notFound();
+}

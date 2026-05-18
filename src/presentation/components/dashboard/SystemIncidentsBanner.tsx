@@ -1,34 +1,44 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, ArrowRight, CheckCircle } from 'lucide-react';
-import { getRecentSystemIncidentsSecure } from '@/actions/maintenance-v2';
-import { usePharmaStore } from '../../store/useStore'; // Para obtener el ID del gerente actual
-import { ReconciliationModal } from './ReconciliationModal'; // Importamos el nuevo modal
+import { ShieldAlert, ArrowRight } from 'lucide-react';
+import { usePharmaStore } from '../../store/useStore';
+import { ReconciliationModal } from './ReconciliationModal';
+import { scheduleIdleTask } from '@/presentation/lib/scheduleIdleTask';
+import { useSystemIncidents, type SystemIncident } from '@/presentation/hooks/useSystemIncidents';
+
+const INCIDENTS_BANNER_DELAY_MS = 4000;
+const INCIDENT_MANAGER_ROLES = new Set(['ADMIN', 'MANAGER', 'GERENTE_GENERAL']);
 
 export default function SystemIncidentsBanner() {
-    const { user } = usePharmaStore();
-    const [incidents, setIncidents] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const user = usePharmaStore((state) => state.user);
+    const [shouldFetchIncidents, setShouldFetchIncidents] = useState(false);
+    const canManageIncidents = INCIDENT_MANAGER_ROLES.has(String(user?.role || '').toUpperCase());
+    const {
+        data: incidents = [],
+        isLoading,
+        refetch,
+    } = useSystemIncidents(canManageIncidents && shouldFetchIncidents);
 
-    // Estado para el Modal
-    const [selectedIncident, setSelectedIncident] = useState<any | null>(null);
+    const [selectedIncident, setSelectedIncident] = useState<SystemIncident | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
-    const fetchIncidents = () => {
-        getRecentSystemIncidentsSecure().then((res: { success: boolean; data?: any[] }) => {
-            if (res.success && res.data) {
-                setIncidents(res.data);
-            }
-            setLoading(false);
-        });
-    };
-
     useEffect(() => {
-        fetchIncidents();
-    }, []);
+        if (!canManageIncidents) {
+            setShouldFetchIncidents(false);
+            return;
+        }
 
-    const handleReconcileClick = (incident: any) => {
+        const cancelDeferredFetch = scheduleIdleTask(() => {
+            setShouldFetchIncidents(true);
+        }, INCIDENTS_BANNER_DELAY_MS);
+
+        return () => {
+            cancelDeferredFetch();
+        };
+    }, [canManageIncidents]);
+
+    const handleReconcileClick = (incident: SystemIncident) => {
         setSelectedIncident(incident);
         setIsModalOpen(true);
     };
@@ -36,13 +46,11 @@ export default function SystemIncidentsBanner() {
     const handleModalClose = () => {
         setIsModalOpen(false);
         setSelectedIncident(null);
-        // Recargar incidentes para ver si ya desapareció el que acabamos de arreglar
-        fetchIncidents();
+        void refetch();
     };
 
-    if (loading || incidents.length === 0) return null;
+    if (!canManageIncidents || isLoading || incidents.length === 0) return null;
 
-    // Tomamos el primer incidente para la acción rápida (o podríamos listar todos)
     const targetIncident = incidents[0];
 
     return (

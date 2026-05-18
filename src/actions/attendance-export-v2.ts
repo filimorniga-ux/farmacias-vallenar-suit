@@ -8,35 +8,24 @@
  */
 
 import { query } from '@/lib/db';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 import { ExcelService } from '@/lib/excel-generator';
+import { getValidatedSession } from '@/lib/server-session';
+import { getAttendanceReportSecure } from './attendance-report-v2';
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name');
-
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-
-            // Location might be in local storage but cookies might have it too if properly set
-            // For now we rely on headers or if userId is present we can assume auth is valid mostly.
-        }
-
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined, userName: userName || undefined };
-    } catch { return null; }
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+        userName: session.userName,
+    };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -129,5 +118,72 @@ export async function exportAttendanceReportSecure(
     } catch (error: unknown) {
         logger.error({ error }, '[Export] Attendance error');
         return { success: false, error: 'Error generando reporte' };
+    }
+}
+
+/**
+ * 📊 Exportar Resumen de Asistencia (alineado con HRReportTab)
+ */
+export async function exportAttendanceSummarySecure(
+    params: { startDate: string; endDate: string; locationId?: string; role?: string }
+): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
+    const session = await getSession();
+    if (!session) return { success: false, error: 'No autenticado' };
+
+    if (!MANAGER_ROLES.includes(session.role)) {
+        return { success: false, error: 'Solo managers y RRHH pueden exportar asistencia' };
+    }
+
+    try {
+        const reportResult = await getAttendanceReportSecure(params);
+        if (!reportResult.success || !reportResult.data) {
+            return { success: false, error: reportResult.error || 'Error obteniendo resumen de asistencia' };
+        }
+
+        const data = reportResult.data.map((row) => ({
+            date: new Date(row.date).toLocaleDateString('es-CL'),
+            user: row.user_name,
+            rut: row.rut || '-',
+            role: row.job_title,
+            check_in: row.check_in
+                ? new Date(row.check_in).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                : '-',
+            check_out: row.check_out
+                ? new Date(row.check_out).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+                : '-',
+            hours_worked: row.hours_worked,
+            status: row.status,
+        }));
+
+        const excel = new ExcelService();
+        const buffer = await excel.generateReport({
+            title: 'Resumen de Asistencia',
+            subtitle: `${new Date(params.startDate).toLocaleDateString()} - ${new Date(params.endDate).toLocaleDateString()}`,
+            sheetName: 'Resumen Asistencia',
+            creator: session.userName,
+            columns: [
+                { header: 'Fecha', key: 'date', width: 14 },
+                { header: 'Colaborador', key: 'user', width: 28 },
+                { header: 'RUT', key: 'rut', width: 16 },
+                { header: 'Cargo', key: 'role', width: 20 },
+                { header: 'Entrada', key: 'check_in', width: 12 },
+                { header: 'Salida', key: 'check_out', width: 12 },
+                { header: 'Horas', key: 'hours_worked', width: 12 },
+                { header: 'Estado', key: 'status', width: 12 },
+            ],
+            data,
+        });
+
+        await auditExport(session.userId, { ...params, mode: 'summary', rows: data.length });
+        logger.info({ userId: session.userId }, '📊 [Export] Attendance summary');
+
+        return {
+            success: true,
+            data: buffer.toString('base64'),
+            filename: `ResumenAsistencia_${params.startDate.split('T')[0]}.xlsx`,
+        };
+    } catch (error: unknown) {
+        logger.error({ error }, '[Export] Attendance summary error');
+        return { success: false, error: 'Error generando resumen de asistencia' };
     }
 }

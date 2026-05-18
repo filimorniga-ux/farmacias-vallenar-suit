@@ -1,10 +1,10 @@
 /**
  * WMSReportPanel - Panel reutilizable de reportes para operaciones WMS
- * 
+ *
  * Filtros por rango de fechas, presets, factura.
  * Tabla de resultados con personal, movimientos y desglose.
  * Botón de exportar Excel.
- * 
+ *
  * Zona horaria: America/Santiago (skill timezone-santiago)
  */
 import React, { useState, useCallback, useRef } from 'react';
@@ -153,6 +153,9 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
     const [loading, setLoading] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [hasSearched, setHasSearched] = useState(false);
+    const totalPages = Math.max(1, Math.ceil(totalResults / filters.pageSize));
+    const visibleStart = totalResults === 0 ? 0 : (filters.page - 1) * filters.pageSize + 1;
+    const visibleEnd = Math.min(filters.page * filters.pageSize, totalResults);
 
     // Buscar
     const handleSearch = useCallback(async (page = 1) => {
@@ -173,6 +176,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                     startDate: new Date(filters.startDate),
                     endDate: new Date(filters.endDate + 'T23:59:59'),
                     movementType: type,
+                    invoiceNumber: activeTab === 'PEDIDOS' ? filters.invoiceNumber : undefined,
                     page,
                     pageSize: filters.pageSize,
                 });
@@ -304,7 +308,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                             <button
                                 key={preset.label}
                                 onClick={() => applyPreset(preset)}
-                                className="px-3 py-1.5 text-xs font-medium bg-white border border-slate-200 
+                                className="px-3 py-1.5 text-xs font-medium bg-white border border-slate-200
                                          rounded-lg hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700
                                          transition-colors"
                             >
@@ -321,7 +325,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                                 type="date"
                                 value={filters.startDate}
                                 onChange={(e) => setFilters(prev => ({ ...prev, startDate: e.target.value }))}
-                                className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-medium 
+                                className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-medium
                                          text-slate-800 focus:border-sky-400 focus:ring-2 focus:ring-sky-100
                                          outline-none transition-all"
                             />
@@ -332,7 +336,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                                 type="date"
                                 value={filters.endDate}
                                 onChange={(e) => setFilters(prev => ({ ...prev, endDate: e.target.value }))}
-                                className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-medium 
+                                className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-medium
                                          text-slate-800 focus:border-sky-400 focus:ring-2 focus:ring-sky-100
                                          outline-none transition-all"
                             />
@@ -360,8 +364,9 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                         {/* Filtro factura (solo para Pedidos) */}
                         {activeTab === 'PEDIDOS' && (
                             <div>
-                                <label className="text-xs font-medium text-slate-500 block mb-1">Nº Factura</label>
+                                <label htmlFor="wms-report-invoice-number" className="text-xs font-medium text-slate-500 block mb-1">Nº Factura</label>
                                 <input
+                                    id="wms-report-invoice-number"
                                     type="text"
                                     value={filters.invoiceNumber || ''}
                                     onChange={(e) => setFilters(prev => ({ ...prev, invoiceNumber: e.target.value || undefined }))}
@@ -377,7 +382,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                         <button
                             onClick={() => handleSearch(1)}
                             disabled={loading}
-                            className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold 
+                            className="px-5 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold
                                      rounded-xl shadow-lg shadow-sky-500/20
                                      disabled:opacity-50 transition-all flex items-center gap-2"
                         >
@@ -393,7 +398,7 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                         <button
                             onClick={handleExport}
                             disabled={exporting || results.length === 0}
-                            className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold 
+                            className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white font-bold
                                      rounded-xl shadow-lg shadow-emerald-500/20
                                      disabled:opacity-50 transition-all flex items-center gap-2"
                         >
@@ -406,16 +411,21 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                         </button>
 
                         {/* Imprimir */}
-                        <button
-                            onClick={handlePrint}
-                            disabled={results.length === 0}
-                            className="px-5 py-2 bg-slate-700 hover:bg-slate-800 text-white font-bold 
-                                     rounded-xl shadow-lg shadow-slate-700/20
-                                     disabled:opacity-50 transition-all flex items-center gap-2"
-                        >
-                            <Printer size={16} />
-                            Imprimir
-                        </button>
+                        <div className="flex flex-col gap-1">
+                            <button
+                                onClick={handlePrint}
+                                disabled={results.length === 0}
+                                className="px-5 py-2 bg-slate-700 hover:bg-slate-800 text-white font-bold
+                                         rounded-xl shadow-lg shadow-slate-700/20
+                                         disabled:opacity-50 transition-all flex items-center gap-2"
+                            >
+                                <Printer size={16} />
+                                Imprimir página visible
+                            </button>
+                            <p className="max-w-48 text-[11px] font-medium leading-tight text-slate-500">
+                                La impresión incluye solo los resultados visibles en esta página.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -537,24 +547,26 @@ export const WMSReportPanel: React.FC<WMSReportPanelProps> = ({
                 {results.length > 0 && (
                     <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
                         <span className="text-sm text-slate-500">
-                            Mostrando {results.length} de {totalResults} registros
+                            Mostrando {visibleStart}-{visibleEnd} de {totalResults} registros
                         </span>
                         <div className="flex items-center gap-2">
                             <button
                                 onClick={() => handleSearch(filters.page - 1)}
                                 disabled={filters.page <= 1 || loading}
-                                className="px-3 py-1.5 text-sm font-medium bg-white border border-slate-200 
+                                aria-label="Página anterior"
+                                className="px-3 py-1.5 text-sm font-medium bg-white border border-slate-200
                                          rounded-lg hover:bg-slate-50 disabled:opacity-30 transition-colors"
                             >
                                 Anterior
                             </button>
-                            <span className="text-sm font-medium text-slate-700">
-                                Pág. {filters.page}
+                            <span className="text-sm font-medium text-slate-700" aria-current="page">
+                                Página {filters.page} de {totalPages}
                             </span>
                             <button
                                 onClick={() => handleSearch(filters.page + 1)}
-                                disabled={results.length < filters.pageSize || loading}
-                                className="px-3 py-1.5 text-sm font-medium bg-white border border-slate-200 
+                                disabled={filters.page >= totalPages || loading}
+                                aria-label="Página siguiente"
+                                className="px-3 py-1.5 text-sm font-medium bg-white border border-slate-200
                                          rounded-lg hover:bg-slate-50 disabled:opacity-30 transition-colors"
                             >
                                 Siguiente

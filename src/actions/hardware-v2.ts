@@ -16,9 +16,12 @@
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
+import { resolveActorResult } from './actor-result';
+import {
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -35,63 +38,6 @@ const HardwareConfigSchema = z.object({
 });
 
 // ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
-    } catch {
-        return null;
-    }
-}
-
-async function validateManagerPin(
-    client: any,
-    pin: string
-): Promise<{ valid: boolean; manager?: { id: string; name: string } }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-
-        const managersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of managersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name } };
-            }
-        }
-        return { valid: false };
-    } catch {
-        return { valid: false };
-    }
-}
-
-// ============================================================================
 // GET HARDWARE CONFIG
 // ============================================================================
 
@@ -105,12 +51,13 @@ export async function getTerminalHardwareConfigSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
+        const actor = auth.actor;
         // Verificar que el usuario tiene acceso al terminal
         const termRes = await query(`
             SELECT t.config, t.location_id 
@@ -125,7 +72,7 @@ export async function getTerminalHardwareConfigSecure(
         const terminal = termRes.rows[0];
 
         // RBAC: Usuario debe tener acceso a la ubicación
-        if (!MANAGER_ROLES.includes(session.role) && session.locationId !== terminal.location_id) {
+        if (!ROLE_GROUPS.MANAGER.includes(actor.role as typeof ROLE_GROUPS.MANAGER[number]) && actor.locationId !== terminal.location_id) {
             return { success: false, error: 'No tienes acceso a este terminal' };
         }
 
@@ -158,10 +105,11 @@ export async function updateTerminalHardwareConfigSecure(
         return { success: false, error: validatedConfig.error.issues[0]?.message };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     const client = await pool.connect();
 
@@ -169,7 +117,10 @@ export async function updateTerminalHardwareConfigSecure(
         await client.query('BEGIN');
 
         // Validar PIN MANAGER
-        const authResult = await validateManagerPin(client, managerPin);
+        const authResult = await validatePinForRoles(client, managerPin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de manager inválido' };
@@ -185,7 +136,7 @@ export async function updateTerminalHardwareConfigSecure(
 
         // Actualizar
         await client.query(`
-            UPDATE terminals SET config = $2, updated_at = NOW()
+            UPDATE terminals SET config = $2
             WHERE id = $1
         `, [terminalId, validatedConfig.data]);
 
@@ -193,11 +144,15 @@ export async function updateTerminalHardwareConfigSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
             VALUES ($1, 'HARDWARE_CONFIG_UPDATED', 'TERMINAL', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [authResult.manager!.id, terminalId, JSON.stringify(prevConfig), JSON.stringify(validatedConfig.data)]);
+        `, [actor.userId, terminalId, JSON.stringify(prevConfig), JSON.stringify(validatedConfig.data)]);
 
         await client.query('COMMIT');
 
-        logger.info({ terminalId }, '⚙️ [Hardware] Config updated');
+        logger.info({
+            terminalId,
+            actorUserId: actor.userId,
+            authorizedById: authResult.authorizedBy.id,
+        }, '⚙️ [Hardware] Config updated');
         revalidatePath('/caja');
         return { success: true };
 
@@ -225,10 +180,11 @@ export async function testPrinterConnectionSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         // En un entorno real, aquí se haría la conexión real
@@ -260,10 +216,11 @@ export async function getAvailablePrintersSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
+    const actor = auth.actor;
 
     try {
         // En un entorno real, se detectarían impresoras del sistema

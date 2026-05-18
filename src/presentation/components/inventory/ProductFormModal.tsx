@@ -1,14 +1,30 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { X, Save, Package, Camera, Info, Sparkles, Search as SearchIcon, AlertTriangle, Globe, Loader2, CheckCircle, Calculator, Percent, Syringe, Tag, Truck, FileText, Barcode, DollarSign } from 'lucide-react';
 import { createProductSecure, updateProductMasterSecure } from '../../../actions/products-v2';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { InventoryBatch } from '../../../domain/types';
 import { toast } from 'sonner';
-import CameraScanner from '../ui/CameraScanner';
 import { lookupBarcode, BarcodeLookupResult } from '../../../infrastructure/services/BarcodeLookupService';
 import { calculateRecommendedPrice, calculateMargin } from '../../../domain/logic/pricing-rules'; // Importar lógica de precios
 
 import { useQueryClient } from '@tanstack/react-query';
+
+const CameraScanner = dynamic(
+    () => import('../ui/CameraScanner'),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/80 px-6 text-white backdrop-blur-sm">
+                <div className="rounded-3xl border border-slate-700 bg-slate-900 px-6 py-5 text-center shadow-2xl">
+                    <Loader2 size={28} className="mx-auto mb-3 animate-spin text-cyan-400" aria-hidden="true" />
+                    <p className="text-sm font-semibold">Abriendo cámara…</p>
+                </div>
+            </div>
+        ),
+    }
+);
 
 interface ProductFormModalProps {
     product?: InventoryBatch;
@@ -27,7 +43,10 @@ interface ProductFormModalProps {
 
 const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialValues, onClose, onSuccess }) => {
     const queryClient = useQueryClient();
-    const { suppliers, currentLocationId, locations, user } = usePharmaStore();
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const user = usePharmaStore((state) => state.user);
+    const locations = useLocationStore((state) => state.locations);
     const isEdit = !!product;
 
     // Calculadora State
@@ -277,38 +296,49 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
     };
 
     return (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90dvh] md:h-[90vh] flex flex-col animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-2 backdrop-blur-sm [padding-bottom:max(env(safe-area-inset-bottom),0.5rem)] [padding-top:max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:px-4">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="product-form-modal-title"
+                data-testid="product-form-modal"
+                className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl animate-in fade-in zoom-in duration-200 md:h-[90vh]"
+            >
                 {/* Header */}
-                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-3xl">
-                    <div>
-                        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                            <Package className="text-cyan-600" />
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center gap-3 bg-slate-50/50 rounded-t-3xl sm:p-6">
+                    <div className="min-w-0">
+                        <h2 id="product-form-modal-title" className="text-lg font-bold text-slate-800 flex items-center gap-2 text-pretty sm:text-2xl">
+                            <Package className="text-cyan-600" aria-hidden="true" />
                             {isEdit ? 'Editar Producto Maestro' : 'Nuevo Producto Maestro'}
                         </h2>
                         <p className="text-slate-500 text-sm">Gestión centralizada de inventario y precios</p>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
-                        <X size={24} className="text-slate-400" />
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Cerrar formulario de producto"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                    >
+                        <X size={24} aria-hidden="true" />
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-8 bg-slate-50/30">
-                    <div className="grid grid-cols-12 gap-8">
+                <div className="flex-1 overflow-y-auto overscroll-contain p-4 bg-slate-50/30 sm:p-8">
+                    <div className="grid grid-cols-12 gap-4 lg:gap-8">
 
                         {/* LEFT COLUMN: IDENTIFICATION & SANITARY */}
                         <div className="col-span-12 lg:col-span-7 space-y-6">
 
                             {/* Identificación */}
-                            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                            <section className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 sm:p-6">
                                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                    <Tag size={16} /> Identificación
+                                    <Tag size={16} aria-hidden="true" /> Identificación
                                 </h3>
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                     <div>
                                         <label className="block text-xs font-bold text-slate-500 mb-1">SKU *</label>
                                         <div className="relative">
-                                            <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                            <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} aria-hidden="true" />
                                             <input
                                                 className="w-full pl-10 p-3 border border-slate-200 rounded-xl font-mono text-slate-700 bg-slate-50 text-base"
                                                 value={formData.sku}
@@ -322,19 +352,23 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Código Barras</label>
                                         <div className="flex gap-2">
                                             <input
-                                                className="flex-1 p-3 border border-slate-200 rounded-xl font-mono text-base"
+                                                className="min-w-0 flex-1 p-3 border border-slate-200 rounded-xl font-mono text-base"
                                                 value={formData.barcode}
                                                 onChange={e => setFormData({ ...formData, barcode: e.target.value })}
                                                 placeholder="EAN"
-                                                autoFocus={!isEdit}
                                             />
-                                            <button onClick={() => setIsScannerOpen(true)} className="p-3 bg-cyan-100 text-cyan-600 rounded-xl">
-                                                <Camera size={20} />
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsScannerOpen(true)}
+                                                aria-label="Escanear código de barras"
+                                                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl bg-cyan-100 p-3 text-cyan-600 transition-colors hover:bg-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                                            >
+                                                <Camera size={20} aria-hidden="true" />
                                             </button>
                                         </div>
-                                        {isLookingUp && <span className="text-xs text-cyan-500 flex items-center gap-1 mt-1"><Loader2 size={10} className="animate-spin" /> Buscando...</span>}
+                                        {isLookingUp && <span className="text-xs text-cyan-500 flex items-center gap-1 mt-1"><Loader2 size={10} className="animate-spin" aria-hidden="true" /> Buscando…</span>}
                                     </div>
-                                    <div className="col-span-2">
+                                    <div className="sm:col-span-2">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Nombre Comercial *</label>
                                         <input
                                             className="w-full p-3 border border-slate-200 rounded-xl font-bold text-slate-700 focus:border-cyan-500 focus:outline-none text-base"
@@ -343,8 +377,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                             placeholder="Ej: Paracetamol 500mg"
                                         />
                                         {!isEdit && (
-                                            <button onClick={() => setShowSearch(true)} className="text-xs text-purple-600 font-bold hover:underline mt-1 flex items-center gap-1">
-                                                <Sparkles size={12} /> Verificar si existe
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowSearch(true)}
+                                                className="mt-1 flex min-h-11 items-center gap-1 rounded-lg px-1 text-xs font-bold text-purple-600 hover:bg-purple-50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+                                            >
+                                                <Sparkles size={12} aria-hidden="true" /> Verificar si existe
                                             </button>
                                         )}
                                     </div>
@@ -377,12 +415,12 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                             </section>
 
                             {/* Datos Sanitarios */}
-                            <section className="bg-amber-50 p-6 rounded-2xl border border-amber-100 shadow-sm">
+                            <section className="bg-amber-50 p-4 rounded-2xl border border-amber-100 shadow-sm sm:p-6">
                                 <h3 className="text-sm font-bold text-amber-700 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                    <AlertTriangle size={16} /> Datos Sanitarios (Norma Seremi)
+                                    <AlertTriangle size={16} aria-hidden="true" /> Datos Sanitarios (Norma Seremi)
                                 </h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="col-span-2">
+                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                    <div className="sm:col-span-2">
                                         <label className="block text-xs font-bold text-amber-800/60 mb-1">Principio Activo (DCI)</label>
                                         <input
                                             className="w-full p-3 border border-amber-200 rounded-xl font-bold text-slate-700 focus:border-amber-500 focus:outline-none bg-white text-base"
@@ -394,7 +432,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     <div>
                                         <label className="block text-xs font-bold text-amber-800/60 mb-1">Vía Administración</label>
                                         <div className="relative">
-                                            <Syringe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                            <Syringe className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} aria-hidden="true" />
                                             <select
                                                 className="w-full pl-10 p-3 border border-amber-200 rounded-xl bg-white focus:outline-none text-base"
                                                 value={formData.administration_route}
@@ -430,13 +468,20 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                             </section>
 
                             {/* Tags */}
-                            <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                            <section className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 sm:p-6">
                                 <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Etiquetas Terapéuticas</h3>
                                 <div className="flex flex-wrap gap-2 mb-3">
                                     {formData.therapeutic_tags?.map(tag => (
                                         <span key={tag} className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-bold flex items-center gap-1">
                                             {tag}
-                                            <button onClick={() => removeTag(tag)} className="hover:text-purple-900"><X size={12} /></button>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeTag(tag)}
+                                                aria-label={`Quitar etiqueta ${tag}`}
+                                                className="inline-flex min-h-6 min-w-6 items-center justify-center rounded-full hover:bg-purple-200 hover:text-purple-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500"
+                                            >
+                                                <X size={12} aria-hidden="true" />
+                                            </button>
                                         </span>
                                     ))}
                                 </div>
@@ -454,10 +499,10 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                         <div className="col-span-12 lg:col-span-5 space-y-6">
 
                             {/* CALCULADORA DE PRECIOS */}
-                            <section className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-2xl text-white shadow-xl relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10"><Calculator size={120} /></div>
+                            <section className="bg-gradient-to-br from-slate-900 to-slate-800 p-4 rounded-2xl text-white shadow-xl relative overflow-hidden sm:p-6">
+                                <div className="absolute top-0 right-0 p-4 opacity-10"><Calculator size={120} aria-hidden="true" /></div>
                                 <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider mb-6 flex items-center gap-2 relative z-10">
-                                    <DollarSign size={16} /> Inteligencia de Precios
+                                    <DollarSign size={16} aria-hidden="true" /> Inteligencia de Precios
                                 </h3>
 
                                 <div className="space-y-4 relative z-10">
@@ -472,10 +517,11 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                                         setFormData({ ...formData, cost_net: newCost });
                                                         toast.success(`Costo ajustado: $${formatCLP(newCost)} (Dividido por ${formData.units_per_box})`);
                                                     }}
-                                                    className="text-[10px] text-orange-400 hover:text-orange-300 underline decoration-dotted cursor-pointer flex items-center gap-1"
+                                                    type="button"
+                                                    className="flex min-h-9 items-center gap-1 rounded-lg px-2 text-[10px] text-orange-400 underline decoration-dotted hover:bg-slate-700/60 hover:text-orange-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
                                                     title={`Dividir el costo actual (${formatCLP(formData.cost_net)}) por la cantidad de unidades (${formData.units_per_box})`}
                                                 >
-                                                    <Percent size={10} /> Dividir por {formData.units_per_box} (U/Caja)
+                                                    <Percent size={10} aria-hidden="true" /> Dividir por {formData.units_per_box} (U/Caja)
                                                 </button>
                                             )}
                                         </div>
@@ -490,7 +536,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                     </div>
 
                                     {/* Configuración Margen */}
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                         <div>
                                             <label className="block text-xs font-bold text-slate-400 mb-1">2. Configuración</label>
                                             <label className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-xl border border-slate-600 cursor-pointer hover:bg-slate-700 transition">
@@ -506,7 +552,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                         <div>
                                             <label className="block text-xs font-bold text-slate-400 mb-1">3. Margen Deseado %</label>
                                             <div className="relative">
-                                                <Percent className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                                                <Percent className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} aria-hidden="true" />
                                                 <input
                                                     type="number"
                                                     className="w-full pl-8 p-3 bg-slate-700/50 border border-slate-600 rounded-xl text-white font-bold text-center focus:border-cyan-500 focus:outline-none"
@@ -543,8 +589,9 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                                 <span className="text-[10px] text-cyan-300/70">Ajusta también el margen</span>
                                             </div>
                                             <button
+                                                type="button"
                                                 onClick={handleApplySuggestedPrice}
-                                                className="text-[10px] text-white bg-cyan-600 hover:bg-cyan-500 px-3 py-1 rounded-full font-bold transition-colors shadow-sm"
+                                                className="min-h-9 rounded-full bg-cyan-600 px-3 py-1 text-[10px] font-bold text-white shadow-sm transition-colors hover:bg-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
                                             >
                                                 Aplicar a Venta
                                             </button>
@@ -594,9 +641,9 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                             </section>
 
                             {!isEdit && (
-                                <section className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                <section className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 sm:p-6">
                                     <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                                        <Package size={16} /> Stock Inicial
+                                        <Package size={16} aria-hidden="true" /> Stock Inicial
                                     </h3>
                                     <div className="space-y-4">
                                         <div>
@@ -637,7 +684,7 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                                                 </div>
                                             </>
                                         )}
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                                             <div>
                                                 <label className="block text-xs font-bold text-red-500 mb-1">Mínimo</label>
                                                 <input
@@ -665,19 +712,24 @@ const ProductFormModal: React.FC<ProductFormModalProps> = ({ product, initialVal
                 </div>
 
                 {/* Footer Actions */}
-                <div className="p-6 border-t border-slate-200 flex justify-end gap-3 bg-white rounded-b-3xl">
-                    <button onClick={onClose} className="px-6 py-3 border border-slate-200 text-slate-700 rounded-xl font-bold hover:bg-slate-50 transition">
+                <div className="p-4 border-t border-slate-200 flex flex-col-reverse justify-end gap-3 bg-white rounded-b-3xl sm:flex-row sm:p-6">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="min-h-11 w-full rounded-xl border border-slate-200 px-6 py-3 font-bold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 sm:w-auto"
+                    >
                         Cancelar
                     </button>
                     <button
+                        type="button"
                         onClick={handleSubmit}
                         disabled={isSaving}
-                        className="px-8 py-3 bg-cyan-600 text-white rounded-xl font-bold hover:bg-cyan-700 transition shadow-lg shadow-cyan-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-cyan-600 px-8 py-3 font-bold text-white shadow-lg shadow-cyan-200 transition-colors hover:bg-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                     >
                         {isSaving ? (
-                            <Loader2 className="animate-spin" size={20} />
+                            <Loader2 className="animate-spin" size={20} aria-hidden="true" />
                         ) : (
-                            <Save size={20} />
+                            <Save size={20} aria-hidden="true" />
                         )}
                         {isEdit ? 'Guardar Cambios' : 'Crear Producto Maestro'}
                     </button>

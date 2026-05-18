@@ -1,10 +1,17 @@
 'use client';
 
 import { useState } from 'react';
-import { Search, MapPin, Clock, Phone, Facebook, Instagram, LogIn, Pill, CheckCircle, XCircle } from 'lucide-react';
+import { Search, MapPin, Clock, Phone, Mail, LogIn, Pill, CheckCircle, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import { searchPublicProducts, PublicProduct } from '@/actions/public-search';
+import { searchPublicProductsSecure } from '@/actions/public-search-v2';
 import { cn } from '@/lib/utils';
+
+type PublicProduct = {
+    id: string;
+    name: string;
+    dci: string | null;
+    status: 'Disponible' | 'Agotado';
+};
 
 export default function WebPage() {
     const [searchTerm, setSearchTerm] = useState('');
@@ -14,13 +21,14 @@ export default function WebPage() {
 
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (searchTerm.length < 3) return;
+        const query = searchTerm.trim();
+        if (query.length < 3) return;
 
         setIsSearching(true);
         setHasSearched(true);
         try {
-            const products = await searchPublicProducts(searchTerm);
-            setResults(products);
+            const response = await searchPublicProductsSecure(query);
+            setResults(response.success && response.data ? response.data : []);
         } catch (error) {
             console.error('Search failed', error);
             setResults([]);
@@ -30,54 +38,65 @@ export default function WebPage() {
     };
 
     return (
-        <div className="min-h-screen flex flex-col bg-white">
+        <div className="min-h-dvh flex flex-col bg-white">
             {/* Navbar */}
-            <nav className="bg-white border-b border-gray-100 sticky top-0 z-50">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
-                    <div className="flex items-center gap-2">
+            <nav className="bg-white border-b border-gray-100 sticky top-0 z-50 pt-safe">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-16 py-3 flex justify-between items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
                         <div className="bg-blue-600 p-2 rounded-lg">
                             <Pill className="text-white" size={24} />
                         </div>
-                        <span className="text-xl font-bold text-blue-900">Farmacias Vallenar</span>
+                        <span className="text-lg sm:text-xl font-bold text-blue-900 truncate">Farmacias Vallenar</span>
                     </div>
                     <Link
-                        href="/login"
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        href="/"
+                        className="min-h-11 inline-flex items-center justify-center gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                     >
                         <LogIn size={18} />
-                        Acceso Funcionarios
+                        <span className="text-right leading-tight">Acceso Interno</span>
                     </Link>
                 </div>
             </nav>
 
             {/* Hero Section */}
-            <section className="relative bg-blue-900 text-white py-20 lg:py-32 overflow-hidden">
-                <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1631549916768-4119b2e5f926?q=80&w=2979&auto=format&fit=crop')] bg-cover bg-center opacity-10"></div>
+            <section className="relative bg-blue-900 text-white py-16 sm:py-20 lg:py-32 overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.28),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(34,197,94,0.18),transparent_30%)]" />
+                <img
+                    src="/assets/logo_vallenar.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-1/2 top-1/2 h-56 w-auto -translate-x-1/2 -translate-y-1/2 opacity-[0.06] sm:h-80"
+                />
                 <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-                    <h1 className="text-4xl md:text-6xl font-bold mb-6 tracking-tight">
+                    <h1 className="text-4xl md:text-6xl font-bold mb-6 tracking-tight text-balance">
                         Salud y Confianza <span className="text-blue-400">Local</span>
                     </h1>
-                    <p className="text-xl text-blue-100 mb-12 max-w-2xl mx-auto">
+                    <p className="text-lg sm:text-xl text-blue-100 mb-10 sm:mb-12 max-w-2xl mx-auto text-balance">
                         Tu farmacia de barrio, ahora más cerca de ti. Consulta la disponibilidad de tus medicamentos en tiempo real.
                     </p>
 
                     {/* Search Box */}
-                    <div className="max-w-2xl mx-auto bg-white p-2 rounded-2xl shadow-2xl transform hover:scale-[1.01] transition-transform duration-300">
-                        <form onSubmit={handleSearch} className="flex gap-2">
-                            <div className="relative flex-1">
+                    <div className="max-w-2xl mx-auto bg-white p-2 rounded-2xl shadow-2xl">
+                        <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row">
+                            <div className="relative min-w-0 flex-1">
+                                <label htmlFor="public-product-search" className="sr-only">Buscar medicamento</label>
                                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={24} />
                                 <input
+                                    id="public-product-search"
                                     type="text"
-                                    placeholder="¿Qué medicamento buscas? (Ej: Paracetamol)"
-                                    className="w-full pl-12 pr-4 py-4 text-lg text-gray-900 placeholder-gray-400 bg-transparent border-none focus:ring-0 focus:outline-none"
+                                    inputMode="search"
+                                    autoComplete="off"
+                                    aria-label="Buscar medicamento"
+                                    placeholder="Buscar medicamento..."
+                                    className="w-full min-h-12 pl-12 pr-4 py-3 sm:py-4 text-base sm:text-lg text-gray-900 placeholder-gray-400 bg-transparent border-none focus:ring-0 focus:outline-none"
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
                             </div>
                             <button
                                 type="submit"
-                                disabled={isSearching || searchTerm.length < 3}
-                                className="px-8 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                disabled={isSearching || searchTerm.trim().length < 3}
+                                className="min-h-12 w-full sm:w-auto px-8 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {isSearching ? 'Buscando...' : 'Buscar'}
                             </button>
@@ -98,15 +117,15 @@ export default function WebPage() {
                             {results.length > 0 ? (
                                 <div className="grid gap-4">
                                     {results.map((product) => (
-                                        <div key={product.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow">
-                                            <div>
+                                        <div key={product.id} className="bg-white p-5 sm:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-center hover:shadow-md transition-shadow">
+                                            <div className="min-w-0">
                                                 <h3 className="text-lg font-bold text-gray-900">{product.name}</h3>
                                                 {product.dci && (
                                                     <p className="text-sm text-gray-500">Principio Activo: {product.dci}</p>
                                                 )}
                                             </div>
                                             <div className={cn(
-                                                "flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold",
+                                                "shrink-0 flex items-center justify-center gap-2 px-4 py-2 rounded-full text-sm font-bold",
                                                 product.status === 'Disponible'
                                                     ? "bg-green-100 text-green-700"
                                                     : "bg-red-100 text-red-700"
@@ -195,20 +214,20 @@ export default function WebPage() {
                         <div>
                             <h3 className="text-white font-bold mb-4">Enlaces</h3>
                             <ul className="space-y-2 text-sm">
-                                <li><a href="#" className="hover:text-white transition-colors">Inicio</a></li>
-                                <li><a href="#" className="hover:text-white transition-colors">Nosotros</a></li>
-                                <li><a href="#" className="hover:text-white transition-colors">Sucursales</a></li>
-                                <li><Link href="/login" className="hover:text-white transition-colors">Acceso Interno</Link></li>
+                                <li><Link href="/web" className="min-h-11 min-w-11 inline-flex items-center hover:text-white transition-colors">Inicio</Link></li>
+                                <li><Link href="/select-context" className="min-h-11 min-w-11 inline-flex items-center hover:text-white transition-colors">Seleccionar sucursal</Link></li>
+                                <li><Link href="/legal" className="min-h-11 min-w-11 inline-flex items-center hover:text-white transition-colors">Marco legal</Link></li>
+                                <li><Link href="/" className="min-h-11 min-w-11 inline-flex items-center hover:text-white transition-colors">Acceso Interno</Link></li>
                             </ul>
                         </div>
                         <div>
-                            <h3 className="text-white font-bold mb-4">Síguenos</h3>
-                            <div className="flex gap-4">
-                                <a href="#" className="bg-gray-800 p-2 rounded-lg hover:bg-blue-600 hover:text-white transition-all">
-                                    <Facebook size={20} />
+                            <h3 className="text-white font-bold mb-4">Contacto</h3>
+                            <div className="flex gap-3">
+                                <a href="tel:+56512612345" aria-label="Llamar a Farmacias Vallenar" className="min-h-11 min-w-11 inline-flex items-center justify-center bg-gray-800 p-2 rounded-lg hover:bg-blue-600 hover:text-white transition-all">
+                                    <Phone size={20} />
                                 </a>
-                                <a href="#" className="bg-gray-800 p-2 rounded-lg hover:bg-pink-600 hover:text-white transition-all">
-                                    <Instagram size={20} />
+                                <a href="mailto:soporte@farmaciasvallenar.cl" aria-label="Enviar correo a Farmacias Vallenar" className="min-h-11 min-w-11 inline-flex items-center justify-center bg-gray-800 p-2 rounded-lg hover:bg-cyan-600 hover:text-white transition-all">
+                                    <Mail size={20} />
                                 </a>
                             </div>
                         </div>

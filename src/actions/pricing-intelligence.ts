@@ -3,7 +3,7 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
-import { getSessionSecure } from './auth-v2';
+import { PRICING_GLOBAL_ROLES, PRICING_WRITE_ROLES, requireScopedActor } from '@/actions/admin-scope';
 
 // ============================================================================
 // PRICING INTELLIGENCE — Comparación entre Proveedores + Motor de Recomendaciones
@@ -111,6 +111,11 @@ export async function getSupplierPriceComparison(productId: string): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validated = GetSupplierComparisonSchema.safeParse({ productId });
         if (!validated.success) return { success: false, error: 'ID de producto inválido' };
 
@@ -412,9 +417,9 @@ export async function resolveRecommendation(
         const validated = ResolveRecommendationSchema.safeParse({ recommendationId, action });
         if (!validated.success) return { success: false, error: 'Parámetros inválidos' };
 
-        const session = await getSessionSecure();
-        if (!session || !session.userId) return { success: false, error: 'No autorizado' };
-        const userId = session.userId;
+        const actorResult = await requireScopedActor(PRICING_WRITE_ROLES);
+        if (!actorResult.success) return { success: false, error: actorResult.error };
+        const userId = actorResult.actor.userId;
 
         const client = await pool.connect();
         try {
@@ -493,6 +498,11 @@ export async function getPendingRecommendations(limit = 50): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validatedLimit = LimitSchema.safeParse(limit);
         const safeLimit = validatedLimit.success ? validatedLimit.data : 50;
 
@@ -534,6 +544,11 @@ export async function getRecommendationHistory(limit = 50): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validatedLimit = LimitSchema.safeParse(limit);
         const safeLimit = validatedLimit.success ? validatedLimit.data : 50;
 
@@ -577,6 +592,11 @@ export async function getSupplierPriceOverview(limit = 30): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requireScopedActor(PRICING_GLOBAL_ROLES);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validatedLimit = LimitSchema.safeParse(limit);
         const safeLimit = validatedLimit.success ? validatedLimit.data : 30;
 
@@ -586,14 +606,14 @@ export async function getSupplierPriceOverview(limit = 30): Promise<{
                     spp.product_id,
                     p.name as product_name,
                     p.sku,
-                    COALESCE(p.cost_net, p.cost_price, 0) as current_cost,
+                    COALESCE(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, p.cost_price, 0) as current_cost,
                     MIN(spp.unit_cost) as cheapest_cost,
                     MAX(spp.unit_cost) as most_expensive_cost,
                     COUNT(DISTINCT spp.supplier_id) as supplier_count
                 FROM supplier_product_prices spp
                 JOIN products p ON p.id::text = spp.product_id::text
                 WHERE spp.is_current = true
-                GROUP BY spp.product_id, p.name, p.sku, p.cost_net, p.cost_price
+                GROUP BY spp.product_id, p.name, p.sku, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, p.cost_price
                 HAVING COUNT(DISTINCT spp.supplier_id) >= 2
             )
             SELECT sp.*,

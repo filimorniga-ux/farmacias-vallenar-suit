@@ -1,34 +1,55 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { deleteProductSecure } from '../../src/actions/delete-product';
-
-// Mocks
-const mockQuery = vi.fn();
-const mockRelease = vi.fn();
-const mockConnect = vi.fn(() => ({
-    query: mockQuery,
-    release: mockRelease,
+const {
+    mockQuery,
+    mockRelease,
+    mockGetClient,
+    mockRequireInventoryActor,
+    mockEnsureBatchInInventoryScope,
+    mockEnsureProductInInventoryScope,
+    mockValidatePinForRoles,
+} = vi.hoisted(() => ({
+    mockQuery: vi.fn(),
+    mockRelease: vi.fn(),
+    mockGetClient: vi.fn(),
+    mockRequireInventoryActor: vi.fn(),
+    mockEnsureBatchInInventoryScope: vi.fn(),
+    mockEnsureProductInInventoryScope: vi.fn(),
+    mockValidatePinForRoles: vi.fn(),
 }));
 
-vi.mock('../../src/lib/db', () => ({
-    pool: {
-        connect: mockConnect
+vi.mock('@/lib/db', () => ({
+    getClient: mockGetClient,
+}));
+
+vi.mock('@/lib/logger', () => ({
+    logger: {
+        error: vi.fn(),
+        warn: vi.fn(),
+        info: vi.fn(),
     },
-    query: vi.fn()
 }));
 
 vi.mock('next/cache', () => ({
     revalidatePath: vi.fn(),
 }));
 
-// Mock bcrypt robustly
-const mockCompare = vi.fn();
-vi.mock('bcryptjs', () => ({
-    default: {
-        compare: (...args: any[]) => mockCompare(...args),
-    },
-    compare: (...args: any[]) => mockCompare(...args),
+vi.mock('@/actions/inventory-scope', () => ({
+    INVENTORY_DELETE_ROLES: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    hasGlobalInventoryScope: (role: string) => role === 'ADMIN' || role === 'GERENTE_GENERAL',
+    requireInventoryActor: (...args: unknown[]) => mockRequireInventoryActor(...args),
+    ensureBatchInInventoryScope: (...args: unknown[]) => mockEnsureBatchInInventoryScope(...args),
+    ensureProductInInventoryScope: (...args: unknown[]) => mockEnsureProductInInventoryScope(...args),
 }));
+
+vi.mock('@/lib/pin-rbac', () => ({
+    ROLE_GROUPS: {
+        MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    },
+    validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+}));
+
+import { deleteProductSecure } from '@/actions/delete-product';
 
 describe('deleteProductSecure (Check-First Strategy)', () => {
     const productId = '123e4567-e89b-12d3-a456-426614174000';
@@ -37,95 +58,120 @@ describe('deleteProductSecure (Check-First Strategy)', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
-        mockCompare.mockResolvedValue(true);
-        // Setup default mocks for happy path common parts
-        // 1. BEGIN
-        mockQuery.mockResolvedValueOnce({});
-        // 2. Auth Check (Users query)
-        mockQuery.mockResolvedValueOnce({
-            rows: [{ id: 'admin-1', name: 'Admin', access_pin_hash: 'hashed_pin' }]
+
+        mockGetClient.mockResolvedValue({
+            query: mockQuery,
+            release: mockRelease,
+        });
+
+        mockRequireInventoryActor.mockResolvedValue({
+            success: true,
+            actor: {
+                userId,
+                role: 'ADMIN',
+                locationId: '123e4567-e89b-12d3-a456-426614174010',
+                userName: 'Admin',
+                tokenVersion: 1,
+                sessionToken: 'token',
+            },
+        });
+
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: 'admin-1',
+                name: 'Admin',
+                role: 'ADMIN',
+            },
+        });
+
+        mockEnsureBatchInInventoryScope.mockResolvedValue({
+            success: false,
+            error: 'Lote no encontrado',
+        });
+
+        mockEnsureProductInInventoryScope.mockResolvedValue({
+            success: true,
+            product: { id: productId, location_id: '123e4567-e89b-12d3-a456-426614174010' },
+            locationId: '123e4567-e89b-12d3-a456-426614174010',
         });
     });
 
-    it('should perform SOFT DELETE when product has sales history', async () => {
-        // Arrange
-        // 3. Check Dependencies -> RETURNS ROW (Has sales)
-        mockQuery.mockResolvedValueOnce({ rowCount: 1 });
+    it('should reject missing authenticated actor', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: false,
+            error: 'Sesión no válida. Vuelve a iniciar sesión.',
+        });
 
-        // 4. Update Product (Soft Delete)
-        mockQuery.mockResolvedValueOnce({ rowCount: 1 });
-
-        // 5. Update Inventory Batches (Optional Soft Delete)
-        mockQuery.mockResolvedValueOnce({ rowCount: 1 });
-
-        // 6. Insert Audit Log
-        mockQuery.mockResolvedValueOnce({});
-
-        // 7. COMMIT
-        mockQuery.mockResolvedValueOnce({});
-
-        // Act
         const result = await deleteProductSecure(productId, userId, pin);
 
-        // Assert
-        expect(result.success).toBe(true);
-        expect(mockQuery).toHaveBeenLastCalledWith('COMMIT');
-
-        // Verify Check Query was called
-        const checkCall = mockQuery.mock.calls.find(call =>
-            call[0].includes('SELECT 1') &&
-            call[0].includes('FROM sale_items') &&
-            call[0].includes('batch_id')
-        );
-        expect(checkCall).toBeDefined();
-
-        // Verify UPDATE was called (Soft Delete)
-        const updateCall = mockQuery.mock.calls.find(call =>
-            call[0].includes('UPDATE products') &&
-            call[0].includes('is_active = false')
-        );
-        expect(updateCall).toBeDefined();
-
-        // Verify DELETE was NOT called
-        const deleteCall = mockQuery.mock.calls.find(call =>
-            call[0].startsWith('DELETE FROM')
-        );
-        expect(deleteCall).toBeUndefined();
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión');
+        expect(mockGetClient).not.toHaveBeenCalled();
     });
 
-    it('should perform HARD DELETE when product has NO sales', async () => {
-        // Arrange
-        // 3. Check Dependencies -> RETURNS EMPTY (No sales)
-        mockQuery.mockResolvedValueOnce({ rowCount: 0 });
+    it('should perform SOFT DELETE when product has sales history', async () => {
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rowCount: 1 }) // dependencies
+            .mockResolvedValueOnce({ rowCount: 1 }) // update products
+            .mockResolvedValueOnce({ rowCount: 1 }) // update batches
+            .mockResolvedValueOnce({}) // audit
+            .mockResolvedValueOnce({}); // COMMIT
 
-        // 4. Delete Batches
-        mockQuery.mockResolvedValueOnce({ rowCount: 0 });
-
-        // 5. Delete Product
-        mockQuery.mockResolvedValueOnce({ rowCount: 1 });
-
-        // 6. Insert Audit Log
-        mockQuery.mockResolvedValueOnce({});
-
-        // 7. COMMIT
-        mockQuery.mockResolvedValueOnce({});
-
-        // Act
         const result = await deleteProductSecure(productId, userId, pin);
 
-        // Assert
         expect(result.success).toBe(true);
         expect(mockQuery).toHaveBeenLastCalledWith('COMMIT');
-
-        // Verify DELETE was called
-        const deleteBatchesCall = mockQuery.mock.calls.find(call =>
-            call[0].includes('DELETE FROM inventory_batches')
+        expect(mockQuery).toHaveBeenCalledWith(
+            expect.stringContaining('UPDATE products'),
+            [productId],
         );
-        expect(deleteBatchesCall).toBeDefined();
+    });
 
-        const deleteProductCall = mockQuery.mock.calls.find(call =>
-            call[0].includes('DELETE FROM products')
+    it('should perform HARD DELETE when product has no sales', async () => {
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rowCount: 0 }) // dependencies
+            .mockResolvedValueOnce({ rowCount: 0 }) // delete batches
+            .mockResolvedValueOnce({ rowCount: 1 }) // delete product
+            .mockResolvedValueOnce({}) // audit
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await deleteProductSecure(productId, userId, pin);
+
+        expect(result.success).toBe(true);
+        expect(mockQuery).toHaveBeenCalledWith(
+            'DELETE FROM inventory_batches WHERE product_id::text = $1::text',
+            [productId],
         );
-        expect(deleteProductCall).toBeDefined();
+        expect(mockQuery).toHaveBeenCalledWith(
+            'DELETE FROM products WHERE id::text = $1::text',
+            [productId],
+        );
+    });
+
+    it('should reject product with lots outside actor scope', async () => {
+        mockRequireInventoryActor.mockResolvedValueOnce({
+            success: true,
+            actor: {
+                userId,
+                role: 'MANAGER',
+                locationId: '123e4567-e89b-12d3-a456-426614174010',
+                userName: 'Manager',
+                tokenVersion: 1,
+                sessionToken: 'token',
+            },
+        });
+
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rowCount: 1 }); // out-of-scope lots
+
+        const result = await deleteProductSecure(productId, userId, pin);
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('fuera de tu ubicación');
+        expect(mockQuery).toHaveBeenCalledWith('ROLLBACK');
     });
 });

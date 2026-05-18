@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 import {
     ArrowLeft, Plus, RefreshCw, Search, Filter,
@@ -8,7 +9,6 @@ import {
     ChevronDown, Package, AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
 
 // Components
 import { InvoiceStatusBadge, AIConfidenceIndicator } from '@/components/invoice';
@@ -20,13 +20,14 @@ import {
     rejectInvoiceParsingSecure,
     getInvoiceParsingSecure,
     deleteInvoiceParsingSecure,
+    getSmartInvoiceLocationsSecure,
     type InvoiceParsing
 } from '@/actions/invoice-parser-v2';
-import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { Store } from 'lucide-react';
 import ProductFormModal from '@/presentation/components/inventory/ProductFormModal';
 import { getProductByIdSecure } from '@/actions/products-v2';
+import { buildSmartInvoicePaginationItems } from '@/lib/smart-invoice-pagination';
 
 // ============================================================================
 // TIPOS
@@ -113,17 +114,19 @@ export default function InvoiceListPage() {
     const [parsingToApprove, setParsingToApprove] = useState<InvoiceParsing | null>(null);
     const [targetLocationId, setTargetLocationId] = useState<string>('');
     const [isApproving, setIsApproving] = useState(false);
+    const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
 
     // Edit Product State
     const [editingProduct, setEditingProduct] = useState<any>(null);
     const [isLoadingProduct, setIsLoadingProduct] = useState(false);
 
-    // Store
-    const { locations, fetchLocations } = useLocationStore();
-
     useEffect(() => {
-        fetchLocations();
-    }, [fetchLocations]);
+        getSmartInvoiceLocationsSecure().then((result) => {
+            if (result.success && result.data) {
+                setLocations(result.data);
+            }
+        });
+    }, []);
 
     // ========================================================================
     // CARGAR DATOS (Servidor)
@@ -161,6 +164,7 @@ export default function InvoiceListPage() {
     }, [loadParsings]);
 
     const totalPages = Math.ceil(totalCount / pageSize);
+    const paginationItems = buildSmartInvoicePaginationItems(currentPage, totalPages);
 
     // ========================================================================
     // FILTRAR DATOS
@@ -340,7 +344,7 @@ export default function InvoiceListPage() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <Link
-                                    to="/procurement/smart-invoice"
+                                    href="/procurement/smart-invoice"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
@@ -366,7 +370,7 @@ export default function InvoiceListPage() {
                                     <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
                                 </button>
                                 <Link
-                                    to="/procurement/smart-invoice"
+                                    href="/procurement/smart-invoice"
                                     className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
                                 >
                                     <Plus size={18} />
@@ -459,7 +463,7 @@ export default function InvoiceListPage() {
                                 <FileText size={48} className="mx-auto text-gray-300 mb-4" />
                                 <p className="text-gray-500">No hay facturas que mostrar</p>
                                 <Link
-                                    to="/procurement/smart-invoice"
+                                    href="/procurement/smart-invoice"
                                     className="mt-4 inline-flex items-center gap-2 text-purple-600 hover:text-purple-700"
                                 >
                                     <Plus size={18} />
@@ -644,19 +648,32 @@ export default function InvoiceListPage() {
                                             <button
                                                 onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
                                                 disabled={currentPage === 1}
+                                                aria-label="Página anterior"
                                                 className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                                             >
                                                 <ArrowLeft size={16} />
                                             </button>
 
-                                            {/* Page numbers (simplified) */}
-                                            {Array.from({ length: Math.min(5, totalPages) }).map((_, i) => {
-                                                const pageNum = i + 1;
-                                                // TODO: Improved logic for many pages
+                                            {paginationItems.map((item) => {
+                                                if (typeof item !== 'number') {
+                                                    return (
+                                                        <span
+                                                            key={item}
+                                                            aria-hidden="true"
+                                                            className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-400"
+                                                        >
+                                                            ...
+                                                        </span>
+                                                    );
+                                                }
+
+                                                const pageNum = item;
                                                 return (
                                                     <button
                                                         key={pageNum}
                                                         onClick={() => setCurrentPage(pageNum)}
+                                                        aria-current={currentPage === pageNum ? 'page' : undefined}
+                                                        aria-label={currentPage === pageNum ? `Página ${pageNum} actual` : `Ir a página ${pageNum}`}
                                                         className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${currentPage === pageNum
                                                             ? 'z-10 bg-purple-50 border-purple-500 text-purple-600'
                                                             : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
@@ -670,6 +687,7 @@ export default function InvoiceListPage() {
                                             <button
                                                 onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                                                 disabled={currentPage === totalPages}
+                                                aria-label="Página siguiente"
                                                 className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                                             >
                                                 <ArrowLeft size={16} className="rotate-180" />

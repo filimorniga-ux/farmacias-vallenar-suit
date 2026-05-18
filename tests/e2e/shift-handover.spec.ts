@@ -5,8 +5,6 @@ test.describe('Shift Handover - Smoke (Read Only)', () => {
     test.beforeEach(async ({ page }) => {
         const loggedIn = await loginAsManager(page, {
             module: 'Punto de Venta',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch(() => false);
         test.skip(!loggedIn, 'Login/contexto no disponible para Shift Handover');
 

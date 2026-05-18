@@ -1,6 +1,6 @@
 'use client';
 
-import { RestockingItem } from '@/lib/data/supply';
+import type { RestockingItem } from '@/lib/data/supply';
 import { AlertTriangle, ShoppingCart } from 'lucide-react';
 
 interface RestockingTableProps {

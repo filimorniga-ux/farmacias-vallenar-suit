@@ -50,6 +50,11 @@ describe('transaction-history-utils', () => {
         expect(getTransactionTitle({ type: 'SALE', status: 'PARTIALLY_REFUNDED', dte_folio: '889' }, 'id-4')).toBe('Venta (Dev. Parcial) #889');
     });
 
+    it('mantiene visible el estado de venta anulada en el título', () => {
+        expect(getTransactionTitle({ type: 'SALE', status: 'VOIDED', dte_folio: '777' }, 'id-6')).toBe('Venta anulada #777');
+        expect(getTransactionTitle({ type: 'SALE', status: 'VOIDED' }, 'id-7')).toBe('Venta anulada #id-7');
+    });
+
     it('usa título de devolución para transacciones REFUND', () => {
         expect(getTransactionTitle({ type: 'REFUND', dte_folio: 'REF-001' }, 'id-5')).toBe('Devolución #REF-001');
     });

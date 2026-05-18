@@ -24,6 +24,7 @@ async function main() {
 
         await client.query(`
             ALTER TABLE users 
+            ADD COLUMN IF NOT EXISTS session_token TEXT,
             ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT NOW(),
             ADD COLUMN IF NOT EXISTS token_version INT DEFAULT 1,
             ADD COLUMN IF NOT EXISTS current_context_data JSONB DEFAULT '{}'::jsonb;

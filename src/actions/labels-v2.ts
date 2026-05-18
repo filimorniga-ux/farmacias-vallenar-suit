@@ -194,12 +194,17 @@ export async function getLabelsForReception(orderId: string): Promise<{
                 poi.name as product_name,
                 poi.quantity_received,
                 poi.cost_price,
-                p.barcode,
-                p.laboratory,
-                COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) as sale_price,
-                COALESCE(p.price_per_unit, 0) as unit_price
+                NULLIF(to_jsonb(p)->>'barcode', '') as barcode,
+                NULLIF(to_jsonb(p)->>'laboratory', '') as laboratory,
+                COALESCE(
+                    NULLIF(NULLIF(to_jsonb(p)->>'sale_price', '')::numeric, 0),
+                    NULLIF(NULLIF(to_jsonb(p)->>'price_sell_box', '')::numeric, 0),
+                    NULLIF(NULLIF(to_jsonb(p)->>'price', '')::numeric, 0),
+                    0
+                ) as sale_price,
+                COALESCE(NULLIF(to_jsonb(p)->>'price_per_unit', '')::numeric, 0) as unit_price
             FROM purchase_order_items poi
-            LEFT JOIN products p ON p.sku = poi.sku AND p.id ~ '^[0-9a-f]{8}-'
+            LEFT JOIN products p ON p.sku = poi.sku AND p.id::text ~ '^[0-9a-f]{8}-'
             WHERE poi.purchase_order_id::text = $1::text
               AND poi.quantity_received > 0
             ORDER BY poi.name

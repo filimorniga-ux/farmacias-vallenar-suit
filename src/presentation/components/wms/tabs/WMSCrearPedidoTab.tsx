@@ -23,12 +23,15 @@ import {
 } from 'lucide-react';
 import { WMSProductScanner } from '../WMSProductScanner';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 import { createPurchaseOrderSecure } from '@/actions/supply-v2';
 import { notifyManagersSecure } from '@/actions/notifications-v2';
 import { InventoryBatch } from '@/domain/types';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
+import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 
 /* ─── Tipos ─────────────────────────────────────────────────────── */
 interface OrderLineItem {
@@ -55,9 +58,27 @@ const fmtCLP = (n: number) =>
     n.toLocaleString('es-CL', { maximumFractionDigits: 0 });
 
 /* ─── Componente ─────────────────────────────────────────────────── */
-export const WMSCrearPedidoTab: React.FC = () => {
+interface WMSCrearPedidoTabProps {
+    inventory: InventoryBatch[];
+}
+
+export const WMSCrearPedidoTab: React.FC<WMSCrearPedidoTabProps> = ({ inventory }) => {
     const qc = useQueryClient();
-    const { suppliers, inventory, user, currentWarehouseId, currentLocationId, addPurchaseOrder } = usePharmaStore();
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const user = usePharmaStore((state) => state.user);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const locationStoreCurrent = useLocationStore((state) => state.currentLocation);
+    const locationStoreLocations = useLocationStore((state) => state.locations);
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
+    const effectiveLocationId = wmsContext.locationId;
+    const effectiveWarehouseId = wmsContext.warehouseId;
 
     /* Paso actual */
     const [step, setStep] = useState<Step>(1);
@@ -149,6 +170,7 @@ export const WMSCrearPedidoTab: React.FC = () => {
     const handleSave = async (status: 'DRAFT' | 'SENT') => {
         if (!user?.id) return toast.error('Sesión inválida');
         if (lines.length === 0) return toast.error('Agrega al menos un producto');
+        if (!effectiveWarehouseId) return toast.error('No hay bodega activa para crear la orden');
 
         const proveedorLabel = useFreeSup
             ? supplierFree.trim() || 'Sin proveedor'
@@ -160,7 +182,7 @@ export const WMSCrearPedidoTab: React.FC = () => {
             const payload = {
                 id: orderId,
                 supplierId: useFreeSup ? null : (supplierId || null),
-                targetWarehouseId: currentWarehouseId || '',
+                targetWarehouseId: effectiveWarehouseId,
                 items: lines.map(l => ({
                     sku: l.sku,
                     name: l.name,
@@ -179,27 +201,7 @@ export const WMSCrearPedidoTab: React.FC = () => {
                 return;
             }
 
-            // Actualizar Zustand (Kanban inmediato)
-            addPurchaseOrder({
-                id: res.orderId || orderId,
-                supplier_id: payload.supplierId || '',
-                supplier_name: proveedorLabel,
-                target_warehouse_id: payload.targetWarehouseId || '',
-                destination_location_id: currentLocationId || '',
-                status: payload.status as any,
-                created_at: Date.now(),
-                is_auto_generated: false,
-                generation_reason: 'MANUAL',
-                items: lines.map(l => ({
-                    sku: l.sku,
-                    name: l.name,
-                    quantity_ordered: l.quantity,
-                    quantity_received: 0,
-                    cost_price: l.costPrice,
-                    quantity: l.quantity,
-                })),
-                total_estimated: totals.gross,
-            });
+            await qc.invalidateQueries({ queryKey: purchaseOrdersQueryKey(effectiveLocationId || undefined) });
 
             if (status === 'SENT') {
                 // Notificar a TODOS los gerentes/admin simultáneamente

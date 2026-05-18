@@ -28,6 +28,19 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import {
+    normalizeRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
+import {
+    ensureBatchInInventoryScope,
+    hasGlobalInventoryScope,
+    requireInventoryActor,
+    resolveEffectiveInventoryLocation,
+    resolveWarehouseForInventoryActor,
+    type InventoryActor,
+} from '@/actions/inventory-scope';
+import {
     buildDispatchLotNumber,
     buildTransferLotNumber,
     getTransferLotColor,
@@ -102,8 +115,18 @@ const CreateReturnSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const SUPERVISOR_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
 const LARGE_ADJUSTMENT_THRESHOLD = 100; // units - requires supervisor PIN
+const WMS_READ_ROLES = [
+    'WAREHOUSE',
+    'WAREHOUSE_CHIEF',
+    'MANAGER',
+    'QF',
+    'ADMIN',
+    'GERENTE_GENERAL',
+] as const;
+const WMS_WRITE_ROLES = WMS_READ_ROLES;
+const WMS_CANCEL_ROLES = ['WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'] as const;
+const WMS_DIFFERENCE_SELF_AUTH_ROLES = ['WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'] as const;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -112,53 +135,154 @@ const LARGE_ADJUSTMENT_THRESHOLD = 100; // units - requires supervisor PIN
 /**
  * Validate supervisor PIN
  */
+type WmsActor = InventoryActor;
+
+async function resolveWmsActor(
+    allowedRoles: readonly string[],
+    requestedUserId?: string,
+    action = 'wms-operation'
+): Promise<{ success: true; actor: WmsActor } | { success: false; error: string }> {
+    const actorResult = await requireInventoryActor(allowedRoles, action);
+    if (!actorResult.success) {
+        return actorResult;
+    }
+
+    if (requestedUserId && requestedUserId !== actorResult.actor.userId) {
+        console.warn('[WMS-V2] Ignoring payload userId; using validated session user', {
+            requestedUserId,
+            actorUserId: actorResult.actor.userId,
+            action,
+        });
+    }
+
+    return actorResult;
+}
+
+async function requireWmsRoleActor(
+    allowedRoles: readonly string[],
+    action = 'wms-read-operation'
+): Promise<{ success: true; actor: WmsActor } | { success: false; error: string }> {
+    return resolveWmsActor(allowedRoles, undefined, action);
+}
+
 async function validateSupervisorPin(client: DBRow, pin: string): Promise<{
     valid: boolean;
-    supervisor?: { id: string; name: string };
+    supervisor?: { id: string; name: string; role: string };
+    error?: string;
+}> {
+    return validateSupervisorPinForRoles(client, pin, ROLE_GROUPS.MANAGER);
+}
+
+async function validateSupervisorPinForRoles(
+    client: DBRow,
+    pin: string,
+    allowedRoles: readonly string[],
+): Promise<{
+    valid: boolean;
+    supervisor?: { id: string; name: string; role: string };
     error?: string;
 }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, allowedRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const supervisorsRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [SUPERVISOR_ROLES]);
-
-        if (supervisorsRes.rows.length === 0) {
-            return { valid: false, error: 'No hay supervisores activos' };
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de supervisor inválido' };
         }
 
-        for (const supervisor of supervisorsRes.rows) {
-            let pinValid = false;
-
-            if (supervisor.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, supervisor.access_pin_hash);
-            } else if (supervisor.access_pin) {
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(supervisor.access_pin);
-
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
-                }
+        return {
+            valid: true,
+            supervisor: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
             }
-
-            if (pinValid) {
-                return {
-                    valid: true,
-                    supervisor: { id: supervisor.id, name: supervisor.name }
-                };
-            }
-        }
-
-        return { valid: false, error: 'PIN de supervisor inválido' };
+        };
     } catch (error) {
         console.error('[WMS-V2] PIN validation error:', error);
         return { valid: false, error: 'Error validando PIN' };
     }
+}
+
+function canActorAccessLocation(actor: WmsActor, locationId?: string | null) {
+    if (!locationId) {
+        return hasGlobalInventoryScope(actor.role);
+    }
+
+    return resolveEffectiveInventoryLocation(actor, locationId).success;
+}
+
+async function resolveWmsLocationForActor(
+    actor: WmsActor,
+    requestedLocationOrWarehouseId?: string | null,
+    executor?: DBRow,
+): Promise<{ success: true; locationId?: string } | { success: false; error: string }> {
+    if (requestedLocationOrWarehouseId) {
+        const warehouseScope = await resolveWarehouseForInventoryActor(
+            actor,
+            requestedLocationOrWarehouseId,
+            undefined,
+            executor,
+        );
+        if (warehouseScope.success) {
+            return { success: true, locationId: warehouseScope.locationId };
+        }
+
+        const locationScope = resolveEffectiveInventoryLocation(actor, requestedLocationOrWarehouseId);
+        if (locationScope.success) {
+            return locationScope;
+        }
+
+        if (
+            warehouseScope.error === 'Bodega no encontrada'
+            || warehouseScope.error === 'No se encontró bodega para la ubicación solicitada'
+        ) {
+            return locationScope;
+        }
+
+        return warehouseScope;
+    }
+
+    return resolveEffectiveInventoryLocation(actor, undefined);
+}
+
+async function resolveWmsWarehouseForActor(
+    actor: WmsActor,
+    requestedWarehouseOrLocationId?: string | null,
+    executor?: DBRow,
+): Promise<{ success: true; warehouseId: string; locationId?: string } | { success: false; error: string }> {
+    if (requestedWarehouseOrLocationId) {
+        const warehouseScope = await resolveWarehouseForInventoryActor(
+            actor,
+            requestedWarehouseOrLocationId,
+            undefined,
+            executor,
+        );
+        if (warehouseScope.success) {
+            return warehouseScope;
+        }
+
+        const locationScope = resolveEffectiveInventoryLocation(actor, requestedWarehouseOrLocationId);
+        if (!locationScope.success) {
+            return locationScope;
+        }
+
+        if (
+            warehouseScope.error !== 'Bodega no encontrada'
+            && warehouseScope.error !== 'No se encontró bodega para la ubicación solicitada'
+        ) {
+            return warehouseScope;
+        }
+    }
+
+    return resolveWarehouseForInventoryActor(
+        actor,
+        undefined,
+        requestedWarehouseOrLocationId || undefined,
+        executor,
+    );
 }
 
 async function resolveCanonicalProductForMovement(
@@ -174,10 +298,10 @@ async function resolveCanonicalProductForMovement(
                 p.id,
                 p.name,
                 COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-                COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+                COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
             FROM products p
             WHERE p.id::text = $1
-              AND p.id ~* $2
+              AND p.id::text ~* $2
             LIMIT 1
         `, [preferredProductId, UUID_TEXT_REGEX]);
 
@@ -198,15 +322,15 @@ async function resolveCanonicalProductForMovement(
             p.id,
             p.name,
             COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
         FROM products p
-        WHERE p.id ~* $2
+        WHERE p.id::text ~* $2
           AND (
             p.sku = $1
             OR $1 = ANY(
               array_remove(
                 regexp_split_to_array(
-                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  regexp_replace(COALESCE(to_jsonb(p)->>'barcode', ''), '\\s+', '', 'g'),
                   ','
                 ),
                 ''
@@ -216,7 +340,7 @@ async function resolveCanonicalProductForMovement(
         ORDER BY
             (p.sku = $1) DESC,
             (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
-            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            (COALESCE(p.cost_price, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0) > 0) DESC,
             p.id DESC
         LIMIT 1
     `, [sku, UUID_TEXT_REGEX]);
@@ -357,10 +481,24 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
         };
     }
 
+    const actorResult = await resolveWmsActor(WMS_WRITE_ROLES, validated.data.userId, 'wms-stock-movement');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actor = actorResult.actor;
+    const actorUserId = actor.userId;
     const client = await pool.connect();
+    let authorizedBy: { id: string; name: string; role: string } | undefined;
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const warehouseScope = await resolveWmsWarehouseForActor(actor, validated.data.warehouseId, client);
+        if (!warehouseScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: warehouseScope.error };
+        }
 
         // 2. Check supervisor PIN for large adjustments
         if (validated.data.type === 'ADJUSTMENT' &&
@@ -379,6 +517,8 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                 await client.query('ROLLBACK');
                 return { success: false, error: pinCheck.error };
             }
+
+            authorizedBy = pinCheck.supervisor;
         }
 
         // 3. Find or validate batch
@@ -391,7 +531,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                 WHERE product_id = $1 AND warehouse_id = $2
                 ORDER BY expiry_date ASC
                 LIMIT 1
-            `, [validated.data.productId, validated.data.warehouseId]);
+            `, [validated.data.productId, warehouseScope.warehouseId]);
 
             if (batchRes.rows.length === 0) {
                 await client.query('ROLLBACK');
@@ -400,15 +540,35 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
 
             targetBatchId = batchRes.rows[0].id;
         }
+        if (!targetBatchId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'No se pudo resolver el lote para el movimiento' };
+        }
+
+        const batchScope = await ensureBatchInInventoryScope(targetBatchId, actor, client);
+        if (!batchScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: batchScope.error };
+        }
+        if (batchScope.warehouseId && batchScope.warehouseId !== warehouseScope.warehouseId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'El lote no pertenece a la bodega indicada' };
+        }
+
+        const batchProductId = String(batchScope.batch.product_id || '');
+        if (batchProductId && batchProductId !== validated.data.productId) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'El lote no pertenece al producto indicado' };
+        }
 
         // 4. Lock batch and calculate delta
         const batchRes = await client.query(`
             SELECT 
                 id, quantity_real, product_id, sku, name
             FROM inventory_batches 
-            WHERE id = $1 
+            WHERE id = $1 AND warehouse_id = $2
             FOR UPDATE NOWAIT
-        `, [targetBatchId]);
+        `, [targetBatchId, warehouseScope.warehouseId]);
 
         if (batchRes.rows.length === 0) {
             await client.query('ROLLBACK');
@@ -446,7 +606,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
         const productSku = productRes.rows[0]?.sku || batch.sku || 'N/A';
 
         // 8. Get location
-        const locationId = await getLocationFromWarehouse(client, validated.data.warehouseId);
+        const locationId = warehouseScope.locationId || await getLocationFromWarehouse(client, warehouseScope.warehouseId);
 
         // 9. Log to stock_movements
         await client.query(`
@@ -461,7 +621,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
             randomUUID(),
             productSku, productName, locationId, validated.data.type,
             delta, currentQty, newQty,
-            validated.data.userId, validated.data.reason, targetBatchId
+            actorUserId, validated.data.reason, targetBatchId
         ]);
 
         // 10. Audit
@@ -472,7 +632,7 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
 
         await insertStockAudit(client, {
             actionCode: movementAuditAction,
-            userId: validated.data.userId,
+            userId: actorUserId,
             productId: validated.data.productId,
             details: {
                 type: validated.data.type,
@@ -480,8 +640,10 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                 quantity: delta,
                 stock_before: currentQty,
                 stock_after: newQty,
-                warehouse_id: validated.data.warehouseId,
-                reason: validated.data.reason
+                warehouse_id: warehouseScope.warehouseId,
+                reason: validated.data.reason,
+                authorized_by: authorizedBy?.id || null,
+                authorized_by_name: authorizedBy?.name || null,
             }
         });
 
@@ -499,14 +661,15 @@ export async function executeStockMovementSecure(data: z.infer<typeof StockMovem
                         message: `${productName} (SKU: ${productSku}) quedó con ${newQty} unidades tras ${validated.data.type}.`,
                         actionUrl: '/logistica',
                         // Deduplicar: solo 1 notificación por producto por bodega en ventana de 2h
-                        dedupKey: `wms_stock_critical:${validated.data.productId}:${validated.data.warehouseId}`,
+                        dedupKey: `wms_stock_critical:${validated.data.productId}:${warehouseScope.warehouseId}`,
                         dedupWindowHours: 2,
                         locationId: locationId ?? undefined,
                         metadata: {
                             batchId: targetBatchId,
-                            warehouseId: validated.data.warehouseId,
+                            warehouseId: warehouseScope.warehouseId,
                             movementType: validated.data.type,
-                            userId: validated.data.userId,
+                            userId: actorUserId,
+                            authorizedById: authorizedBy?.id || null,
                             newStock: newQty
                         }
                     });
@@ -561,14 +724,32 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
         return { success: false, error: 'Origen y destino no pueden ser iguales' };
     }
 
+    const actorResult = await resolveWmsActor(WMS_WRITE_ROLES, validated.data.userId, 'wms-transfer');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const actor = actorResult.actor;
+    const actorUserId = actor.userId;
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 3. Get locations
-        const originLoc = await getLocationFromWarehouse(client, validated.data.originWarehouseId);
-        const targetLoc = await getLocationFromWarehouse(client, validated.data.targetWarehouseId);
+        const originScope = await resolveWmsWarehouseForActor(actor, validated.data.originWarehouseId, client);
+        if (!originScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: originScope.error };
+        }
+
+        const targetScope = await resolveWmsWarehouseForActor(actor, validated.data.targetWarehouseId, client);
+        if (!targetScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: targetScope.error };
+        }
+
+        const originLoc = originScope.locationId;
+        const targetLoc = targetScope.locationId;
 
         if (!originLoc || !targetLoc) {
             await client.query('ROLLBACK');
@@ -610,13 +791,13 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
             targetLoc,
             JSON.stringify({
                 mode: 'DIRECT_TRANSFER',
-                origin_warehouse_id: validated.data.originWarehouseId,
-                target_warehouse_id: validated.data.targetWarehouseId,
-                created_by_id: validated.data.userId,
+                origin_warehouse_id: originScope.warehouseId,
+                target_warehouse_id: targetScope.warehouseId,
+                created_by_id: actorUserId,
                 authorized_by_id: authorizedBy?.id || null,
                 authorized_by_name: authorizedBy?.name || null
             }),
-            validated.data.userId,
+            actorUserId,
             validated.data.notes || 'Transferencia directa entre bodegas'
         ]);
 
@@ -642,7 +823,7 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
                     SELECT id FROM inventory_batches 
                     WHERE product_id = $1 AND warehouse_id = $2 AND quantity_real > 0
                     ORDER BY expiry_date ASC LIMIT 1
-                `, [targetProductId, validated.data.originWarehouseId]);
+                `, [targetProductId, originScope.warehouseId]);
 
                 if (batchRes.rows.length === 0) {
                     await client.query('ROLLBACK');
@@ -650,13 +831,27 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
                 }
                 targetBatchId = batchRes.rows[0].id;
             }
+            if (!targetBatchId) {
+                await client.query('ROLLBACK');
+                return { success: false, error: `No se pudo resolver el lote para ${item.productId}` };
+            }
 
             // Lock origin batch
+            const batchScope = await ensureBatchInInventoryScope(targetBatchId, actor, client);
+            if (!batchScope.success) {
+                await client.query('ROLLBACK');
+                return { success: false, error: batchScope.error };
+            }
+            if (batchScope.warehouseId && batchScope.warehouseId !== originScope.warehouseId) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'El lote no pertenece a la bodega origen' };
+            }
+
             const originBatchRes = await client.query(`
                 SELECT * FROM inventory_batches 
                 WHERE id = $1 AND warehouse_id = $2 
                 FOR UPDATE NOWAIT
-            `, [targetBatchId, validated.data.originWarehouseId]);
+            `, [targetBatchId, originScope.warehouseId]);
 
             if (originBatchRes.rows.length === 0) {
                 await client.query('ROLLBACK');
@@ -694,8 +889,8 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
             `, [
                 batch.sku, batch.name, originLoc, -item.quantity,
                 batch.quantity_real, newOriginQty,
-                validated.data.userId,
-                `Transfer to ${validated.data.targetWarehouseId}`,
+                actorUserId,
+                `Transfer to ${targetScope.warehouseId}`,
                 targetBatchId,
                 shipmentId
             ]);
@@ -729,14 +924,17 @@ export async function executeTransferSecure(data: z.infer<typeof TransferSchema>
         // 6. Audit
         await insertStockAudit(client, {
             actionCode: 'STOCK_TRANSFERRED',
-            userId: validated.data.userId,
+            userId: actorUserId,
             productId: validated.data.items[0].productId,
             details: {
-                origin_warehouse: validated.data.originWarehouseId,
-                target_warehouse: validated.data.targetWarehouseId,
+                origin_warehouse: originScope.warehouseId,
+                target_warehouse: targetScope.warehouseId,
+                effective_origin_warehouse: originScope.warehouseId,
                 items_count: validated.data.items.length,
                 total_quantity: totalQuantity,
-                notes: validated.data.notes
+                notes: validated.data.notes,
+                authorized_by: authorizedBy?.id || null,
+                authorized_by_name: authorizedBy?.name || null,
             }
         });
 
@@ -771,6 +969,7 @@ export async function getStockHistorySecure(filters: {
     startDate?: Date;
     endDate?: Date;
     movementType?: string;
+    invoiceNumber?: string;
     page?: number;
     pageSize?: number;
 }): Promise<{
@@ -784,8 +983,24 @@ export async function getStockHistorySecure(filters: {
     error?: string;
 }> {
     try {
+        const actorResult = await requireWmsRoleActor(WMS_READ_ROLES, 'wms-get-stock-history');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
+        const actor = actorResult.actor;
         const page = filters.page || 1;
         const pageSize = Math.min(filters.pageSize || 50, 100);
+        const invoiceNumber = typeof filters.invoiceNumber === 'string'
+            ? filters.invoiceNumber.trim()
+            : '';
+        const requestedScopeId = hasGlobalInventoryScope(actor.role)
+            ? filters.warehouseId
+            : undefined;
+        const effectiveLocation = await resolveWmsLocationForActor(actor, requestedScopeId, pool);
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
 
         // Build WHERE clause
         const conditions: string[] = [];
@@ -797,9 +1012,9 @@ export async function getStockHistorySecure(filters: {
             params.push(filters.productId);
         }
 
-        if (filters.warehouseId) {
+        if (effectiveLocation.locationId) {
             conditions.push(`sm.location_id::text = $${paramIndex++}::text`);
-            params.push(filters.warehouseId);
+            params.push(effectiveLocation.locationId);
         }
 
         if (filters.startDate) {
@@ -815,6 +1030,11 @@ export async function getStockHistorySecure(filters: {
         if (filters.movementType) {
             conditions.push(`sm.movement_type = $${paramIndex++}`);
             params.push(filters.movementType);
+        }
+
+        if (invoiceNumber) {
+            conditions.push(`COALESCE(sm.notes, '') ILIKE $${paramIndex++}`);
+            params.push(`%${invoiceNumber}%`);
         }
 
         const whereClause = conditions.length > 0
@@ -934,16 +1154,22 @@ export async function getShipmentsSecure(filters?: z.input<typeof GetShipmentsSc
         };
     }
 
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    const session = await getSessionSecure();
-    const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'];
-
-    if (!session || !ALLOWED_ROLES.includes(session.role as string)) {
-        return { success: false, error: 'No autorizado' };
+    const actorResult = await requireWmsRoleActor(WMS_READ_ROLES, 'wms-get-shipments');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
-        const { locationId, status, type, direction, startDate, endDate, page, pageSize } = validated.data;
+        const actor = actorResult.actor;
+        const { locationId: requestedLocationId, status, type, direction, startDate, endDate, page, pageSize } = validated.data;
+        const effectiveLocation = resolveEffectiveInventoryLocation(
+            actor,
+            hasGlobalInventoryScope(actor.role) ? requestedLocationId : undefined,
+        );
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
+        const locationId = effectiveLocation.locationId;
 
         // Build WHERE clause
         const conditions: string[] = [];
@@ -1128,7 +1354,12 @@ const ProcessReceptionSchema = z.object({
         expiryDate: z.string().optional(),
     })).optional().default([]),
     photos: z.array(z.string()).optional(),
-    notes: z.string().optional()
+    notes: z.string().optional(),
+    supervisorPin: z.string().min(4).max(8).regex(/^\d+$/).optional(),
+});
+
+const CancelShipmentSchema = z.object({
+    shipmentId: UUIDSchema,
 });
 
 /**
@@ -1140,12 +1371,12 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
     shipmentId?: string;
     error?: string;
 }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2'); // Dynamic import to avoid circular deps if any
     const { revalidatePath } = await import('next/cache');
 
     // 0. Auth Check
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autorizado' };
+    const actorResult = await resolveWmsActor(WMS_WRITE_ROLES, undefined, 'wms-create-dispatch');
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const actor = actorResult.actor;
 
     // 1. Validation
     const validated = CreateDispatchSchema.safeParse(data);
@@ -1164,39 +1395,25 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
-        // 2. Resolve Warehouses from Locations
-        // Logic: Operations are typically on warehouses. If specific location is passed, we find the warehouse.
-        // For simplicity in this codebase, assuming 1 Warehouse per Location for now, or direct mapping.
-
-        // Find Origin Warehouse
-        const originWhRes = await client.query('SELECT id FROM warehouses WHERE location_id = $1::uuid LIMIT 1', [originLocationId]);
-        // If not found, check if originLocationId IS a warehouse ID? 
-        // Or fail. Let's assume strict mapping for safety.
-        // If "BODEGA_CENTRAL" is passed as ID, it might fail valid UUID check if it's not a UUID.
-        // The frontend sends strings like 'BODEGA_CENTRAL'. 
-        // We need to resolve these to UUIDs if they are not.
-        // BUT schema says UUIDSchema for IDs, so frontend must send UUIDs.
-        // If frontend sends 'BODEGA_CENTRAL', Zod UUIDSchema will fail.
-        // I need to check if we accept non-UUIDs. 
-        // User request says: "Problema: Confusión entre ID de Sucursal y ID de Bodega."
-        // "Las operaciones WMS ocurren sobre warehouse_id. Si la UI envía location_id, el backend debe resolver."
-
-        // Let's assume the IDs passed ARE location UUIDs. 
-        // If the query fails, maybe they are warehouse UUIDs?
-
-        let originWarehouseId = originWhRes.rows[0]?.id;
-        if (!originWarehouseId) {
-            // Maybe it was a warehouse ID?
-            const checkWh = await client.query('SELECT id FROM warehouses WHERE id = $1::uuid', [originLocationId]);
-            originWarehouseId = checkWh.rows[0]?.id;
+        const originLocationScope = await resolveWmsLocationForActor(actor, originLocationId, client);
+        if (!originLocationScope.success || !originLocationScope.locationId) {
+            throw new Error(originLocationScope.success ? 'Ubicación de origen no válida' : originLocationScope.error);
+        }
+        const originWarehouseScope = await resolveWmsWarehouseForActor(actor, originLocationScope.locationId, client);
+        if (!originWarehouseScope.success && type !== 'INBOUND_PROVIDER' && type !== 'RETURN') {
+            throw new Error(originWarehouseScope.error);
         }
 
-        if (!originWarehouseId && type !== 'INBOUND_PROVIDER' && type !== 'RETURN') {
-            // Only required if we are taking stock OUT of here.
-            // For RETURN (Customer -> Warehouse), origin might be generic?
-            // For INTERNAL_TRANSFER, we need origin warehouse.
-            throw new Error('Bodega de origen no encontrada');
+        let destinationLocationIdScoped: string | undefined;
+        if (destinationLocationId) {
+            const destinationLocationScope = await resolveWmsLocationForActor(actor, destinationLocationId, client);
+            if (!destinationLocationScope.success || !destinationLocationScope.locationId) {
+                throw new Error(destinationLocationScope.success ? 'Ubicación de destino no válida' : destinationLocationScope.error);
+            }
+            destinationLocationIdScoped = destinationLocationScope.locationId;
         }
+
+        const originWarehouseId = originWarehouseScope.success ? originWarehouseScope.warehouseId : undefined;
 
         // 3. Create Shipment
         const shipmentId = randomUUID();
@@ -1205,8 +1422,8 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
 
         const transportContext = {
             ...transportData,
-            created_by_id: session.userId,
-            created_by_name: session.userName || null,
+            created_by_id: actor.userId,
+            created_by_name: actor.userName || null,
         };
 
         await client.query(`
@@ -1218,8 +1435,8 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
                 $5::jsonb, $6::uuid, $7, NOW(), NOW()
             )
         `, [
-            shipmentId, mappedType, originLocationId, destinationLocationId,
-            JSON.stringify(transportContext), session.userId, notes || ''
+            shipmentId, mappedType, originLocationScope.locationId, destinationLocationIdScoped,
+            JSON.stringify(transportContext), actor.userId, notes || ''
         ]);
 
         // 4. Process Items (Lock, deduct, add to shipment_items)
@@ -1227,8 +1444,8 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
             for (const item of items) {
                 // Lock Batch
                 const batchRes = await client.query(`
-                    SELECT * FROM inventory_batches WHERE id = $1 FOR UPDATE NOWAIT
-                `, [item.batchId]);
+                    SELECT * FROM inventory_batches WHERE id = $1 AND warehouse_id = $2 FOR UPDATE NOWAIT
+                `, [item.batchId, originWarehouseId]);
 
                 if (batchRes.rows.length === 0) throw new Error(`Lote ${item.sku} no encontrado`);
                 const batch = batchRes.rows[0];
@@ -1255,9 +1472,9 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
                         $9, $10::uuid, 'SHIPMENT', $11::uuid
                     )
                 `, [
-                    randomUUID(), item.sku, item.name, originLocationId,
+                    randomUUID(), item.sku, item.name, originLocationScope.locationId,
                     item.quantity, batch.quantity_real, newQty,
-                    session.userId, `Despacho ${shipmentId}`, item.batchId, shipmentId
+                    actor.userId, `Despacho ${shipmentId}`, item.batchId, shipmentId
                 ]);
 
                 // Add to Shipment Items
@@ -1291,7 +1508,7 @@ export async function createDispatchSecure(data: z.infer<typeof CreateDispatchSc
         // 5. Audit
         await insertAuditLog(client, {
             type: 'dispatch',
-            userId: session.userId,
+            userId: actor.userId,
             shipmentId,
             itemsCount: items.length
         }); // Reusing/adapting existing audit helper if flexible, or generic insert
@@ -1320,21 +1537,25 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
     success: boolean;
     error?: string;
 }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
     const { revalidatePath } = await import('next/cache');
 
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autorizado' };
+    const actorResult = await resolveWmsActor(WMS_WRITE_ROLES, undefined, 'wms-process-reception');
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const actor = actorResult.actor;
 
     const validated = ProcessReceptionSchema.safeParse(data);
     if (!validated.success) return { success: false, error: 'Datos inválidos' };
 
-    const { shipmentId, receivedItems, unexpectedItems, notes } = validated.data;
+    const { shipmentId, receivedItems, unexpectedItems, notes, supervisorPin } = validated.data;
 
     const client = await pool.connect();
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        if (unexpectedItems.length > 0) {
+            throw new Error('La recepción de productos inesperados está deshabilitada en este flujo');
+        }
 
         // 1. Get Shipment
         const shipmentRes = await client.query(`
@@ -1346,21 +1567,79 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
 
         if (shipment.status !== 'IN_TRANSIT') throw new Error('El despacho no está en tránsito');
 
-        // 2. Resolve Destination Warehouse
-        const destWhRes = await client.query('SELECT id FROM warehouses WHERE location_id = $1::uuid LIMIT 1', [shipment.destination_location_id]);
-        const destWarehouseId = destWhRes.rows[0]?.id;
+        const shipmentLocationScope = resolveEffectiveInventoryLocation(actor, shipment.destination_location_id);
+        if (!shipmentLocationScope.success) {
+            throw new Error(shipmentLocationScope.error);
+        }
 
-        if (!destWarehouseId) throw new Error('No se encontró bodega asociada al destino');
+        // 2. Resolve Destination Warehouse within the actor scope
+        const destinationWarehouseScope = await resolveWmsWarehouseForActor(actor, shipment.destination_location_id, client);
+        if (!destinationWarehouseScope.success) {
+            throw new Error(destinationWarehouseScope.error);
+        }
+        const destWarehouseId = destinationWarehouseScope.warehouseId;
+
+        const shipmentItemsRes = await client.query(`
+            SELECT * FROM shipment_items WHERE shipment_id = $1 ORDER BY id ASC
+        `, [shipmentId]);
+        const shipmentItems = shipmentItemsRes.rows;
+        if (shipmentItems.length === 0) {
+            throw new Error('El despacho no tiene items recepcionables');
+        }
+
+        const shipmentItemMap = new Map(shipmentItems.map((item) => [String(item.id), item]));
+        if (receivedItems.length !== shipmentItems.length) {
+            throw new Error('La recepción debe validar todos los items del despacho');
+        }
+        const receivedItemIds = receivedItems.map((item) => String(item.itemId));
+        if (new Set(receivedItemIds).size !== receivedItemIds.length) {
+            throw new Error('La recepción contiene items duplicados');
+        }
+
+        let receptionAuthorizedBy: { id: string; name: string; role: string } | undefined;
+        const requiresDifferenceAuthorization = receivedItems.some((received) => {
+            const shipItem = shipmentItemMap.get(String(received.itemId));
+            if (!shipItem) {
+                return false;
+            }
+            return Number(received.quantity) !== Number(shipItem.quantity);
+        });
+
+        const canSelfAuthorizeDifferences = WMS_DIFFERENCE_SELF_AUTH_ROLES.includes(
+            normalizeRole(actor.role) as typeof WMS_DIFFERENCE_SELF_AUTH_ROLES[number],
+        );
+
+        if (requiresDifferenceAuthorization && canSelfAuthorizeDifferences) {
+            receptionAuthorizedBy = {
+                id: actor.userId,
+                name: actor.userName || 'Usuario',
+                role: actor.role,
+            };
+        }
+
+        if (requiresDifferenceAuthorization && !canSelfAuthorizeDifferences) {
+            if (!supervisorPin) {
+                throw new Error('Las diferencias de recepción requieren autorización de supervisor');
+            }
+
+            const pinCheck = await validateSupervisorPinForRoles(client, supervisorPin, WMS_DIFFERENCE_SELF_AUTH_ROLES);
+            if (!pinCheck.valid) {
+                throw new Error(pinCheck.error || 'PIN de supervisor inválido');
+            }
+            receptionAuthorizedBy = pinCheck.supervisor;
+        }
 
         // 3. Process Received Items
         for (const [index, received] of receivedItems.entries()) {
+            const shipItem = shipmentItemMap.get(String(received.itemId));
+            if (!shipItem) {
+                throw new Error('Item de recepción no pertenece al despacho');
+            }
+            const expectedQty = Number(shipItem.quantity || 0);
+            if (received.quantity > expectedQty) {
+                throw new Error(`La cantidad recibida para ${shipItem.sku || shipItem.name} excede lo despachado`);
+            }
             if (received.quantity <= 0) continue;
-
-            // Find original item specs (product_id etc)
-            const shipItemRes = await client.query('SELECT * FROM shipment_items WHERE id = $1', [received.itemId]);
-            const shipItem = shipItemRes.rows[0];
-
-            if (!shipItem) continue; // Skip if not found (shouldn't happen)
 
             // Get source batch metadata to copy cost/price/expiry
             // If it was an internal transfer, the batchId in shipment_items points to the Origin Batch.
@@ -1431,7 +1710,7 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
             `, [
                 randomUUID(), shipItem.sku, resolvedName, shipment.destination_location_id,
                 received.quantity, qtyBefore, qtyAfter,
-                session.userId,
+                actor.userId,
                 transferColor
                     ? `Recepción ${shipmentId} | Lote ${lotNumber} | Color ${transferColor.label}`
                     : `Recepción ${shipmentId} | Lote ${lotNumber}`,
@@ -1440,68 +1719,13 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
             ]);
         }
 
-        // 3b. Process Unexpected Items (not in original shipment)
-        if (unexpectedItems && unexpectedItems.length > 0) {
-            for (const [uIdx, unexpected] of unexpectedItems.entries()) {
-                if (unexpected.quantity <= 0) continue;
-
-                const canonicalProduct = await resolveCanonicalProductForMovement(client, {
-                    preferredProductId: unexpected.productId,
-                    sku: unexpected.sku,
-                });
-
-                if (!canonicalProduct) {
-                    console.warn(`[WMS-V2] Unexpected item SKU=${unexpected.sku} has no master product. Skipping.`);
-                    continue;
-                }
-
-                const uLotNumber = unexpected.lotNumber
-                    || `REC-UNEXP-${shipmentId.slice(0, 8)}-${uIdx}`;
-                const uExpiry = unexpected.expiryDate ? new Date(unexpected.expiryDate) : null;
-                const uBatchId = randomUUID();
-
-                await client.query(`
-                    INSERT INTO inventory_batches (
-                        id, product_id, warehouse_id, lot_number, expiry_date,
-                        quantity_real, sku, name, unit_cost, sale_price, location_id,
-                        source_system, created_at, updated_at
-                    ) VALUES (
-                        $1, $2, $3, $4, $5,
-                        $6, $7, $8, $9, $10, $11,
-                        'WMS_UNEXPECTED', NOW(), NOW()
-                    )
-                `, [
-                    uBatchId, canonicalProduct.id, destWarehouseId, uLotNumber, uExpiry,
-                    unexpected.quantity, unexpected.sku, unexpected.name,
-                    canonicalProduct.costPrice, canonicalProduct.salePrice,
-                    shipment.destination_location_id
-                ]);
-
-                await client.query(`
-                    INSERT INTO stock_movements (
-                        id, sku, product_name, location_id, movement_type,
-                        quantity, stock_before, stock_after, timestamp, user_id,
-                        notes, batch_id, reference_type, reference_id
-                    ) VALUES (
-                        $1, $2, $3, $4::uuid, 'UNEXPECTED_IN',
-                        $5, 0, $6, NOW(), $7::uuid,
-                        $8, $9::uuid, 'SHIPMENT', $10::uuid
-                    )
-                `, [
-                    randomUUID(), unexpected.sku, unexpected.name,
-                    shipment.destination_location_id,
-                    unexpected.quantity, unexpected.quantity,
-                    session.userId,
-                    `Recepción inesperada ${shipmentId} | Lote ${uLotNumber}`,
-                    uBatchId, shipmentId
-                ]);
-            }
-        }
-
         // 4. Update Shipment Status
-        // Check if all received? For now, assume Full Delivery if action called.
-        // Or check conditions.
         const status = 'DELIVERED';
+        const normalizedNotes = receptionAuthorizedBy
+            ? [notes, `Diferencias autorizadas por ${receptionAuthorizedBy.name} (${receptionAuthorizedBy.role})`]
+                .filter(Boolean)
+                .join('\n')
+            : notes;
         await client.query(`
             UPDATE shipments 
             SET status = $1,
@@ -1513,12 +1737,12 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
                 ),
                 notes = CASE WHEN $4::text IS NOT NULL THEN COALESCE(notes, '') || E'\n' || $4::text ELSE notes END
             WHERE id = $5
-        `, [status, session.userId, session.userName || 'Usuario', notes || null, shipmentId]);
+        `, [status, actor.userId, actor.userName || 'Usuario', normalizedNotes || null, shipmentId]);
 
         // 5. Audit
         await insertAuditLog(client, {
             type: 'reception',
-            userId: session.userId,
+            userId: actor.userId,
             shipmentId,
             itemsCount: receivedItems.length
         });
@@ -1534,6 +1758,194 @@ export async function processReceptionSecure(data: z.infer<typeof ProcessRecepti
         await client.query('ROLLBACK');
         console.error('Reception Error:', error);
         return { success: false, error: (error as Error).message };
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * 🚫 Cancel Shipment (Secure)
+ * Restores origin stock and marks shipment as cancelled.
+ */
+export async function cancelShipmentSecure(data: z.infer<typeof CancelShipmentSchema>): Promise<{
+    success: boolean;
+    error?: string;
+}> {
+    const { revalidatePath } = await import('next/cache');
+
+        const actorResult = await requireWmsRoleActor(WMS_CANCEL_ROLES, 'wms-cancel-shipment');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const validated = CancelShipmentSchema.safeParse(data);
+    if (!validated.success) {
+        return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
+    }
+
+    const actor = actorResult.actor;
+    const client = await pool.connect();
+
+    try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const shipmentRes = await client.query(`
+            SELECT *
+            FROM shipments
+            WHERE id = $1
+            FOR UPDATE NOWAIT
+        `, [validated.data.shipmentId]);
+
+        if (shipmentRes.rows.length === 0) {
+            throw new Error('Envío no encontrado');
+        }
+
+        const shipment = shipmentRes.rows[0];
+        if (shipment.status !== 'IN_TRANSIT') {
+            throw new Error('Solo se pueden cancelar envíos en tránsito');
+        }
+        if (!canActorAccessLocation(actor, shipment.origin_location_id) && !canActorAccessLocation(actor, shipment.destination_location_id)) {
+            throw new Error('Acceso denegado a este envío');
+        }
+
+        const shipmentItemsRes = await client.query(`
+            SELECT *
+            FROM shipment_items
+            WHERE shipment_id = $1
+            ORDER BY id ASC
+        `, [validated.data.shipmentId]);
+
+        let originWarehouseId: string | null = null;
+        if (shipment.origin_location_id) {
+            const originWhRes = await client.query(
+                'SELECT id FROM warehouses WHERE location_id = $1::uuid LIMIT 1',
+                [shipment.origin_location_id]
+            );
+            originWarehouseId = originWhRes.rows[0]?.id || null;
+        }
+
+        for (const [index, item] of shipmentItemsRes.rows.entries()) {
+            const quantity = Number(item.quantity || 0);
+            if (quantity <= 0 || !originWarehouseId) continue;
+
+            let finalBatchId = typeof item.batch_id === 'string' ? item.batch_id : null;
+            let stockBefore = 0;
+            let stockAfter = quantity;
+
+            if (finalBatchId) {
+                const batchRes = await client.query(`
+                    SELECT *
+                    FROM inventory_batches
+                    WHERE id = $1 AND warehouse_id = $2
+                    FOR UPDATE NOWAIT
+                `, [finalBatchId, originWarehouseId]);
+
+                if (batchRes.rows.length > 0) {
+                    const batch = batchRes.rows[0];
+                    stockBefore = Number(batch.quantity_real || 0);
+                    stockAfter = stockBefore + quantity;
+
+                    await client.query(`
+                        UPDATE inventory_batches
+                        SET quantity_real = $1,
+                            updated_at = NOW()
+                        WHERE id = $2
+                    `, [stockAfter, finalBatchId]);
+                } else {
+                    finalBatchId = null;
+                }
+            }
+
+            if (!finalBatchId) {
+                const canonicalProduct = await resolveCanonicalProductForMovement(client, {
+                    preferredProductId: item.product_id,
+                    sku: item.sku,
+                });
+
+                if (!canonicalProduct) {
+                    throw new Error(`No se pudo restaurar stock para ${item.sku}`);
+                }
+
+                finalBatchId = randomUUID();
+                await client.query(`
+                    INSERT INTO inventory_batches (
+                        id, product_id, warehouse_id, lot_number, expiry_date,
+                        quantity_real, sku, name, unit_cost, sale_price, location_id,
+                        source_system, created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, NULL,
+                        $5, $6, $7, $8, $9, $10,
+                        'WMS_CANCEL', NOW(), NOW()
+                    )
+                `, [
+                    finalBatchId,
+                    canonicalProduct.id,
+                    originWarehouseId,
+                    `CANCEL-${validated.data.shipmentId.slice(0, 8)}-${index + 1}`,
+                    quantity,
+                    item.sku,
+                    item.name || canonicalProduct.name,
+                    canonicalProduct.costPrice,
+                    canonicalProduct.salePrice,
+                    shipment.origin_location_id,
+                ]);
+            }
+
+            await client.query(`
+                INSERT INTO stock_movements (
+                    id, sku, product_name, location_id, movement_type,
+                    quantity, stock_before, stock_after, timestamp, user_id,
+                    notes, batch_id, reference_type, reference_id
+                ) VALUES (
+                    $1, $2, $3, $4::uuid, 'TRANSFER_IN',
+                    $5, $6, $7, NOW(), $8::uuid,
+                    $9, $10::uuid, 'SHIPMENT', $11::uuid
+                )
+            `, [
+                randomUUID(),
+                item.sku,
+                item.name || 'Producto',
+                shipment.origin_location_id,
+                quantity,
+                stockBefore,
+                stockAfter,
+                actor.userId,
+                `Cancelación despacho ${validated.data.shipmentId}`,
+                finalBatchId,
+                validated.data.shipmentId,
+            ]);
+        }
+
+        await client.query(`
+            UPDATE shipments
+            SET status = 'CANCELLED',
+                updated_at = NOW(),
+                transport_data = COALESCE(transport_data, '{}'::jsonb) || jsonb_build_object(
+                    'cancelled_by_id', $2::text,
+                    'cancelled_by_name', $3::text,
+                    'cancelled_at', NOW()::text
+                )
+            WHERE id = $1
+        `, [validated.data.shipmentId, actor.userId, actor.userName || 'Usuario']);
+
+        await insertAuditLog(client, {
+            type: 'shipment_cancelled',
+            userId: actor.userId,
+            shipmentId: validated.data.shipmentId,
+            itemsCount: shipmentItemsRes.rows.length,
+        });
+
+        await client.query('COMMIT');
+
+        revalidatePath('/warehouse');
+        revalidatePath('/logistica');
+        revalidatePath('/logistics');
+
+        return { success: true };
+    } catch (error: unknown) {
+        await client.query('ROLLBACK');
+        const message = error instanceof Error ? error.message : 'Error desconocido';
+        return { success: false, error: message };
     } finally {
         client.release();
     }
@@ -1562,16 +1974,22 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
         };
     }
 
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    const session = await getSessionSecure();
-    const ALLOWED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'WAREHOUSE', 'QF'];
-
-    if (!session || !ALLOWED_ROLES.includes(session.role as string)) {
-        return { success: false, error: 'No autorizado' };
+    const actorResult = await requireWmsRoleActor(WMS_READ_ROLES, 'wms-get-purchase-orders');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
-        const { locationId, status, supplierId, startDate, endDate, page, pageSize } = validated.data;
+        const actor = actorResult.actor;
+        const { locationId: requestedLocationId, status, supplierId, startDate, endDate, page, pageSize } = validated.data;
+        const effectiveLocation = resolveEffectiveInventoryLocation(
+            actor,
+            hasGlobalInventoryScope(actor.role) ? requestedLocationId : undefined,
+        );
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
+        const locationId = effectiveLocation.locationId;
 
         // Build WHERE clause
         const conditions: string[] = [];
@@ -1659,8 +2077,7 @@ export async function getPurchaseOrdersSecure(filters?: z.infer<typeof GetPurcha
                                 'quantity', COALESCE(poi.quantity_ordered, 0),
                                 'quantity_ordered', COALESCE(poi.quantity_ordered, 0),
                                 'cost', COALESCE(poi.cost_price, 0),
-                                'cost_price', COALESCE(poi.cost_price, 0),
-                                'product_id', poi.product_id
+                                'cost_price', COALESCE(poi.cost_price, 0)
                             )
                             ORDER BY poi.sku
                         ) FILTER (WHERE poi.id IS NOT NULL),
@@ -1745,11 +2162,10 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
     shipmentId?: string;
     error?: string;
 }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
     const { revalidatePath } = await import('next/cache');
-    const session = await getSessionSecure();
-
-    if (!session) return { success: false, error: 'No autorizado' };
+    const actorResult = await resolveWmsActor(WMS_WRITE_ROLES, undefined, 'wms-create-return');
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const actor = actorResult.actor;
 
     const validated = CreateReturnSchema.safeParse(data);
     if (!validated.success) {
@@ -1762,10 +2178,19 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        const originLocationScope = await resolveWmsLocationForActor(actor, originLocationId, client);
+        if (!originLocationScope.success || !originLocationScope.locationId) {
+            throw new Error(originLocationScope.success ? 'Ubicación de origen no válida' : originLocationScope.error);
+        }
+        const destinationLocationScope = await resolveWmsLocationForActor(actor, destinationLocationId, client);
+        if (!destinationLocationScope.success || !destinationLocationScope.locationId) {
+            throw new Error(destinationLocationScope.success ? 'Ubicación de destino no válida' : destinationLocationScope.error);
+        }
+
         // 1. Validate Locations
         // Ensure origin is a RETAIL_BRANCH or KIOSK and destination is WAREHOUSE
-        const originRes = await client.query('SELECT type FROM locations WHERE id = $1', [originLocationId]);
-        const destRes = await client.query('SELECT type FROM locations WHERE id = $1', [destinationLocationId]);
+        const originRes = await client.query('SELECT type FROM locations WHERE id = $1', [originLocationScope.locationId]);
+        const destRes = await client.query('SELECT type FROM locations WHERE id = $1', [destinationLocationScope.locationId]);
 
         if (originRes.rows.length === 0 || destRes.rows.length === 0) {
             throw new Error('Ubicación no encontrada');
@@ -1782,8 +2207,8 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
                 $4::uuid, $5, NOW(), NOW()
             )
         `, [
-            shipmentId, originLocationId, destinationLocationId,
-            session.userId, notes || ''
+            shipmentId, originLocationScope.locationId, destinationLocationScope.locationId,
+            actor.userId, notes || ''
         ]);
 
         // 3. Process Items
@@ -1795,7 +2220,7 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
             // We will deduct from "quantity_real" in origin (store) anyway.
 
             // Find generic batch in origin store
-            const originWhRes = await client.query('SELECT id FROM warehouses WHERE location_id = $1', [originLocationId]);
+            const originWhRes = await client.query('SELECT id FROM warehouses WHERE location_id = $1', [originLocationScope.locationId]);
             const originWhId = originWhRes.rows[0]?.id;
 
             if (!originWhId) throw new Error('Bodega de sucursal no encontrada');
@@ -1819,7 +2244,11 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
 
             if (batchRes.rows.length > 0) {
                 const batch = batchRes.rows[0];
-                const newQty = Math.max(0, batch.quantity_real - item.quantity);
+                if (Number(batch.quantity_real || 0) < item.quantity) {
+                    throw new Error(`Stock insuficiente para devolución de ${item.sku}`);
+                }
+
+                const newQty = batch.quantity_real - item.quantity;
 
                 await client.query('UPDATE inventory_batches SET quantity_real = $1 WHERE id = $2', [newQty, batch.id]);
                 batchIdForRecord = batch.id;
@@ -1836,14 +2265,12 @@ export async function createReturnSecure(data: z.infer<typeof CreateReturnSchema
                         $9, $10, 'SHIPMENT', $11
                    )
                `, [
-                    randomUUID(), item.sku, productName, originLocationId,
+                    randomUUID(), item.sku, productName, originLocationScope.locationId,
                     -item.quantity, batch.quantity_real, newQty,
-                    session.userId, `Devolución ${item.condition}`, batch.id, shipmentId
+                    actor.userId, `Devolución ${item.condition}`, batch.id, shipmentId
                 ]);
             } else {
-                // Force negative stock or error? 
-                // For returns, we usually allow forcing if physical item exists.
-                // Let's warn but proceed with creating shipment item (no batch deduction if none found, risky but robust)
+                throw new Error(`No hay lote disponible para devolución de ${item.sku}`);
             }
 
             // Add to Shipment Items (with condition)

@@ -404,71 +404,9 @@ export const TigerDataService = {
                 // console.log(`✅ [Tiger Data] Loaded ${result.data.shipments.length} shipments from DB`);
                 return result.data.shipments;
             }
-
-            if (normalizedLocationId && result.success && result.data && result.data.shipments.length === 0) {
-                // console.warn('⚠️ [Tiger Data] Sin resultados por ubicación, intentando vista corporativa de envíos...');
-                const globalResult = await getShipmentsSecure({
-                    page: 1,
-                    pageSize: 100
-                });
-
-                if (globalResult.success && globalResult.data && globalResult.data.shipments.length > 0) {
-                    // console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.shipments.length} shipments (global fallback)`);
-                    return globalResult.data.shipments;
-                }
-            }
-
-            // console.warn(`⚠️ [Tiger Data] Primary shipment fetch without resultados, activando fallback histórico: ${result.error || 'empty result'}`);
-        } catch (error) {
-            // console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
-        }
-
-        try {
-            const { getSupplyChainHistorySecure } = await import('../../actions/supply-v2');
-            const fallback = await getSupplyChainHistorySecure({
-                page: 1,
-                pageSize: 100,
-                type: 'SHIPMENT',
-                locationId: normalizedLocationId
-            });
-
-            const mapRows = (rows: Record<string, unknown>[]) => rows.map((row: Record<string, unknown>) => ({
-                id: row.id,
-                status: row.status,
-                type: row.shipment_type || 'INTER_BRANCH',
-                origin_location_id: row.origin_location_id || null,
-                origin_location_name: row.origin_location_name || 'Origen',
-                destination_location_id: row.location_id || null,
-                destination_location_name: row.location_name || 'Destino',
-                created_at: row.created_at ? new Date(String(row.created_at)).getTime() : Date.now(),
-                updated_at: row.updated_at ? new Date(String(row.updated_at)).getTime() : null,
-                notes: row.notes || '',
-                items_count: Number(row.items_count || 0)
-            }));
-
-            if (fallback.success && fallback.data && fallback.data.length > 0) {
-                const shipments = mapRows(fallback.data as Record<string, unknown>[]);
-                // console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source)`);
-                return shipments;
-            }
-
-            if (normalizedLocationId) {
-                const fallbackGlobal = await getSupplyChainHistorySecure({
-                    page: 1,
-                    pageSize: 100,
-                    type: 'SHIPMENT',
-                });
-
-                if (fallbackGlobal.success && fallbackGlobal.data && fallbackGlobal.data.length > 0) {
-                    const shipments = mapRows(fallbackGlobal.data as Record<string, unknown>[]);
-                    // console.log(`⚠️ [Tiger Data] Loaded ${shipments.length} shipments (fallback source global)`);
-                    return shipments;
-                }
-            }
-
             return [];
         } catch (error) {
-            // console.error('❌ [Tiger Data] Fallback shipment fetch failed:', error);
+            // console.error('❌ [Tiger Data] Fetch Shipments failed:', error);
             return [];
         }
     },
@@ -493,66 +431,9 @@ export const TigerDataService = {
                 // console.log(`✅ [Tiger Data] Loaded ${result.data.purchaseOrders.length} purchase orders (WMS source)`);
                 return result.data.purchaseOrders;
             }
-
-            if (normalizedLocationId && result.success && result.data?.purchaseOrders?.length === 0) {
-                // console.warn('⚠️ [Tiger Data] Sin OC por ubicación, intentando vista corporativa...');
-                const globalResult = await getPurchaseOrdersSecure({
-                    page: 1,
-                    pageSize: 100
-                });
-
-                if (globalResult.success && globalResult.data?.purchaseOrders && globalResult.data.purchaseOrders.length > 0) {
-                    // console.log(`⚠️ [Tiger Data] Loaded ${globalResult.data.purchaseOrders.length} purchase orders (global fallback)`);
-                    return globalResult.data.purchaseOrders;
-                }
-            }
-
-            // console.warn(`⚠️ [Tiger Data] Primary purchase order fetch sin resultados, activando fallback: ${result.error || 'empty result'}`);
-        } catch (error) {
-            // console.error('❌ [Tiger Data] Primary purchase order fetch failed:', error);
-        }
-
-        try {
-            const { getSupplyChainHistorySecure } = await import('../../actions/supply-v2');
-            const fallback = await getSupplyChainHistorySecure({
-                page: 1,
-                pageSize: 100,
-                type: 'PO',
-                locationId: normalizedLocationId
-            });
-
-            const mapRows = (rows: Record<string, unknown>[]) => rows.map((order: Record<string, unknown>) => ({
-                ...order,
-                supplier_name: order.supplier_name || 'Proveedor Desconocido',
-                location_name: order.location_name || 'Sin ubicación',
-                items_count: Number(order.items_count || 0),
-                created_at: order.created_at ? new Date(String(order.created_at)).getTime() : Date.now(),
-                updated_at: order.updated_at ? new Date(String(order.updated_at)).getTime() : null,
-            }));
-
-            if (fallback.success && fallback.data && fallback.data.length > 0) {
-                const filtered = mapRows(fallback.data as Record<string, unknown>[]);
-                // console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source)`);
-                return filtered;
-            }
-
-            if (normalizedLocationId) {
-                const fallbackGlobal = await getSupplyChainHistorySecure({
-                    page: 1,
-                    pageSize: 100,
-                    type: 'PO',
-                });
-
-                if (fallbackGlobal.success && fallbackGlobal.data && fallbackGlobal.data.length > 0) {
-                    const filtered = mapRows(fallbackGlobal.data as Record<string, unknown>[]);
-                    // console.log(`⚠️ [Tiger Data] Loaded ${filtered.length} purchase orders (fallback source global)`);
-                    return filtered;
-                }
-            }
-
             return [];
         } catch (error) {
-            // console.error('❌ [Tiger Data] Fallback purchase order fetch failed:', error);
+            // console.error('❌ [Tiger Data] Primary purchase order fetch failed:', error);
             return [];
         }
     },
@@ -566,23 +447,11 @@ export const TigerDataService = {
         operation: 'ADD' | 'SUBTRACT'
     ): Promise<{ success: boolean }> => {
         return simulateNetworkCall(() => {
-            const product = inMemoryStorage.products.find(p => p.id === productId);
-
-            if (!product) {
-                throw new Error(`Product not found: ${productId}`);
-            }
-
-            if (operation === 'SUBTRACT') {
-                if (product.stock_actual < quantity) {
-                    throw new Error(`Insufficient stock for ${product.name}`);
-                }
-                product.stock_actual -= quantity;
-            } else {
-                product.stock_actual += quantity;
-            }
-
-            // console.log(`📦 [Tiger Data] Stock updated: ${product.name} | ${operation} ${quantity} | New stock: ${product.stock_actual}`);
-
+            console.warn('[Tiger Data] updateInventoryStock is deprecated in runtime. Stock owner is inventory_batches/server actions.', {
+                productId,
+                quantity,
+                operation,
+            });
             return { success: true };
         }, 'updateInventoryStock');
     },

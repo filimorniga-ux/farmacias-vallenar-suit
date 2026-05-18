@@ -15,8 +15,8 @@
 import { query } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { cookies, headers } from 'next/headers';
 import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
 
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'] as const;
 const SCHEDULER_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER', 'RRHH'] as const;
@@ -31,6 +31,12 @@ interface SchedulerUser {
     name: string;
     role: SchedulerRole;
     assignedLocationId: string | null;
+}
+
+interface SchedulerTargetUser {
+    id: string;
+    assignedLocationId: string | null;
+    isActive: boolean;
 }
 
 const ShiftSchema = z.object({
@@ -100,28 +106,16 @@ function isSchedulerRole(role: string): role is SchedulerRole {
 }
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-        let locationId = headersList.get('x-user-location') || undefined;
-
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-            locationId = locationId || cookieStore.get('user_location')?.value || undefined;
-        }
-
-        if (!userId || !role) {
-            return null;
-        }
-
-        return { userId, role: role.toUpperCase(), locationId };
-    } catch {
+    const session = await getValidatedSession();
+    if (!session) {
         return null;
     }
+
+    return {
+        userId: session.userId,
+        role: session.role.toUpperCase(),
+        locationId: session.locationId,
+    };
 }
 
 async function authorizeScheduler(locationId?: string): Promise<{ ok: true; user: SchedulerUser } | { ok: false; error: string }> {
@@ -170,6 +164,133 @@ async function authorizeScheduler(locationId?: string): Promise<{ ok: true; user
 async function getTargetUserLocation(userId: string): Promise<string | null> {
     const res = await query('SELECT assigned_location_id FROM users WHERE id = $1 LIMIT 1', [userId]);
     return res.rows[0]?.assigned_location_id || null;
+}
+
+async function getSchedulerTargetUser(userId: string): Promise<SchedulerTargetUser | null> {
+    const res = await query(
+        `SELECT id, assigned_location_id, is_active
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [userId]
+    );
+
+    if (res.rows.length === 0) {
+        return null;
+    }
+
+    return {
+        id: res.rows[0].id,
+        assignedLocationId: res.rows[0].assigned_location_id || null,
+        isActive: Boolean(res.rows[0].is_active),
+    };
+}
+
+async function getExistingShift(shiftId: string) {
+    const res = await query(
+        `SELECT id, user_id, location_id, start_at, end_at
+         FROM employee_shifts
+         WHERE id = $1
+         LIMIT 1`,
+        [shiftId]
+    );
+
+    return res.rows[0] || null;
+}
+
+function ensureGlobalSchedulerRole(user: SchedulerUser) {
+    if (!isAdminRole(user.role)) {
+        return {
+            ok: false as const,
+            error: 'Solo administradores globales pueden operar sin sucursal explícita',
+        };
+    }
+
+    return { ok: true as const };
+}
+
+async function ensureShiftIntegrity(params: {
+    userId: string;
+    startAt: string;
+    endAt: string;
+    shiftId?: string;
+}) {
+    const startDate = params.startAt.slice(0, 10);
+    const endDate = params.endAt.slice(0, 10);
+
+    const [overlapRes, timeOffRes] = await Promise.all([
+        query(
+            `SELECT id
+             FROM employee_shifts
+             WHERE user_id = $1
+               AND tstzrange(start_at, end_at, '[)') && tstzrange($2::timestamptz, $3::timestamptz, '[)')
+               AND ($4::uuid IS NULL OR id <> $4::uuid)
+             LIMIT 1`,
+            [params.userId, params.startAt, params.endAt, params.shiftId || null]
+        ),
+        query(
+            `SELECT id
+             FROM time_off_requests
+             WHERE user_id = $1
+               AND status = 'APPROVED'
+               AND daterange(start_date, end_date, '[]') && daterange($2::date, $3::date, '[]')
+             LIMIT 1`,
+            [params.userId, startDate, endDate]
+        ),
+    ]);
+
+    if (overlapRes.rows.length > 0) {
+        return { ok: false as const, error: 'Ya existe un turno solapado para este colaborador' };
+    }
+
+    if (timeOffRes.rows.length > 0) {
+        return { ok: false as const, error: 'El colaborador tiene una ausencia aprobada en ese rango' };
+    }
+
+    return { ok: true as const };
+}
+
+export async function getSchedulerPageContext(requestedLocationId?: string | null): Promise<{
+    success: boolean;
+    locationId?: string;
+    error?: string;
+}> {
+    const auth = await authorizeScheduler(undefined);
+    if (!auth.ok) {
+        return { success: false, error: auth.error };
+    }
+
+    if (isAdminRole(auth.user.role)) {
+        if (requestedLocationId && UUIDSchema.safeParse(requestedLocationId).success) {
+            return { success: true, locationId: requestedLocationId };
+        }
+
+        if (auth.user.assignedLocationId) {
+            return { success: true, locationId: auth.user.assignedLocationId };
+        }
+
+        const locationRes = await query(
+            `SELECT id
+             FROM locations
+             WHERE is_active = true
+             ORDER BY created_at ASC NULLS LAST, id ASC
+             LIMIT 1`
+        );
+
+        const fallbackLocationId = locationRes.rows[0]?.id;
+        if (!fallbackLocationId) {
+            return { success: false, error: 'No hay sucursales activas configuradas.' };
+        }
+
+        return { success: true, locationId: fallbackLocationId };
+    }
+
+    const effectiveLocationId = auth.user.assignedLocationId;
+    if (!effectiveLocationId) {
+        return { success: false, error: 'No tienes una sucursal asignada para gestionar horarios' };
+    }
+
+    return { success: true, locationId: effectiveLocationId };
 }
 
 function validateShiftMath(params: {
@@ -233,6 +354,11 @@ export async function createShiftTemplate(data: z.infer<typeof TemplateSchema>) 
     const auth = await authorizeScheduler(parsed.data.locationId || undefined);
     if (!auth.ok) return { success: false, error: auth.error };
 
+    if (!parsed.data.locationId) {
+        const globalCheck = ensureGlobalSchedulerRole(auth.user);
+        if (!globalCheck.ok) return { success: false, error: globalCheck.error };
+    }
+
     const { name, start, end, color, locationId, breakMinutes, isRestDay, breakStart, breakEnd } = parsed.data;
 
     try {
@@ -293,9 +419,37 @@ export async function upsertTimeOffRequest(data: z.infer<typeof TimeOffSchema>) 
     const { id, userId, type, startDate, endDate, notes, status } = parsed.data;
 
     try {
-        const targetLocationId = await getTargetUserLocation(userId);
+        let targetLocationId: string | null = null;
+        if (id) {
+            const existingRes = await query(
+                `SELECT t.user_id, u.assigned_location_id
+                 FROM time_off_requests t
+                 JOIN users u ON u.id = t.user_id
+                 WHERE t.id = $1
+                 LIMIT 1`,
+                [id]
+            );
+
+            if (existingRes.rows.length === 0) {
+                return { success: false, error: 'Ausencia no encontrada' };
+            }
+
+            if (String(existingRes.rows[0].user_id) !== userId) {
+                return { success: false, error: 'No puedes reasignar una ausencia a otro colaborador' };
+            }
+
+            targetLocationId = existingRes.rows[0].assigned_location_id || null;
+        } else {
+            targetLocationId = await getTargetUserLocation(userId);
+        }
+
         const auth = await authorizeScheduler(targetLocationId || undefined);
         if (!auth.ok) return { success: false, error: auth.error };
+
+        if (!targetLocationId) {
+            const globalCheck = ensureGlobalSchedulerRole(auth.user);
+            if (!globalCheck.ok) return { success: false, error: globalCheck.error };
+        }
 
         const overlapRes = await query(
             `SELECT id
@@ -356,9 +510,6 @@ export async function upsertShiftV2(data: z.infer<typeof ShiftSchema>) {
         status,
     } = parsed.data;
 
-    const auth = await authorizeScheduler(locationId);
-    if (!auth.ok) return { success: false, error: auth.error };
-
     const validation = validateShiftMath({
         startAt,
         endAt,
@@ -372,6 +523,38 @@ export async function upsertShiftV2(data: z.infer<typeof ShiftSchema>) {
     }
 
     try {
+        const existingShift = id ? await getExistingShift(id) : null;
+        if (id && !existingShift) {
+            return { success: false, error: 'Turno no encontrado' };
+        }
+
+        const effectiveLocationId = existingShift?.location_id || locationId;
+        if (existingShift && existingShift.location_id !== locationId) {
+            return { success: false, error: 'No puedes mover un turno a otra sucursal desde esta operación' };
+        }
+
+        const auth = await authorizeScheduler(effectiveLocationId);
+        if (!auth.ok) return { success: false, error: auth.error };
+
+        const targetUser = await getSchedulerTargetUser(userId);
+        if (!targetUser || !targetUser.isActive) {
+            return { success: false, error: 'Usuario objetivo no encontrado o inactivo' };
+        }
+
+        if (!targetUser.assignedLocationId || targetUser.assignedLocationId !== effectiveLocationId) {
+            return { success: false, error: 'El colaborador no pertenece a la sucursal seleccionada' };
+        }
+
+        const integrityCheck = await ensureShiftIntegrity({
+            userId,
+            startAt,
+            endAt,
+            shiftId: id,
+        });
+        if (!integrityCheck.ok) {
+            return { success: false, error: integrityCheck.error };
+        }
+
         const contractRes = await query('SELECT weekly_hours FROM staff_contracts WHERE user_id = $1', [userId]);
         const weeklyInfo = Number(contractRes.rows[0]?.weekly_hours || 45);
         const isOvertime = validation.netHours > (weeklyInfo / 5);
@@ -396,7 +579,7 @@ export async function upsertShiftV2(data: z.infer<typeof ShiftSchema>) {
                 [
                     startAt,
                     endAt,
-                    locationId,
+                    effectiveLocationId,
                     userId,
                     isOvertime,
                     notes || null,
@@ -421,7 +604,7 @@ export async function upsertShiftV2(data: z.infer<typeof ShiftSchema>) {
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
                 [
                     userId,
-                    locationId,
+                    effectiveLocationId,
                     startAt,
                     endAt,
                     assignedBy || auth.user.id,

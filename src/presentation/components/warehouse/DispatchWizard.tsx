@@ -1,10 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { X, Truck, MapPin, Package, CheckCircle, ArrowRight, Search, Barcode, ShoppingCart, RotateCcw, Camera, PlusCircle } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { usePharmaStore } from '../../store/useStore';
 import { useLocationStore } from '../../store/useLocationStore';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { purchaseOrdersQueryKey } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { shipmentsQueryKey } from '@/presentation/hooks/useShipmentsQuery';
+import { createPurchaseOrderSecure } from '@/actions/supply-v2';
 import { toast } from 'sonner';
-import { Shipment, PurchaseOrder, InventoryBatch } from '../../../domain/types';
+import { Shipment, InventoryBatch } from '../../../domain/types';
 import CameraScanner from '../ui/CameraScanner';
 
 interface DispatchWizardProps {
@@ -14,7 +18,8 @@ interface DispatchWizardProps {
 }
 
 const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode = 'DISPATCH' }) => {
-    const { inventory, createDispatch, addPurchaseOrder, refreshShipments, user, suppliers } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const { inventory, user, suppliers } = usePharmaStore();
     const { currentLocation, locations } = useLocationStore();
 
     // Step 1: Route
@@ -232,26 +237,31 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
         }
 
         if (mode === 'PURCHASE') {
-            const newPO: PurchaseOrder = {
-                id: `PO-${Date.now()}`,
-                supplier_id: originId,
-                destination_location_id: destinationId, // Destination warehouse
-                target_warehouse_id: destinationId, // Required FK for stock arrival
-                created_at: Date.now(),
-                status: 'SENT',
+            if (!user?.id) {
+                toast.error('Sesión inválida');
+                return;
+            }
+
+            const result = await createPurchaseOrderSecure({
+                supplierId: originId,
+                targetWarehouseId: destinationId,
                 items: selectedItems.map(i => ({
                     sku: i.sku,
                     name: i.name,
-                    quantity_ordered: i.quantity,
-                    quantity_received: 0,
-                    cost_price: 0, // TODO: Fetch real cost
-                    quantity: i.quantity // Legacy compatibility
+                    quantity: i.quantity,
+                    cost: 0,
+                    productId: undefined,
                 })),
-                total_estimated: 0,
-                is_auto_generated: false,
-                generation_reason: 'MANUAL'
-            };
-            addPurchaseOrder(newPO);
+                notes: 'Pedido express desde WMS',
+                status: 'SENT',
+            }, user.id);
+
+            if (!result.success) {
+                toast.error(result.error || 'No se pudo crear el pedido');
+                return;
+            }
+
+            await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(destinationId || currentLocation?.id || undefined) });
             toast.success('Pedido a Proveedor creado exitosamente');
         } else {
             if (!transportData.tracking_number) {
@@ -283,9 +293,14 @@ const DispatchWizard: React.FC<DispatchWizardProps> = ({ isOpen, onClose, mode =
                 }),
                 {
                     loading: 'Procesando despacho...',
-                    success: (res) => {
+                    success: async (res) => {
                         if (!res.success) throw new Error(res.error);
-                        refreshShipments();
+                        await Promise.all([
+                            queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(originId || undefined) }),
+                            destinationId && destinationId !== 'PROVEEDOR_EXTERNO'
+                                ? queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(destinationId) })
+                                : Promise.resolve(),
+                        ]);
                         onClose();
                         return mode === 'RETURN' ? 'Devolución creada exitosamente' : 'Despacho creado exitosamente';
                     },

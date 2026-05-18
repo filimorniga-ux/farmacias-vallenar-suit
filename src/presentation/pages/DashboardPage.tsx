@@ -1,5 +1,9 @@
+'use client';
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { DashboardStats } from '@/actions/analytics/dashboard-stats';
+import type { ManagerDashboardData } from '@/actions/manager-dashboard-v2';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
 import { autoBackupService } from '../../domain/services/AutoBackupService';
@@ -12,6 +16,10 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmployeeProfile } from '../../domain/types';
 import SystemIncidentsBanner from '../components/dashboard/SystemIncidentsBanner';
+import { bootstrapRouteShell } from '@/presentation/lib/bootstrapRouteShell';
+import { scheduleIdleTask } from '@/presentation/lib/scheduleIdleTask';
+
+const DASHBOARD_MAINTENANCE_WARMUP_DELAY_MS = 10000;
 
 // --- SKELETON COMPONENTS ---
 const FinancialCardSkeleton = () => (
@@ -38,10 +46,23 @@ const ModuleCardSkeleton = () => (
 // Lazy load Manager Dashboard
 const ManagerDashboard = React.lazy(() => import('../components/dashboard/ManagerDashboard'));
 
-const DashboardPage: React.FC = () => {
-    const navigate = useNavigate();
-    const { login, user, employees, syncData } = usePharmaStore();
-    const { currentLocation, locations, switchLocation } = useLocationStore();
+type DashboardPageContentProps = {
+    navigateTo: (path: string) => void;
+    initialDashboardStats?: DashboardStats | null;
+    initialManagerData?: ManagerDashboardData | null;
+};
+
+export const DashboardPageContent: React.FC<DashboardPageContentProps> = ({
+    navigateTo,
+    initialDashboardStats,
+    initialManagerData,
+}) => {
+    const login = usePharmaStore((state) => state.login);
+    const user = usePharmaStore((state) => state.user);
+    const employees = usePharmaStore((state) => state.employees);
+    const currentLocation = useLocationStore((state) => state.currentLocation);
+    const locations = useLocationStore((state) => state.locations);
+    const switchLocation = useLocationStore((state) => state.switchLocation);
 
     // Check if user is Manager/Admin
     const isManager = user?.role === 'MANAGER' || user?.role === 'ADMIN' || user?.role === 'GERENTE_GENERAL';
@@ -53,7 +74,7 @@ const DashboardPage: React.FC = () => {
         isRefetching,
         refetch,
         prefetchDashboard
-    } = useDashboardMetrics();
+    } = useDashboardMetrics({ initialData: initialDashboardStats });
 
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
@@ -73,10 +94,29 @@ const DashboardPage: React.FC = () => {
         setIsOnline(navigator.onLine);
 
         // --- LAZY TRIGGER: GC & HEALTH CHECK ---
-        if (user?.role === 'ADMIN' || user?.role === 'MANAGER') {
-            import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
-                autoCloseGhostSessionsSecure('').catch(e => console.error('GC Error:', e));
-            });
+        if (user?.role === 'ADMIN' || user?.role === 'MANAGER' || user?.role === 'GERENTE_GENERAL') {
+            const gcWarmupKey = `dashboard-gc-warmup:${user.id}`;
+            const shouldWarmup = typeof window !== 'undefined' && !window.sessionStorage.getItem(gcWarmupKey);
+
+            if (shouldWarmup) {
+                const cancelGcWarmup = scheduleIdleTask(() => {
+                    if (document.visibilityState !== 'visible' || !navigator.onLine) {
+                        return;
+                    }
+
+                    window.sessionStorage.setItem(gcWarmupKey, 'done');
+                    import('../../actions/maintenance-v2').then(({ autoCloseGhostSessionsSecure }) => {
+                        autoCloseGhostSessionsSecure('').catch(e => console.error('GC Error:', e));
+                    });
+                }, DASHBOARD_MAINTENANCE_WARMUP_DELAY_MS);
+
+                return () => {
+                    autoBackupService.stop();
+                    window.removeEventListener('online', updateOnlineStatus);
+                    window.removeEventListener('offline', updateOnlineStatus);
+                    cancelGcWarmup();
+                };
+            }
         }
 
         return () => {
@@ -84,7 +124,7 @@ const DashboardPage: React.FC = () => {
             window.removeEventListener('online', updateOnlineStatus);
             window.removeEventListener('offline', updateOnlineStatus);
         };
-    }, [user?.role]);
+    }, [user?.id, user?.role]);
 
     // --- DATA TRANSFORMATION ---
     const dashboardData = useMemo(() => {
@@ -146,14 +186,14 @@ const DashboardPage: React.FC = () => {
 
     useEffect(() => {
         if (user && targetRoute) {
-            navigate(targetRoute);
+            navigateTo(targetRoute);
             setTargetRoute('');
         }
-    }, [user, targetRoute, navigate]);
+    }, [user, targetRoute, navigateTo]);
 
     const handleCardClick = (route: string) => {
         if (user) {
-            navigate(route);
+            navigateTo(route);
         } else {
             console.log('🚀 Boost Mode Activated: Prefetching Dashboard data...');
             prefetchDashboard(); // Start fetching early!
@@ -182,8 +222,7 @@ const DashboardPage: React.FC = () => {
 
         if (result.success) {
             setIsLoginModalOpen(false);
-            // Sync critical data immediately after login
-            syncData().catch(console.error);
+            void bootstrapRouteShell(targetRoute || '/dashboard').catch(console.error);
         } else {
             const baseError = result.error || 'PIN Incorrecto';
             const supportRef = result.correlationId ? ` Ref: ${result.correlationId.slice(0, 8)}` : '';
@@ -308,7 +347,7 @@ const DashboardPage: React.FC = () => {
                 {isManager ? (
                     <div className="mb-8">
                         <React.Suspense fallback={<FinancialCardSkeleton />}>
-                            <ManagerDashboard />
+                            <ManagerDashboard initialData={initialManagerData} />
                         </React.Suspense>
                     </div>
                 ) : (
@@ -431,7 +470,7 @@ const DashboardPage: React.FC = () => {
                                 <p className="text-sm font-bold text-slate-700">Próximo pago servidor</p>
                                 <p className="text-xs text-slate-500">Vence en 5 días (Vercel)</p>
                             </div>
-                            <button onClick={() => navigate('/settings')} className="text-xs font-bold text-cyan-600 hover:underline">
+                            <button onClick={() => navigateTo('/settings')} className="text-xs font-bold text-cyan-600 hover:underline">
                                 Ver
                             </button>
                         </div>
@@ -553,6 +592,12 @@ const DashboardPage: React.FC = () => {
             </AnimatePresence>
         </div >
     );
+};
+
+const DashboardPage: React.FC = () => {
+    const navigate = useNavigate();
+
+    return <DashboardPageContent navigateTo={navigate} />;
 };
 
 export default DashboardPage;

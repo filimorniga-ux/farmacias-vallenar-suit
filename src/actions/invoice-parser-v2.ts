@@ -21,16 +21,24 @@
 
 import { pool, query } from '@/lib/db';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
 import { randomUUID } from 'crypto';
+import * as Sentry from '@sentry/nextjs';
 import { getAIConfigSecure, getSystemConfigSecure } from './config-v2';
+import { getValidatedSession } from '@/lib/server-session';
 import {
     getInternalDeepSeekTokenHeader,
     isInternalDeepSeekRoute,
     resolveDeepSeekOcrEndpoint,
 } from '@/lib/ai/deepseek-endpoint';
+import {
+    PROCUREMENT_READ_ROLES,
+    PROCUREMENT_WRITE_ROLES,
+    requireProcurementActor,
+    resolveEffectiveProcurementLocation,
+    type ProcurementActor,
+} from './procurement-scope';
 
 // ============================================================================
 // TIPOS
@@ -112,6 +120,11 @@ export interface ProductMatch {
     currentStock?: number;
 }
 
+interface SmartInvoiceLocationLookup {
+    id: string;
+    name: string;
+}
+
 // ============================================================================
 // CONSTANTES
 // ============================================================================
@@ -121,6 +134,12 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
+const APPROVABLE_PARSING_STATUSES = ['PENDING', 'VALIDATED', 'MAPPING'] as const;
+const REJECTABLE_PARSING_STATUSES = ['PENDING', 'VALIDATED', 'MAPPING'] as const;
+const DELETABLE_PARSING_STATUSES = ['PENDING', 'VALIDATED', 'MAPPING', 'ERROR', 'REJECTED'] as const;
+const RETRYABLE_PARSING_SOURCE_STATUSES = ['ERROR', 'REJECTED'] as const;
+const ACTIVE_PARSING_STATUSES = ['PENDING', 'VALIDATED', 'MAPPING', 'PROCESSING'] as const;
+const SMART_INVOICE_MODULE = 'smart-invoice';
 
 function revalidateInvoiceProcurementPaths(): void {
     revalidatePath('/supply-chain');
@@ -128,6 +147,179 @@ function revalidateInvoiceProcurementPaths(): void {
     revalidatePath('/procurement/smart-order');
     revalidatePath('/procurement/smart-invoice');
     revalidatePath('/procurement/smart-invoice/list');
+}
+
+function canTransitionParsingStatus(
+    currentStatus: string,
+    allowedStatuses: readonly string[],
+): boolean {
+    return allowedStatuses.includes(currentStatus);
+}
+
+function getInvalidParsingTransitionError(
+    action: 'aprobar' | 'rechazar' | 'eliminar',
+    currentStatus: string,
+): string {
+    return `No se puede ${action} un parsing con estado ${currentStatus}`;
+}
+
+type SmartInvoiceAuditActionCode =
+    | 'INVOICE_PARSE_STARTED'
+    | 'INVOICE_PARSE_COMPLETED'
+    | 'INVOICE_PARSE_FAILED'
+    | 'INVOICE_DUPLICATE_DETECTED'
+    | 'INVOICE_APPROVED'
+    | 'INVOICE_REJECTED'
+    | 'INVOICE_DELETED';
+
+type InvoiceDuplicateRow = {
+    isDuplicate: boolean;
+    duplicateId?: string;
+    duplicateStatus?: string;
+    matchType?: string;
+};
+
+type SmartInvoiceAuditQuery = (
+    text: string,
+    params?: (string | number | boolean | Date | string[] | null | undefined)[],
+) => Promise<unknown>;
+
+async function insertSmartInvoiceAudit(
+    auditQuery: SmartInvoiceAuditQuery,
+    params: {
+        actionCode: SmartInvoiceAuditActionCode;
+        actor: ProcurementActor;
+        parsingId: string;
+        locationId?: string | null;
+        fromStatus?: string | null;
+        toStatus?: string | null;
+        metadata?: Record<string, unknown>;
+    },
+): Promise<void> {
+    const metadata = {
+        module: SMART_INVOICE_MODULE,
+        source: 'invoice-parser-v2',
+        action: params.actionCode,
+        actorUserId: params.actor.userId,
+        actorRole: params.actor.role,
+        locationId: params.locationId ?? null,
+        parsingId: params.parsingId,
+        fromStatus: params.fromStatus ?? null,
+        toStatus: params.toStatus ?? null,
+        ...(params.metadata || {}),
+    };
+
+    const oldValues = params.fromStatus ? { status: params.fromStatus } : null;
+    const newValues = params.toStatus ? { status: params.toStatus } : null;
+
+    try {
+        await auditQuery(`
+            INSERT INTO audit_log (
+                user_id, user_role, user_name, location_id,
+                action_code, entity_type, entity_id,
+                old_values, new_values, metadata, created_at
+            ) VALUES (
+                $1::uuid, $2, $3, $4::uuid,
+                $5, 'INVOICE_PARSING', $6,
+                $7::jsonb, $8::jsonb, $9::jsonb, NOW()
+            )
+        `, [
+            params.actor.userId,
+            params.actor.role,
+            params.actor.userName || null,
+            params.locationId || null,
+            params.actionCode,
+            params.parsingId,
+            oldValues ? JSON.stringify(oldValues) : null,
+            newValues ? JSON.stringify(newValues) : null,
+            JSON.stringify(metadata),
+        ]);
+    } catch (error) {
+        logger.warn(
+            {
+                error,
+                actionCode: params.actionCode,
+                parsingId: params.parsingId,
+                locationId: params.locationId ?? null,
+            },
+            '[Invoice Parser] Audit insert failed (non-critical)',
+        );
+        Sentry.captureException(error, {
+            tags: { module: SMART_INVOICE_MODULE, action: 'audit_insert' },
+            extra: {
+                actionCode: params.actionCode,
+                parsingId: params.parsingId,
+                locationId: params.locationId ?? null,
+            },
+        });
+    }
+}
+
+function normalizeDuplicateRow(row: Record<string, unknown> | undefined): InvoiceDuplicateRow | null {
+    if (!row || !row.is_duplicate) {
+        return null;
+    }
+
+    return {
+        isDuplicate: Boolean(row.is_duplicate),
+        duplicateId: row.duplicate_id ? String(row.duplicate_id) : undefined,
+        duplicateStatus: row.duplicate_status ? String(row.duplicate_status) : undefined,
+        matchType: row.match_type ? String(row.match_type) : undefined,
+    };
+}
+
+function isRetryableParsingSourceStatus(status?: string | null): boolean {
+    return Boolean(status && RETRYABLE_PARSING_SOURCE_STATUSES.includes(status as typeof RETRYABLE_PARSING_SOURCE_STATUSES[number]));
+}
+
+function isActiveParsingStatus(status?: string | null): boolean {
+    return Boolean(status && ACTIVE_PARSING_STATUSES.includes(status as typeof ACTIVE_PARSING_STATUSES[number]));
+}
+
+function shouldBlockDuplicatePersistence(
+    duplicate: InvoiceDuplicateRow | null,
+    allowDuplicate: boolean,
+): boolean {
+    if (!duplicate?.isDuplicate) {
+        return false;
+    }
+
+    if (duplicate.matchType !== 'FILE_HASH') {
+        return true;
+    }
+
+    if (!allowDuplicate) {
+        return true;
+    }
+
+    if (isRetryableParsingSourceStatus(duplicate.duplicateStatus)) {
+        return false;
+    }
+
+    return isActiveParsingStatus(duplicate.duplicateStatus);
+}
+
+function getDuplicateConflictMessage(
+    duplicate: InvoiceDuplicateRow | null,
+    allowDuplicate: boolean,
+): string {
+    if (!duplicate?.isDuplicate) {
+        return 'Esta factura ya fue procesada';
+    }
+
+    if (duplicate.matchType === 'ACCOUNTS_PAYABLE') {
+        return 'La factura ya fue registrada en cuentas por pagar';
+    }
+
+    if (duplicate.matchType === 'INVOICE_NUMBER') {
+        return `Ya existe una factura del mismo proveedor y folio (${duplicate.duplicateStatus || 'REGISTRADA'})`;
+    }
+
+    if (duplicate.matchType === 'FILE_HASH' && allowDuplicate && isActiveParsingStatus(duplicate.duplicateStatus)) {
+        return `Ya existe un parsing activo para este documento (${duplicate.duplicateStatus})`;
+    }
+
+    return `Esta factura ya fue procesada (${duplicate.matchType || 'DUPLICATE'})`;
 }
 
 // ============================================================================
@@ -270,23 +462,29 @@ const ApproveRequestSchema = z.object({
 // ============================================================================
 
 async function getSession(): Promise<{ userId: string; role: string; locationId?: string; userName?: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-        const userName = headersList.get('x-user-name'); // 👈 Add this
+    const session = await getValidatedSession();
+    if (!session) return null;
 
-        if (!userId || !role) return null;
-        return {
-            userId,
-            role,
-            locationId: locationId || undefined,
-            userName: userName || undefined
-        };
-    } catch {
-        return null;
-    }
+    return {
+        userId: session.userId,
+        role: session.role,
+        locationId: session.locationId,
+        userName: session.userName,
+    };
+}
+
+async function requireInvoiceParserActor(
+    allowedRoles: readonly string[],
+    action: string,
+): Promise<{ success: true; actor: ProcurementActor } | { success: false; error: string }> {
+    return requireProcurementActor(allowedRoles, action);
+}
+
+function resolveInvoiceParserLocation(
+    actor: ProcurementActor,
+    requestedLocationId?: string | null,
+): { success: true; locationId?: string } | { success: false; error: string } {
+    return resolveEffectiveProcurementLocation(actor, requestedLocationId);
 }
 
 /**
@@ -555,16 +753,20 @@ async function callDeepSeekOCR(
     const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
     const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
     if (!endpoint) {
-        throw new Error('DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o NEXT_PUBLIC_APP_URL');
+        throw new Error('DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o APP_URL');
     }
 
     const internalToken = getInternalDeepSeekTokenHeader();
+    const endpointIsInternal = isInternalDeepSeekRoute(endpoint);
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
     };
 
-    if (internalToken && isInternalDeepSeekRoute(endpoint)) {
+    if (apiKey && !endpointIsInternal) {
+        headers.Authorization = `Bearer ${apiKey}`;
+    }
+
+    if (internalToken && endpointIsInternal) {
         headers['x-internal-ocr-token'] = internalToken;
     }
 
@@ -834,6 +1036,57 @@ async function matchInvoiceItems(items: ParsedInvoiceItem[], supplierId?: string
 // ============================================================================
 
 /**
+ * 📍 Ubicaciones disponibles para Smart Invoice
+ * Scopeadas por actor y con payload mínimo.
+ */
+export async function getSmartInvoiceLocationsSecure(): Promise<{
+    success: boolean;
+    data?: SmartInvoiceLocationLookup[];
+    error?: string;
+}> {
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'getSmartInvoiceLocationsSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const effectiveLocation = resolveInvoiceParserLocation(actorResult.actor);
+    if (!effectiveLocation.success) {
+        return { success: false, error: effectiveLocation.error };
+    }
+
+    try {
+        const params: string[] = [];
+        let whereClause = 'WHERE is_active = true';
+
+        if (effectiveLocation.locationId) {
+            params.push(effectiveLocation.locationId);
+            whereClause += ` AND id::text = $${params.length}::text`;
+        }
+
+        const result = await query(
+            `
+                SELECT id::text AS id, name
+                FROM locations
+                ${whereClause}
+                ORDER BY name ASC
+            `,
+            params,
+        );
+
+        return {
+            success: true,
+            data: result.rows.map((row) => ({
+                id: String(row.id || ''),
+                name: String(row.name || ''),
+            })),
+        };
+    } catch (error: any) {
+        logger.error({ error }, '[Invoice Parser] Error getting scoped locations');
+        return { success: false, error: 'Error obteniendo ubicaciones' };
+    }
+}
+
+/**
  * 📄 Parsear documento de factura con IA
  */
 
@@ -854,13 +1107,22 @@ export async function parseInvoiceDocumentSecure(
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    // Verificar sesión
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_WRITE_ROLES, 'parseInvoiceDocumentSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
-    const { fileBase64, fileType, fileName, locationId, allowDuplicate } = validated.data;
+    const actor = actorResult.actor;
+    const { fileBase64, fileType, fileName, allowDuplicate } = validated.data;
+    const effectiveLocation = resolveInvoiceParserLocation(actor, validated.data.locationId);
+    if (!effectiveLocation.success || !effectiveLocation.locationId) {
+        return {
+            success: false,
+            error: effectiveLocation.success ? 'No se pudo resolver la ubicación' : effectiveLocation.error,
+        };
+    }
+
+    const locationId = effectiveLocation.locationId;
 
     // Validar tamaño (base64 es ~33% más grande que el archivo original)
     const estimatedSize = (fileBase64.length * 3) / 4;
@@ -890,16 +1152,17 @@ export async function parseInvoiceDocumentSecure(
         const configuredEndpoint = await getSystemConfigSecure('AI_DEEPSEEK_OCR_ENDPOINT');
         const endpoint = resolveDeepSeekOcrEndpoint(configuredEndpoint);
         if (!endpoint) {
-            return { success: false, error: 'DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o NEXT_PUBLIC_APP_URL' };
+            return { success: false, error: 'DeepSeek OCR endpoint no configurado. Defina AI_DEEPSEEK_OCR_ENDPOINT o APP_URL' };
         }
     }
 
     const parsingId = randomUUID();
     const startTime = Date.now();
+    let fileHash: string | null = null;
 
     try {
         // Calcular hash para detectar duplicados
-        const fileHash = await calculateHash(fileBase64);
+        fileHash = await calculateHash(fileBase64);
 
         // Verificar duplicados (si no se permite explícitamente)
         if (!allowDuplicate) {
@@ -908,21 +1171,40 @@ export async function parseInvoiceDocumentSecure(
                 [null, null, fileHash]
             );
 
-            if (duplicateRes.rows[0]?.is_duplicate) {
+            const duplicate = normalizeDuplicateRow(duplicateRes.rows[0]);
+            if (shouldBlockDuplicatePersistence(duplicate, false)) {
+                await insertSmartInvoiceAudit(query, {
+                    actionCode: 'INVOICE_DUPLICATE_DETECTED',
+                    actor,
+                    parsingId,
+                    locationId,
+                    metadata: {
+                        duplicateId: duplicate?.duplicateId || null,
+                        duplicateStatus: duplicate?.duplicateStatus || null,
+                        matchType: duplicate?.matchType || null,
+                        stage: 'pre_parse',
+                    },
+                });
                 return {
                     success: false,
                     isDuplicate: true,
-                    duplicateId: duplicateRes.rows[0].duplicate_id,
-                    error: `Esta factura ya fue procesada (${duplicateRes.rows[0].match_type})`
+                    duplicateId: duplicate?.duplicateId,
+                    error: getDuplicateConflictMessage(duplicate, false),
                 };
             }
         }
 
-        // Auditar inicio
-        await query(`
-            INSERT INTO audit_log (user_id, location_id, action_code, entity_type, entity_id)
-            VALUES ($1, $2, 'INVOICE_PARSE_STARTED', 'INVOICE_PARSING', $3)
-        `, [session.userId, locationId, parsingId]);
+        await insertSmartInvoiceAudit(query, {
+            actionCode: 'INVOICE_PARSE_STARTED',
+            actor,
+            parsingId,
+            locationId,
+            toStatus: 'PARSING',
+            metadata: {
+                fileType,
+                fileName: fileName || null,
+            },
+        });
 
         // Llamar a la IA
         const aiResult = await callAIWithRetry(
@@ -935,7 +1217,7 @@ export async function parseInvoiceDocumentSecure(
             },
             fileBase64,
             fileType,
-            session.userId,
+            actor.userId,
             locationId,
             parsingId
         );
@@ -968,15 +1250,34 @@ export async function parseInvoiceDocumentSecure(
             }
         }
 
-        // Verificar duplicado por RUT + número de factura
+        // Verificar duplicado semántico por RUT + número de factura
         if (parsedData.supplier?.rut && parsedData.invoice_number) {
             const dupCheck = await query(
                 'SELECT * FROM check_invoice_duplicate($1, $2, $3)',
                 [parsedData.supplier.rut, parsedData.invoice_number, fileHash]
             );
 
-            if (dupCheck.rows[0]?.is_duplicate && dupCheck.rows[0]?.match_type !== 'FILE_HASH') {
-                warnings.push(`Ya existe una factura ${parsedData.invoice_number} de este proveedor`);
+            const duplicate = normalizeDuplicateRow(dupCheck.rows[0]);
+            if (shouldBlockDuplicatePersistence(duplicate, Boolean(allowDuplicate))) {
+                await insertSmartInvoiceAudit(query, {
+                    actionCode: 'INVOICE_DUPLICATE_DETECTED',
+                    actor,
+                    parsingId,
+                    locationId,
+                    metadata: {
+                        duplicateId: duplicate?.duplicateId || null,
+                        duplicateStatus: duplicate?.duplicateStatus || null,
+                        matchType: duplicate?.matchType || null,
+                        stage: 'post_parse_validation',
+                    },
+                });
+
+                return {
+                    success: false,
+                    isDuplicate: true,
+                    duplicateId: duplicate?.duplicateId,
+                    error: getDuplicateConflictMessage(duplicate, Boolean(allowDuplicate)),
+                };
             }
         }
 
@@ -987,12 +1288,10 @@ export async function parseInvoiceDocumentSecure(
             mapping_status: 'PENDING' as const,
         }));
 
-        // Gestión de proveedor (Buscar o Crear)
+        // Resolver proveedor existente para mejorar matching, sin crear side effects antes de persistir.
         let supplierId: string | undefined;
-        let supplierCreated = false;
 
         if (parsedData.supplier?.rut) {
-            // 1. Buscar proveedor existente
             const supplierRes = await query(
                 'SELECT id FROM suppliers WHERE rut = $1',
                 [parsedData.supplier.rut]
@@ -1002,38 +1301,7 @@ export async function parseInvoiceDocumentSecure(
                 supplierId = supplierRes.rows[0].id;
                 parsedData.supplier.is_new = false;
             } else {
-                // 2. Crear si no existe
-                const newSupplierId = randomUUID();
-                try {
-                    await query(`
-                        INSERT INTO suppliers (
-                            id, rut, business_name, fantasy_name, 
-                            activity, phone, email, website, 
-                            address, region, commune, 
-                            created_at, updated_at, created_by
-                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW(), $12)
-                    `, [
-                        newSupplierId,
-                        parsedData.supplier.rut,
-                        parsedData.supplier.name || 'Proveedor Nuevo',
-                        parsedData.supplier.fantasy_name,
-                        parsedData.supplier.activity,
-                        parsedData.supplier.phone,
-                        parsedData.supplier.email,
-                        parsedData.supplier.website,
-                        parsedData.supplier.address,
-                        null, null, // region/commune pending
-                        session.userId
-                    ]);
-
-                    supplierId = newSupplierId;
-                    supplierCreated = true;
-                    parsedData.supplier.is_new = true;
-                } catch (err) {
-                    // Si falla la auto-creación (ej. race condition), intentamos buscar de nuevo o seguimos sin ID
-                    logger.warn({ err }, '[Invoice Parser] Error auto-creating supplier');
-                    warnings.push('No se pudo crear el perfil del proveedor automáticamente');
-                }
+                parsedData.supplier.is_new = true;
             }
         }
 
@@ -1051,81 +1319,126 @@ export async function parseInvoiceDocumentSecure(
         // Guardar en staging
         const processingTimeMs = Date.now() - startTime;
 
-        await query(`
-            INSERT INTO invoice_parsings (
-                id, supplier_rut, supplier_name, supplier_address,
-                supplier_phone, supplier_email, supplier_website, supplier_activity, supplier_fantasy_name,
-                document_type, invoice_number, issue_date, due_date,
-                net_amount, tax_amount, total_amount, discount_amount,
-                parsed_items, document_notes,
-                raw_ai_response, ai_provider, ai_model, processing_time_ms,
-                confidence_score, validation_warnings,
-                status, total_items, mapped_items, unmapped_items,
-                original_file_type, original_file_name, original_file_hash, original_file_data,
-                location_id, created_by
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                $14, $15, $16, $17, $18, $19,
-                $20, $21, $22, $23,
-                $24, $25,
-                $26, $27, $28, $29,
-                $30, $31, $32, $33,
-                $34, $35
-            )
-        `, [
-            parsingId,
-            parsedData.supplier?.rut || null,
-            parsedData.supplier?.name || null,
-            parsedData.supplier?.address || null,
-            parsedData.supplier?.phone || null,
-            parsedData.supplier?.email || null,
-            parsedData.supplier?.website || null,
-            parsedData.supplier?.activity || null,
-            parsedData.supplier?.fantasy_name || null,
-            parsedData.document_type || 'FACTURA',
-            parsedData.invoice_number || null,
-            parsedData.dates?.issue_date || null,
-            parsedData.dates?.due_date || null,
-            parsedData.totals?.net || null,
-            parsedData.totals?.tax || null,
-            parsedData.totals?.total || null,
-            parsedData.totals?.discount || 0,
-            JSON.stringify(results),
-            parsedData.notes || null,
-            JSON.stringify(parsedData), // raw_ai_response
-            aiResult.provider,
-            aiResult.model,
-            processingTimeMs,
-            parsedData.confidence || null,
-            JSON.stringify(warnings.map(w => ({ message: w, severity: 'WARNING' }))),
-            'PENDING',
-            itemsWithStatus.length,
-            mappedCount,
-            unmappedCount,
-            fileType,
-            fileName || null,
-            fileHash,
-            Buffer.from(fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64, 'base64').toString('base64'), // original_file_data as base64 string
-            locationId,
-            session.userId,
-        ]);
+        const persistClient = await pool.connect();
 
-        // Auditar completado
-        await query(`
-            INSERT INTO audit_log (user_id, location_id, action_code, entity_type, entity_id, new_values)
-            VALUES ($1, $2, 'INVOICE_PARSE_COMPLETED', 'INVOICE_PARSING', $3, $4::jsonb)
-        `, [
-            session.userId,
-            locationId,
+        try {
+            await persistClient.query('BEGIN');
+            await persistClient.query(
+                'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+                [locationId, fileHash],
+            );
+
+            const lockedDuplicateRes = await persistClient.query(
+                'SELECT * FROM check_invoice_duplicate($1, $2, $3)',
+                [parsedData.supplier?.rut || null, parsedData.invoice_number || null, fileHash],
+            );
+            const lockedDuplicate = normalizeDuplicateRow(lockedDuplicateRes.rows[0]);
+
+            if (shouldBlockDuplicatePersistence(lockedDuplicate, Boolean(allowDuplicate))) {
+                await persistClient.query('ROLLBACK');
+                await insertSmartInvoiceAudit(query, {
+                    actionCode: 'INVOICE_DUPLICATE_DETECTED',
+                    actor,
+                    parsingId,
+                    locationId,
+                    metadata: {
+                        duplicateId: lockedDuplicate?.duplicateId || null,
+                        duplicateStatus: lockedDuplicate?.duplicateStatus || null,
+                        matchType: lockedDuplicate?.matchType || null,
+                        stage: 'pre_persist_locked',
+                    },
+                });
+
+                return {
+                    success: false,
+                    isDuplicate: true,
+                    duplicateId: lockedDuplicate?.duplicateId,
+                    error: getDuplicateConflictMessage(lockedDuplicate, Boolean(allowDuplicate)),
+                };
+            }
+
+            await persistClient.query(`
+                INSERT INTO invoice_parsings (
+                    id, supplier_rut, supplier_name, supplier_address,
+                    supplier_phone, supplier_email, supplier_website, supplier_activity, supplier_fantasy_name,
+                    document_type, invoice_number, issue_date, due_date,
+                    net_amount, tax_amount, total_amount, discount_amount,
+                    parsed_items, document_notes,
+                    raw_ai_response, ai_provider, ai_model, processing_time_ms,
+                    confidence_score, validation_warnings,
+                    status, total_items, mapped_items, unmapped_items,
+                    original_file_type, original_file_name, original_file_hash, original_file_data,
+                    location_id, created_by
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+                    $14, $15, $16, $17, $18, $19,
+                    $20, $21, $22, $23,
+                    $24, $25,
+                    $26, $27, $28, $29,
+                    $30, $31, $32, $33,
+                    $34, $35
+                )
+            `, [
+                parsingId,
+                parsedData.supplier?.rut || null,
+                parsedData.supplier?.name || null,
+                parsedData.supplier?.address || null,
+                parsedData.supplier?.phone || null,
+                parsedData.supplier?.email || null,
+                parsedData.supplier?.website || null,
+                parsedData.supplier?.activity || null,
+                parsedData.supplier?.fantasy_name || null,
+                parsedData.document_type || 'FACTURA',
+                parsedData.invoice_number || null,
+                parsedData.dates?.issue_date || null,
+                parsedData.dates?.due_date || null,
+                parsedData.totals?.net || null,
+                parsedData.totals?.tax || null,
+                parsedData.totals?.total || null,
+                parsedData.totals?.discount || 0,
+                JSON.stringify(results),
+                parsedData.notes || null,
+                JSON.stringify(parsedData), // raw_ai_response
+                aiResult.provider,
+                aiResult.model,
+                processingTimeMs,
+                parsedData.confidence || null,
+                JSON.stringify(warnings.map(w => ({ message: w, severity: 'WARNING' }))),
+                'PENDING',
+                itemsWithStatus.length,
+                mappedCount,
+                unmappedCount,
+                fileType,
+                fileName || null,
+                fileHash,
+                Buffer.from(fileBase64.includes(',') ? fileBase64.split(',')[1] : fileBase64, 'base64').toString('base64'), // original_file_data as base64 string
+                locationId,
+                actor.userId,
+            ]);
+
+            await persistClient.query('COMMIT');
+        } catch (persistError) {
+            await persistClient.query('ROLLBACK').catch(() => undefined);
+            throw persistError;
+        } finally {
+            persistClient.release();
+        }
+
+        await insertSmartInvoiceAudit(query, {
+            actionCode: 'INVOICE_PARSE_COMPLETED',
+            actor,
             parsingId,
-            JSON.stringify({
-                supplier_rut: parsedData.supplier?.rut,
-                invoice_number: parsedData.invoice_number,
-                total: parsedData.totals?.total,
-                items_count: itemsWithStatus.length,
-                mapped_count: mappedCount,
-            })
-        ]);
+            locationId,
+            toStatus: 'PENDING',
+            metadata: {
+                supplierRut: parsedData.supplier?.rut || null,
+                invoiceNumber: parsedData.invoice_number || null,
+                totalAmount: parsedData.totals?.total || null,
+                itemsCount: itemsWithStatus.length,
+                mappedCount,
+                unmappedCount,
+            },
+        });
 
         logger.info({
             parsingId,
@@ -1164,16 +1477,22 @@ export async function parseInvoiceDocumentSecure(
             parsingId,
             error.message,
             fileType,
-            await calculateHash(fileBase64),
+            fileHash ?? await calculateHash(fileBase64),
             locationId,
-            session.userId,
+            actor.userId,
         ]);
 
-        // Auditar error
-        await query(`
-            INSERT INTO audit_log (user_id, location_id, action_code, entity_type, entity_id, new_values)
-            VALUES ($1, $2, 'INVOICE_PARSE_FAILED', 'INVOICE_PARSING', $3, $4::jsonb)
-        `, [session.userId, locationId, parsingId, JSON.stringify({ error: error.message })]);
+        await insertSmartInvoiceAudit(query, {
+            actionCode: 'INVOICE_PARSE_FAILED',
+            actor,
+            parsingId,
+            locationId,
+            toStatus: 'ERROR',
+            metadata: {
+                error: error.message || 'Error procesando factura con IA',
+                fileType,
+            },
+        });
 
         return {
             success: false,
@@ -1203,10 +1522,12 @@ export async function approveInvoiceParsingSecure(
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_WRITE_ROLES, 'approveInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
+
+    const actor = actorResult.actor;
 
     const { parsingId, mappings: manualMappings, itemsData, skipUnmapped, createAccountPayable, supplierData: enrichedSupplierData } = validated.data;
 
@@ -1228,9 +1549,28 @@ export async function approveInvoiceParsingSecure(
 
         const parsing = parsingRes.rows[0];
 
-        if (!['PENDING', 'VALIDATED', 'MAPPING', 'ERROR', 'PARTIAL'].includes(parsing.status)) {
+        if (!canTransitionParsingStatus(parsing.status, APPROVABLE_PARSING_STATUSES)) {
             await client.query('ROLLBACK');
-            return { success: false, error: `No se puede aprobar un parsing con estado ${parsing.status}` };
+            return { success: false, error: getInvalidParsingTransitionError('aprobar', parsing.status) };
+        }
+
+        const parsingLocationId = String(parsing.location_id || '') || undefined;
+        const parsingScope = resolveInvoiceParserLocation(actor, parsingLocationId);
+        if (!parsingScope.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: parsingScope.error };
+        }
+
+        const destinationScope = resolveInvoiceParserLocation(
+            actor,
+            validated.data.destinationLocationId || parsingLocationId,
+        );
+        if (!destinationScope.success || !destinationScope.locationId) {
+            await client.query('ROLLBACK');
+            return {
+                success: false,
+                error: destinationScope.success ? 'No se pudo resolver la ubicación destino' : destinationScope.error,
+            };
         }
 
         // Actualizar estado a PROCESSING
@@ -1303,6 +1643,11 @@ export async function approveInvoiceParsingSecure(
 
         // 2. Procesar items y mapeos
         const items = parsing.parsed_items || [];
+        if (!Array.isArray(items) || items.length === 0) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'El parsing no contiene items procesables para aprobar' };
+        }
+
         let mappedCount = 0;
         let unmappedCount = 0;
 
@@ -1467,14 +1812,13 @@ export async function approveInvoiceParsingSecure(
                 parsing.total_amount,
                 parsingId,
                 parsing.location_id,
-                session.userId,
+                actor.userId,
             ]);
         }
 
         // 4. Crear Stock (Inventory Batches)
         let stockCreatedCount = 0;
-        // Usar la ubicación destino seleccionada o la del usuario/parsing por defecto
-        const targetLocationId = validated.data.destinationLocationId || parsing.location_id;
+        const targetLocationId = destinationScope.locationId;
 
         for (const item of items) {
             if (item.mapping_status === 'MAPPED' && item.mapped_product_id) {
@@ -1517,7 +1861,7 @@ export async function approveInvoiceParsingSecure(
                     product?.name || item.mapped_product_name || 'Desconocido',
                     targetLocationId,
                     item.quantity,
-                    session.userId,
+                    actor.userId,
                     batchId,
                     parsingId
                 ]);
@@ -1550,7 +1894,7 @@ export async function approveInvoiceParsingSecure(
             JSON.stringify(items),
             mappedCount,
             unmappedCount,
-            session.userId,
+            actor.userId,
             parsingId
         ]);
 
@@ -1581,8 +1925,8 @@ export async function approveInvoiceParsingSecure(
                     parsing.original_file_type === 'pdf' ? 'application/pdf' : 'image/jpeg',
                     parsing.original_file_size || 0,
                     parsing.original_file_data || null,
-                    session.userId,
-                    session.userName || null
+                    actor.userId,
+                    actor.userName || null
                 ]);
                 logger.info({ parsingId, supplierId }, '📎 Invoice copied to supplier_account_documents');
             } catch (copyError: any) {
@@ -1592,6 +1936,25 @@ export async function approveInvoiceParsingSecure(
         }
 
         await client.query('COMMIT');
+
+        await insertSmartInvoiceAudit(query, {
+            actionCode: 'INVOICE_APPROVED',
+            actor,
+            parsingId,
+            locationId: targetLocationId,
+            fromStatus: parsing.status,
+            toStatus: finalStatus,
+            metadata: {
+                sourceLocationId: parsingLocationId || null,
+                destinationLocationId: targetLocationId,
+                supplierId,
+                supplierCreated,
+                accountPayableId,
+                mappedCount,
+                unmappedCount,
+                stockCreated: stockCreatedCount,
+            },
+        });
 
         revalidateInvoiceProcurementPaths();
 
@@ -1630,31 +1993,66 @@ export async function rejectInvoiceParsingSecure(
         return { success: false, error: 'Motivo de rechazo requerido (mínimo 5 caracteres)' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_WRITE_ROLES, 'rejectInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
+    const actor = actorResult.actor;
+
     try {
+        const parsingRes = await query(
+            `
+                SELECT status, location_id::text AS location_id
+                FROM invoice_parsings
+                WHERE id = $1
+                LIMIT 1
+            `,
+            [parsingId],
+        );
+
+        if (parsingRes.rows.length === 0) {
+            return { success: false, error: 'Parsing no encontrado o no se puede rechazar' };
+        }
+
+        const parsingScope = resolveInvoiceParserLocation(
+            actor,
+            String(parsingRes.rows[0]?.location_id || '') || undefined,
+        );
+        if (!parsingScope.success) {
+            return { success: false, error: parsingScope.error };
+        }
+
+        const currentStatus = String(parsingRes.rows[0]?.status || '');
+        if (!canTransitionParsingStatus(currentStatus, REJECTABLE_PARSING_STATUSES)) {
+            return { success: false, error: getInvalidParsingTransitionError('rechazar', currentStatus) };
+        }
+
         const res = await query(`
             UPDATE invoice_parsings SET
                 status = 'REJECTED',
             rejection_reason = $1,
             rejected_by = $2,
             rejected_at = NOW()
-            WHERE id = $3 AND status IN('PENDING', 'VALIDATED', 'MAPPING')
+            WHERE id = $3 AND status = $4
             RETURNING id
-            `, [reason, session.userId, parsingId]);
+            `, [reason, actor.userId, parsingId, currentStatus]);
 
         if (res.rowCount === 0) {
-            return { success: false, error: 'Parsing no encontrado o no se puede rechazar' };
+            return { success: false, error: 'El parsing cambió de estado y ya no se puede rechazar' };
         }
 
-        // Auditar
-        await query(`
-            INSERT INTO audit_log(user_id, action_code, entity_type, entity_id, new_values)
-            VALUES($1, 'INVOICE_REJECTED', 'INVOICE_PARSING', $2, $3:: jsonb)
-                `, [session.userId, parsingId, JSON.stringify({ reason })]);
+        await insertSmartInvoiceAudit(query, {
+            actionCode: 'INVOICE_REJECTED',
+            actor,
+            parsingId,
+            locationId: parsingRes.rows[0]?.location_id ? String(parsingRes.rows[0].location_id) : actor.locationId,
+            fromStatus: currentStatus,
+            toStatus: 'REJECTED',
+            metadata: {
+                reason,
+            },
+        });
 
         logger.info({ parsingId, reason }, '❌ Invoice parsing rejected');
 
@@ -1697,18 +2095,27 @@ export async function getPendingParsingsSecure(options: {
     const safePage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
     const safePageSize = Number.isFinite(pageSize) ? Math.min(100, Math.max(1, Math.floor(pageSize))) : 20;
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'getPendingParsingsSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    if (locationId && !UUIDSchema.safeParse(locationId).success) {
+        return { success: false, error: 'ID de ubicación inválido' };
+    }
+
+    const effectiveLocation = resolveInvoiceParserLocation(actorResult.actor, locationId);
+    if (!effectiveLocation.success) {
+        return { success: false, error: effectiveLocation.error };
     }
 
     try {
         const params: any[] = [];
         let whereClause = 'WHERE 1=1';
 
-        if (locationId) {
-            params.push(locationId);
-            whereClause += ` AND ip.location_id = $${params.length}`;
+        if (effectiveLocation.locationId) {
+            params.push(effectiveLocation.locationId);
+            whereClause += ` AND ip.location_id::text = $${params.length}::text`;
         }
 
         if (status && status !== 'ALL') {
@@ -1756,8 +2163,8 @@ export async function getPendingParsingsSecure(options: {
             u.name as created_by_name,
             l.name as location_name
             FROM invoice_parsings ip
-            LEFT JOIN users u ON ip.created_by:: text = u.id
-            LEFT JOIN locations l ON ip.location_id = l.id
+            LEFT JOIN users u ON ip.created_by::text = u.id::text
+            LEFT JOIN locations l ON ip.location_id::text = l.id::text
             ${whereClause}
             ORDER BY ip.created_at DESC
             LIMIT $${params.length - 1} OFFSET $${params.length}
@@ -1837,8 +2244,20 @@ export async function searchProductsForMappingSecure(
         return { success: false, error: 'Término de búsqueda muy corto' };
     }
 
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'searchProductsForMappingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const effectiveLocation = resolveInvoiceParserLocation(actorResult.actor);
+    if (!effectiveLocation.success) {
+        return { success: false, error: effectiveLocation.error };
+    }
+
     try {
         const sanitized = searchTerm.replace(/[%_]/g, '');
+        const safeLimit = Math.min(20, Math.max(1, Math.floor(limit)));
+        const scopedLocationId = effectiveLocation.locationId || null;
 
         const res = await query(`
         SELECT
@@ -1846,7 +2265,12 @@ export async function searchProductsForMappingSecure(
             p.name as product_name,
             p.sku,
             COALESCE(
-                (SELECT SUM(quantity_real) FROM inventory_batches WHERE product_id = p.id),
+                (
+                    SELECT SUM(quantity_real)
+                    FROM inventory_batches
+                    WHERE product_id = p.id
+                      AND ($4::text IS NULL OR location_id::text = $4::text)
+                ),
             0
                 ) as current_stock
             FROM products p
@@ -1858,7 +2282,7 @@ export async function searchProductsForMappingSecure(
                 CASE WHEN p.sku ILIKE $2 THEN 0 ELSE 1 END,
             p.name
             LIMIT $3
-            `, [`%${sanitized}%`, `${sanitized}%`, limit]);
+            `, [`%${sanitized}%`, `${sanitized}%`, safeLimit, scopedLocationId]);
 
         return {
             success: true,
@@ -1887,9 +2311,9 @@ export async function getInvoiceParsingSecure(
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireInvoiceParserActor(PROCUREMENT_READ_ROLES, 'getInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
@@ -1901,10 +2325,10 @@ export async function getInvoiceParsingSecure(
             vu.name as validated_by_name,
             l.name as location_name
             FROM invoice_parsings ip
-            LEFT JOIN suppliers s ON ip.supplier_id = s.id
-            LEFT JOIN users u ON ip.created_by:: text = u.id
-            LEFT JOIN users vu ON ip.validated_by = vu.id
-            LEFT JOIN locations l ON ip.location_id = l.id
+            LEFT JOIN suppliers s ON ip.supplier_id::text = s.id::text
+            LEFT JOIN users u ON ip.created_by::text = u.id::text
+            LEFT JOIN users vu ON ip.validated_by::text = vu.id::text
+            LEFT JOIN locations l ON ip.location_id::text = l.id::text
             WHERE ip.id = $1
             `, [parsingId]);
 
@@ -1913,6 +2337,13 @@ export async function getInvoiceParsingSecure(
         }
 
         const data = res.rows[0];
+        const scope = resolveInvoiceParserLocation(
+            actorResult.actor,
+            String(data.location_id || '') || undefined,
+        );
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
 
         // Convertir imagen a base64 si existe
         if (data.original_file_data) {
@@ -1939,34 +2370,55 @@ export async function deleteInvoiceParsingSecure(
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    // Solo ADMIN, QF o GERENTE_GENERAL pueden eliminar
-    const role = session.role;
-    if (!MANAGER_ROLES.includes(role)) {
-        return { success: false, error: 'No tiene permisos para eliminar' };
+    const actorResult = await requireInvoiceParserActor(MANAGER_ROLES, 'deleteInvoiceParsingSecure');
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
         // Verificar estado antes de eliminar
-        const checkRes = await query(`SELECT status FROM invoice_parsings WHERE id = $1`, [parsingId]);
+        const checkRes = await query(
+            `
+                SELECT status, location_id::text AS location_id
+                FROM invoice_parsings
+                WHERE id = $1
+            `,
+            [parsingId],
+        );
         if (checkRes.rows.length === 0) {
             return { success: false, error: 'Registro no encontrado' };
         }
 
-        const status = checkRes.rows[0].status;
+        const scope = resolveInvoiceParserLocation(
+            actorResult.actor,
+            String(checkRes.rows[0]?.location_id || '') || undefined,
+        );
+        if (!scope.success) {
+            return { success: false, error: scope.error };
+        }
+        const currentStatus = String(checkRes.rows[0]?.status || '');
+        if (!canTransitionParsingStatus(currentStatus, DELETABLE_PARSING_STATUSES)) {
+            return { success: false, error: getInvalidParsingTransitionError('eliminar', currentStatus) };
+        }
 
-        // Si ya está completada, no debería eliminarse por seguridad de trazabilidad de stock/pagos
-        // a menos que sea un ADMIN. Pero para simplificar el flujo duplicado, permitiremos eliminar
-        // si no ha generado movimientos contables críticos aún.
-        // Por ahora permitimos eliminar cualquier parsing para limpiar duplicados.
+        const deleteRes = await query(
+            `DELETE FROM invoice_parsings WHERE id = $1 AND status = $2`,
+            [parsingId, currentStatus],
+        );
+        if (deleteRes.rowCount === 0) {
+            return { success: false, error: 'El parsing cambió de estado y ya no se puede eliminar' };
+        }
 
-        await query(`DELETE FROM invoice_parsings WHERE id = $1`, [parsingId]);
+        await insertSmartInvoiceAudit(query, {
+            actionCode: 'INVOICE_DELETED',
+            actor: actorResult.actor,
+            parsingId,
+            locationId: String(checkRes.rows[0]?.location_id || '') || actorResult.actor.locationId,
+            fromStatus: currentStatus,
+            toStatus: 'DELETED',
+        });
 
-        logger.info({ parsingId, deletedBy: session.userId }, '[Invoice Parser] Parsing deleted');
+        logger.info({ parsingId, deletedBy: actorResult.actor.userId }, '[Invoice Parser] Parsing deleted');
 
         revalidateInvoiceProcurementPaths();
         return { success: true };

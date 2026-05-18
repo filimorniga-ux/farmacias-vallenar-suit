@@ -5,6 +5,12 @@ import {
 import { toast } from 'sonner';
 import * as Sentry from '@sentry/nextjs';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { PurchaseOrder, Shipment } from '@/domain/types';
+import {
+    compareWmsPendingPriority,
+    getWmsPendingPriority,
+    type WmsPendingPriority,
+} from '@/presentation/lib/wms-pending-priority';
 
 type DirectionFilter = 'BOTH' | 'INCOMING' | 'OUTGOING';
 
@@ -27,9 +33,15 @@ interface ShipmentCard {
         quantity: number;
     }>;
     payload?: Record<string, unknown>;
+    priority: WmsPendingPriority;
 }
 
 interface WMSTransitoTabProps {
+    purchaseOrders: PurchaseOrder[];
+    shipments: Shipment[];
+    isLoading?: boolean;
+    bootstrapOnMount?: boolean;
+    onRefresh?: () => Promise<unknown> | unknown;
     onReceiveShipment?: (shipmentId: string) => void;
     onReceivePurchaseOrder?: (order: Record<string, unknown>) => void;
 }
@@ -38,6 +50,12 @@ const DIRECTION_META: Record<DirectionFilter, { label: string; badge: string }> 
     BOTH: { label: 'Ambos sentidos', badge: 'bg-slate-100 text-slate-700 border-slate-200' },
     INCOMING: { label: 'Entrante', badge: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     OUTGOING: { label: 'Saliente', badge: 'bg-sky-50 text-sky-700 border-sky-200' },
+};
+
+const PRIORITY_META: Record<WmsPendingPriority['level'], { label: string; badge: string }> = {
+    high: { label: 'Prioridad alta', badge: 'bg-rose-50 text-rose-700 border-rose-200' },
+    medium: { label: 'Prioridad media', badge: 'bg-amber-50 text-amber-700 border-amber-200' },
+    low: { label: 'Prioridad baja', badge: 'bg-slate-50 text-slate-600 border-slate-200' },
 };
 
 const getTypeLabel = (type: string) => {
@@ -145,6 +163,17 @@ const toShipmentCardsFromPurchaseOrders = (
                 };
             }),
             payload: order,
+            priority: getWmsPendingPriority({
+                id: String(order.id || ''),
+                createdAt: typeof order.created_at === 'number' ? order.created_at : Date.now(),
+                direction,
+                status: normalizedStatus || 'SENT',
+                itemCount: rawItems.length,
+                totalQuantity: rawItems.reduce((sum, item) => {
+                    const row = typeof item === 'object' && item !== null ? item as Record<string, unknown> : {};
+                    return sum + Number(row.quantity_ordered ?? row.quantity ?? 0);
+                }, 0),
+            }),
         }];
     });
 };
@@ -162,45 +191,26 @@ const formatDate = (value: number | null | undefined) => {
 };
 
 export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
+    purchaseOrders,
+    shipments,
+    isLoading = false,
+    bootstrapOnMount = true,
+    onRefresh,
     onReceiveShipment,
     onReceivePurchaseOrder,
 }) => {
-    const {
-        currentLocationId,
-        shipments: storeShipments,
-        purchaseOrders: storePurchaseOrders,
-        refreshShipments,
-        refreshPurchaseOrders,
-    } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
     const [direction, setDirection] = useState<DirectionFilter>('BOTH');
-    const [loading, setLoading] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
     const fetchTransit = useCallback(async () => {
-        if (!currentLocationId) {
+        if (!currentLocationId || !onRefresh) {
             return;
         }
 
-        setLoading(true);
+        setIsRefreshing(true);
         try {
-            const [scopedShipments, scopedPurchaseOrders] = await Promise.allSettled([
-                refreshShipments(currentLocationId),
-                refreshPurchaseOrders(currentLocationId),
-            ]);
-
-            const scopedState = usePharmaStore.getState();
-            const hasScopedEntries =
-                scopedState.shipments.length > 0 || scopedState.purchaseOrders.length > 0;
-
-            if (!hasScopedEntries) {
-                await Promise.allSettled([
-                    refreshShipments(undefined),
-                    refreshPurchaseOrders(undefined),
-                ]);
-            }
-
-            if (scopedShipments.status === 'rejected' && scopedPurchaseOrders.status === 'rejected') {
-                toast.error('No se pudieron cargar los movimientos en tránsito');
-            }
+            await onRefresh();
         } catch (error) {
             Sentry.captureException(error, {
                 tags: { module: 'WMS', tab: 'Transito', action: 'fetchTransit' },
@@ -208,18 +218,19 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
             });
             toast.error('Error al consultar tránsito');
         } finally {
-            setLoading(false);
+            setIsRefreshing(false);
         }
-    }, [currentLocationId, direction, refreshPurchaseOrders, refreshShipments]);
+    }, [currentLocationId, direction, onRefresh]);
 
     useEffect(() => {
+        if (!bootstrapOnMount) return;
         void fetchTransit();
-    }, [fetchTransit]);
+    }, [bootstrapOnMount, fetchTransit]);
 
     const transitRows = useMemo(() => {
         if (!currentLocationId) return [] as ShipmentCard[];
 
-        const shipmentRows = (Array.isArray(storeShipments) ? storeShipments : [])
+        const shipmentRows = (Array.isArray(shipments) ? shipments : [])
             .filter((raw) => !!raw && typeof raw === 'object')
             .map((raw) => {
                 const row = raw as unknown as Record<string, unknown>;
@@ -254,19 +265,32 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                         })
                         : [],
                     payload: row,
+                    priority: getWmsPendingPriority({
+                        id: String(row.id || ''),
+                        createdAt: typeof row.created_at === 'number' ? row.created_at : Date.now(),
+                        direction: rowDirection,
+                        status: normalizeStatus(row.status),
+                        itemCount: Array.isArray(row.items) ? row.items.length : 0,
+                        totalQuantity: Array.isArray(row.items)
+                            ? row.items.reduce((sum, item) => {
+                                const itemRow = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+                                return sum + Number(itemRow.quantity ?? 0);
+                            }, 0)
+                            : 0,
+                    }),
                 } satisfies ShipmentCard;
             })
             .filter((row) => row.status === 'IN_TRANSIT');
 
         const purchaseOrderRows = toShipmentCardsFromPurchaseOrders(
-            Array.isArray(storePurchaseOrders) ? storePurchaseOrders : [],
+            Array.isArray(purchaseOrders) ? purchaseOrders : [],
             currentLocationId
         );
 
         return [...shipmentRows, ...purchaseOrderRows]
             .filter((row) => direction === 'BOTH' || row.direction === direction)
-            .sort((a, b) => b.created_at - a.created_at);
-    }, [currentLocationId, direction, storePurchaseOrders, storeShipments]);
+            .sort(compareWmsPendingPriority);
+    }, [currentLocationId, direction, purchaseOrders, shipments]);
 
     const summary = useMemo(() => {
         const incoming = transitRows.filter(s => s.direction === 'INCOMING').length;
@@ -299,10 +323,10 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                     </div>
                     <button
                         onClick={fetchTransit}
-                        disabled={loading}
+                        disabled={isLoading || isRefreshing || !onRefresh}
                         className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold flex items-center gap-1.5 disabled:opacity-60"
                     >
-                        <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                        <RefreshCw size={14} className={isLoading || isRefreshing ? 'animate-spin' : ''} />
                         Actualizar
                     </button>
                 </div>
@@ -323,7 +347,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                 </div>
             </div>
 
-            {loading ? (
+            {isLoading || isRefreshing ? (
                 <div className="flex items-center justify-center py-12">
                     <RefreshCw size={26} className="animate-spin text-indigo-400" />
                 </div>
@@ -338,6 +362,7 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                     {transitRows.map((shipment) => (
                         <div
                             key={`${shipment.source}-${shipment.id}`}
+                            data-testid="wms-transit-row"
                             className="bg-white border border-slate-200 rounded-2xl p-4 hover:border-indigo-200 transition-colors"
                         >
                             <div className="flex items-start justify-between gap-3">
@@ -348,6 +373,9 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                                         </span>
                                         <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${DIRECTION_META[shipment.direction].badge}`}>
                                             {DIRECTION_META[shipment.direction].label}
+                                        </span>
+                                        <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${PRIORITY_META[shipment.priority.level].badge}`}>
+                                            {PRIORITY_META[shipment.priority.level].label}
                                         </span>
                                         <span className="text-xs text-slate-400 font-mono">
                                             #{shipment.id.slice(0, 8)}
@@ -381,6 +409,10 @@ export const WMSTransitoTab: React.FC<WMSTransitoTabProps> = ({
                                                 Autorizó: {shipment.authorized_by_name}
                                             </span>
                                         )}
+                                        <span className="flex items-center gap-1 font-semibold text-indigo-600">
+                                            <Clock3 size={12} />
+                                            {shipment.priority.reasonLabel}: {shipment.priority.evidenceLabel}
+                                        </span>
                                     </div>
                                 </div>
 

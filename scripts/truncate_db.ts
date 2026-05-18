@@ -1,18 +1,39 @@
 
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
-import { createRequire } from 'module';
+import { redactConnectionString } from '../src/scripts/e2e-release-critical-db-policy';
+import { assertScriptDbWriteTargetAllowed } from '../src/scripts/script-db-target-policy';
 
-const require = createRequire(import.meta.url);
 dotenv.config();
 
-if (!process.env.DATABASE_URL) {
+const TRUNCATE_DB_ALLOW_NON_LOCAL_ENV = 'TRUNCATE_DB_ALLOW_NON_LOCAL';
+const TRUNCATE_DB_CONFIRM_ENV = 'TRUNCATE_DB_CONFIRM';
+const TRUNCATE_DB_CONFIRMATION = 'TRUNCATE_INVENTORY_TABLES';
+const dbUrl = process.env.DATABASE_URL;
+
+if (!dbUrl) {
     console.error('❌ DATABASE_URL is not set');
     process.exit(1);
 }
 
+if (process.env[TRUNCATE_DB_CONFIRM_ENV] !== TRUNCATE_DB_CONFIRMATION) {
+    console.error(
+        `❌ Refusing to truncate inventory tables without explicit confirmation. ` +
+        `Set ${TRUNCATE_DB_CONFIRM_ENV}=${TRUNCATE_DB_CONFIRMATION} to continue.`
+    );
+    process.exit(1);
+}
+
+assertScriptDbWriteTargetAllowed({
+    scriptName: 'truncate_db',
+    connectionString: dbUrl,
+    allowNonLocalEnv: TRUNCATE_DB_ALLOW_NON_LOCAL_ENV,
+});
+
+console.log('🎯 DB target:', redactConnectionString(dbUrl));
+
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: dbUrl,
     ssl: { rejectUnauthorized: false }
 });
 

@@ -19,9 +19,14 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import bcrypt from 'bcryptjs';
 import { checkRateLimit } from '@/lib/rate-limiter';
-import { getSessionSecure } from './auth-v2';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateTimeCL, formatDateCL } from '@/lib/timezone';
+import {
+    AUDIT_GLOBAL_ROLES,
+    AUDIT_VIEW_ROLES,
+    requireScopedActor,
+    resolveEffectiveLocation,
+} from '@/actions/admin-scope';
 
 type QueryParam = string | number | boolean | Date | string[] | null | undefined;
 
@@ -45,7 +50,7 @@ const GetAuditLogsSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const AUDIT_VIEWER_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
+const AUDIT_VIEWER_ROLES = [...AUDIT_VIEW_ROLES];
 const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 
 const ACTION_SEVERITY_MAP: Record<string, 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'> = {
@@ -77,6 +82,28 @@ async function metaAudit(userId: string, action: string, details: Record<string,
         // Silently fail meta-audit to avoid loops
         console.error('Meta-audit error:', error);
     }
+}
+
+async function requireAuditActor() {
+    return requireScopedActor(AUDIT_VIEWER_ROLES);
+}
+
+async function resolveAuditLocationScope() {
+    const actorResult = await requireAuditActor();
+    if (!actorResult.success) {
+        return actorResult;
+    }
+
+    const scope = resolveEffectiveLocation(actorResult.actor, undefined, AUDIT_GLOBAL_ROLES);
+    if (!scope.success) {
+        return { success: false as const, error: scope.error };
+    }
+
+    return {
+        success: true as const,
+        actor: actorResult.actor,
+        locationId: scope.locationId,
+    };
 }
 
 // ============================================================================
@@ -127,12 +154,11 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
     totalPages?: number;
     error?: string;
 }> {
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-
-    if (!AUDIT_VIEWER_ROLES.includes(session.role)) {
-        return { success: false, error: 'No tiene permisos para ver auditoría' };
+    const actorResult = await resolveAuditLocationScope();
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
+    const session = actorResult.actor;
 
     // Rate limit
     const rl = checkRateLimit(`audit:${session.userId}`);
@@ -151,6 +177,12 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
         const whereConditions: string[] = [];
         const queryParams: QueryParam[] = [];
         let paramIndex = 1;
+
+        if (actorResult.locationId) {
+            whereConditions.push(`al.location_id::text = $${paramIndex}`);
+            queryParams.push(actorResult.locationId);
+            paramIndex++;
+        }
 
         if (startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(startDate); paramIndex++; }
         if (endDate) { whereConditions.push(`al.created_at <= $${paramIndex}::timestamp`); queryParams.push(endDate); paramIndex++; }
@@ -230,13 +262,24 @@ export async function getAuditLogsSecure(params: z.infer<typeof GetAuditLogsSche
 // ============================================================================
 
 export async function getAuditActionTypesSecure(): Promise<{ success: boolean; data?: string[]; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado' };
+    const actorResult = await resolveAuditLocationScope();
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
-        const res = await query(`SELECT DISTINCT action_code FROM audit_log WHERE action_code IS NOT NULL ORDER BY action_code`);
+        const params: QueryParam[] = [];
+        const scopeSql = actorResult.locationId
+            ? 'AND location_id::text = $1'
+            : '';
+        if (actorResult.locationId) {
+            params.push(actorResult.locationId);
+        }
+
+        const res = await query(
+            `SELECT DISTINCT action_code FROM audit_log WHERE action_code IS NOT NULL ${scopeSql} ORDER BY action_code`,
+            params,
+        );
         return { success: true, data: res.rows.map((r: { action_code: string }) => r.action_code) };
     } catch (error: unknown) {
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -248,13 +291,24 @@ export async function getAuditActionTypesSecure(): Promise<{ success: boolean; d
 // ============================================================================
 
 export async function getAuditUsersSecure(): Promise<{ success: boolean; data?: Array<{ id: string; name: string }>; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado' };
+    const actorResult = await resolveAuditLocationScope();
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
-        const res = await query(`SELECT DISTINCT u.id::text, u.name FROM audit_log al JOIN users u ON al.user_id::text = u.id::text ORDER BY u.name`);
+        const params: QueryParam[] = [];
+        const scopeSql = actorResult.locationId
+            ? 'WHERE al.location_id::text = $1'
+            : '';
+        if (actorResult.locationId) {
+            params.push(actorResult.locationId);
+        }
+
+        const res = await query(
+            `SELECT DISTINCT u.id::text, u.name FROM audit_log al JOIN users u ON al.user_id::text = u.id::text ${scopeSql} ORDER BY u.name`,
+            params,
+        );
         return { success: true, data: res.rows };
     } catch (error: unknown) {
         return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
@@ -270,17 +324,34 @@ export async function getAuditStatsSecure(): Promise<{
     data?: { totalToday: number; criticalToday: number; topActions: Array<{ action: string; count: number }>; topUsers: Array<{ name: string; count: number }> };
     error?: string;
 }> {
-    const session = await getSessionSecure();
-    if (!session || !AUDIT_VIEWER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Acceso denegado' };
+    const actorResult = await resolveAuditLocationScope();
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
     try {
-        const todayRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE`);
+        const params: QueryParam[] = [];
+        const locationFilter = actorResult.locationId
+            ? ' AND location_id::text = $1'
+            : '';
+        if (actorResult.locationId) {
+            params.push(actorResult.locationId);
+        }
+
+        const todayRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE${locationFilter}`, params);
         const criticalActions = Object.entries(ACTION_SEVERITY_MAP).filter(([, sev]) => sev === 'CRITICAL').map(([action]) => action);
-        const criticalRes = await query(`SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE AND action_code = ANY($1::text[])`, [criticalActions]);
-        const topActionsRes = await query(`SELECT action_code as action, COUNT(*) as count FROM audit_log WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY action_code ORDER BY count DESC LIMIT 5`);
-        const topUsersRes = await query(`SELECT u.name, COUNT(*) as count FROM audit_log al JOIN users u ON al.user_id::text = u.id::text WHERE al.created_at >= CURRENT_DATE - INTERVAL '7 days' GROUP BY u.name ORDER BY count DESC LIMIT 5`);
+        const criticalRes = await query(
+            `SELECT COUNT(*) as total FROM audit_log WHERE created_at >= CURRENT_DATE AND action_code = ANY($1::text[])${actorResult.locationId ? ' AND location_id::text = $2' : ''}`,
+            actorResult.locationId ? [criticalActions, actorResult.locationId] : [criticalActions],
+        );
+        const topActionsRes = await query(
+            `SELECT action_code as action, COUNT(*) as count FROM audit_log WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'${locationFilter} GROUP BY action_code ORDER BY count DESC LIMIT 5`,
+            params,
+        );
+        const topUsersRes = await query(
+            `SELECT u.name, COUNT(*) as count FROM audit_log al JOIN users u ON al.user_id::text = u.id::text WHERE al.created_at >= CURRENT_DATE - INTERVAL '7 days'${actorResult.locationId ? ' AND al.location_id::text = $1' : ''} GROUP BY u.name ORDER BY count DESC LIMIT 5`,
+            params,
+        );
 
         return {
             success: true,
@@ -310,14 +381,20 @@ export async function exportAuditLogsSecure(
     params: { startDate?: string; endDate?: string; actionCode?: string; userId?: string },
     adminPin?: string
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-    if (!AUDIT_VIEWER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+    const actorResult = await resolveAuditLocationScope();
+    if (!actorResult.success) return { success: false, error: actorResult.error };
+    const session = actorResult.actor;
 
     try {
         const whereConditions: string[] = [];
         const queryParams: QueryParam[] = [];
         let paramIndex = 1;
+
+        if (actorResult.locationId) {
+            whereConditions.push(`al.location_id::text = $${paramIndex}`);
+            queryParams.push(actorResult.locationId);
+            paramIndex++;
+        }
 
         if (params.startDate) { whereConditions.push(`al.created_at >= $${paramIndex}::timestamp`); queryParams.push(params.startDate); paramIndex++; }
         if (params.endDate) { whereConditions.push(`al.created_at <= $${paramIndex}::timestamp`); queryParams.push(params.endDate); paramIndex++; }

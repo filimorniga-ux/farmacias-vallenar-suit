@@ -15,6 +15,7 @@
 
 import { query } from '@/lib/db';
 import { z } from 'zod';
+import { unstable_noStore as noStore } from 'next/cache';
 import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
 
@@ -119,6 +120,8 @@ export async function checkProductPriceSecure(
     term: string,
     locationId: string
 ): Promise<{ success: boolean; data?: PublicPriceInfo[]; error?: string }> {
+    noStore();
+
     const ip = await getClientIP();
 
     // Rate limit
@@ -156,7 +159,7 @@ export async function checkProductPriceSecure(
             LEFT JOIN inventory_batches ib ON p.id::text = ib.product_id::text AND ib.location_id::text = $2
             LEFT JOIN locations l ON l.id::text = $2
             WHERE (p.name ILIKE $1 OR p.sku ILIKE $1)
-              AND (p.is_visible = true OR p.is_visible IS NULL)
+              AND COALESCE(NULLIF(to_jsonb(p)->>'is_visible', '')::boolean, true) = true
             GROUP BY p.id, p.sku, p.name, l.name
             LIMIT 20
         `;
@@ -191,10 +194,16 @@ export async function checkProductPriceSecure(
 export async function getPublicCategoriesSecure(
     locationId: string
 ): Promise<{ success: boolean; data?: string[]; error?: string }> {
+    noStore();
+
     const ip = await getClientIP();
 
     if (!checkRateLimit(ip)) {
         return { success: false, error: 'Demasiadas consultas' };
+    }
+
+    if (!UUIDSchema.safeParse(locationId).success) {
+        return { success: false, error: 'Sucursal inválida' };
     }
 
     const cacheKey = getCacheKey('categories', { locationId });
@@ -230,10 +239,16 @@ export async function getPublicCategoriesSecure(
 export async function getPromotionsSecure(
     locationId: string
 ): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    noStore();
+
     const ip = await getClientIP();
 
     if (!checkRateLimit(ip)) {
         return { success: false, error: 'Demasiadas consultas' };
+    }
+
+    if (!UUIDSchema.safeParse(locationId).success) {
+        return { success: false, error: 'Sucursal inválida' };
     }
 
     const cacheKey = getCacheKey('promotions', { locationId });

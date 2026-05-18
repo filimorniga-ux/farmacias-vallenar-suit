@@ -1,51 +1,26 @@
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false } // Required for Timescale Cloud
-});
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 
-export async function POST(request: Request) {
+export async function POST(_request: Request) {
     try {
-        const body = await request.json();
-
-        // 1. Security Check
-        if (body.confirmation !== 'BORRAR') {
-            return NextResponse.json(
-                { error: 'Confirmación inválida. Debe escribir BORRAR.' },
-                { status: 400 }
-            );
+        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
         }
 
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-
-            // 2. Execute Truncate
-            // CASCADE is important to clear related tables if any (like lotes)
-            await client.query('TRUNCATE TABLE lotes CASCADE');
-            await client.query('TRUNCATE TABLE products CASCADE');
-
-            await client.query('COMMIT');
-
-            return NextResponse.json({
-                success: true,
-                message: 'Inventario vaciado correctamente.'
-            });
-
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
-
-    } catch (error) {
-        console.error('Truncate error:', error);
         return NextResponse.json(
-            { error: 'Error al vaciar inventario', details: (error as Error).message },
-            { status: 500 }
+            {
+                error: 'Endpoint legacy deshabilitado. Use /api/inventory/maintenance con action TRUNCATE.',
+                code: 'INVENTORY_TRUNCATE_LEGACY_DISABLED',
+            },
+            { status: 410, headers: API_NO_STORE_HEADERS },
+        );
+    } catch (error) {
+        return NextResponse.json(
+            { error: 'Error al validar mantenimiento de inventario', code: 'INVENTORY_TRUNCATE_LEGACY_FAILED' },
+            { status: 500, headers: API_NO_STORE_HEADERS },
         );
     }
 }

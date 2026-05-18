@@ -17,9 +17,13 @@ import { pool, query } from '@/lib/db';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
+import { resolveActorResult } from './actor-result';
+import {
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // SCHEMAS
@@ -33,15 +37,6 @@ const CreateLocationSchema = z.object({
     phone: z.string().max(50).optional(),
     email: z.string().email().optional(),
     type: z.enum(['STORE', 'WAREHOUSE', 'HQ']).default('STORE'),
-});
-
-const UpdateLocationSchema = z.object({
-    locationId: UUIDSchema,
-    name: z.string().min(3).max(100).optional(),
-    address: z.string().min(5).max(200).optional(),
-    phone: z.string().max(50).optional(),
-    email: z.string().email().optional(),
-    managerId: UUIDSchema.optional(),
 });
 
 const CreateTerminalSchema = z.object({
@@ -61,70 +56,30 @@ const UpdateTerminalSchema = z.object({
 
 
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-async function getSession(): Promise<{ userId: string; role: string; locationId?: string } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
-
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-        const locationId = headersList.get('x-user-location');
-
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
-        }
-
-        if (!userId || !role) return null;
-        return { userId, role, locationId: locationId || undefined };
-    } catch {
-        return null;
-    }
-}
-
 async function validateAdminPin(
     client: any,
     pin: string
-): Promise<{ valid: boolean; admin?: { id: string; name: string } }> {
+): Promise<{ valid: boolean; admin?: { id: string; name: string; role: string }; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.ADMIN, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const adminsRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const admin of adminsRes.rows) {
-            const rateCheck = checkRateLimit(admin.id);
-            if (!rateCheck.allowed) continue;
-
-            if (admin.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, admin.access_pin_hash);
-                if (valid) {
-                    resetAttempts(admin.id);
-                    return { valid: true, admin: { id: admin.id, name: admin.name } };
-                }
-                recordFailedAttempt(admin.id);
-            } else if (admin.access_pin === pin) {
-                resetAttempts(admin.id);
-                return { valid: true, admin: { id: admin.id, name: admin.name } };
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de administrador inválido' };
         }
-        return { valid: false };
+
+        return {
+            valid: true,
+            admin: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            },
+        };
     } catch {
-        return { valid: false };
+        return { valid: false, error: 'Error validando PIN' };
     }
 }
 
@@ -135,45 +90,29 @@ async function validateAdminPin(
 /**
  * 🏢 Obtener Estructura Organizacional (con RBAC)
  */
-export async function getOrganizationStructureSecure(explicitUserId?: string): Promise<{
+export async function getOrganizationStructureSecure(): Promise<{
     success: boolean;
     data?: { locations: any[]; terminals: any[] };
     error?: string;
 }> {
-    console.time('⏱️ [Network] getOrganizationStructureSecure');
-    let session = await getSession();
-
-
-    // Fallback: If no session headers, but explicit user ID provided (e.g. from client store)
-    if (!session && explicitUserId && UUIDSchema.safeParse(explicitUserId).success) {
-        try {
-            const userRes = await query('SELECT id, role, assigned_location_id FROM users WHERE id = $1 AND is_active = true', [explicitUserId]);
-            if (userRes.rows.length > 0) {
-                const u = userRes.rows[0];
-                session = { userId: u.id, role: u.role, locationId: u.assigned_location_id };
-            }
-        } catch (e) {
-            console.error('Error recovering session from explicit ID', e);
-        }
-    }
-
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
         let locationFilter = '';
         const params: any[] = [];
-        const userRole = session.role.toUpperCase();
+        const actor = auth.actor;
+        const userRole = actor.role.toUpperCase();
 
-        if (!MANAGER_ROLES.includes(userRole) && session.locationId) {
+        if (!ROLE_GROUPS.MANAGER.includes(userRole as typeof ROLE_GROUPS.MANAGER[number]) && actor.locationId) {
             locationFilter = 'WHERE l.id = $1';
-            params.push(session.locationId);
-        } else if (!MANAGER_ROLES.includes(userRole)) {
+            params.push(actor.locationId);
+        } else if (!ROLE_GROUPS.MANAGER.includes(userRole as typeof ROLE_GROUPS.MANAGER[number])) {
             locationFilter = 'WHERE l.is_active = true';
         }
 
-        console.log('📡 [Network] Fetching structure for user role:', userRole);
         const res = await query(`
             SELECT 
                 l.id, l.name, l.address, l.type, l.phone, l.email, l.manager_id,
@@ -182,6 +121,7 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
                     json_agg(
                         json_build_object(
                             'id', t.id,
+                            'location_id', t.location_id,
                             'name', t.name,
                             'status', t.status,
                             'is_active', t.is_active
@@ -211,7 +151,6 @@ export async function getOrganizationStructureSecure(explicitUserId?: string): P
 
         const terminals = res.rows.flatMap((row: any) => row.terminals);
 
-        console.timeEnd('⏱️ [Network] getOrganizationStructureSecure');
         return { success: true, data: { locations, terminals } };
 
     } catch (error: any) {
@@ -231,9 +170,15 @@ export async function createLocationSecure(
     data: z.infer<typeof CreateLocationSchema>,
     adminPin: string
 ): Promise<{ success: boolean; locationId?: string; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
     }
 
     const validated = CreateLocationSchema.safeParse(data);
@@ -251,7 +196,7 @@ export async function createLocationSecure(
         const authResult = await validateAdminPin(client, adminPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de administrador inválido' };
+            return { success: false, error: authResult.error || 'PIN de administrador inválido' };
         }
 
         // Crear ubicación
@@ -265,11 +210,13 @@ export async function createLocationSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'LOCATION_CREATED', 'LOCATION', $2, $3::jsonb, NOW())
-        `, [authResult.admin!.id, locationId, JSON.stringify({
+        `, [actor.userId, locationId, JSON.stringify({
             name,
             address,
             type,
-            created_by: authResult.admin!.name,
+            created_by: actor.userName || actor.userId,
+            authorized_by: authResult.admin!.name,
+            authorized_by_id: authResult.admin!.id,
         })]);
 
         await client.query('COMMIT');
@@ -288,111 +235,6 @@ export async function createLocationSecure(
 }
 
 // ============================================================================
-// UPDATE LOCATION
-// ============================================================================
-
-/**
- * ✏️ Actualizar Ubicación (MANAGER + PIN)
- */
-export async function updateLocationSecure(
-    data: z.infer<typeof UpdateLocationSchema>,
-    managerPin: string
-): Promise<{ success: boolean; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
-    }
-
-    const validated = UpdateLocationSchema.safeParse(data);
-    if (!validated.success) {
-        return { success: false, error: validated.error.issues[0]?.message };
-    }
-
-    const { locationId, name, address, phone, email, managerId } = validated.data;
-    const client = await pool.connect();
-
-    try {
-        await client.query('BEGIN');
-
-        // Validar PIN MANAGER
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const managersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        let validManager: { id: string; name: string } | null = null;
-        for (const user of managersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(managerPin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    validManager = { id: user.id, name: user.name };
-                    break;
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === managerPin) {
-                resetAttempts(user.id);
-                validManager = { id: user.id, name: user.name };
-                break;
-            }
-        }
-
-        if (!validManager) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de manager inválido' };
-        }
-
-        // Obtener valores anteriores
-        const prevRes = await client.query('SELECT * FROM locations WHERE id = $1', [locationId]);
-        if (prevRes.rowCount === 0) {
-            await client.query('ROLLBACK');
-            return { success: false, error: 'Ubicación no encontrada' };
-        }
-        const prev = prevRes.rows[0];
-
-        // Actualizar
-        const updates: string[] = ['updated_at = NOW()'];
-        const params: any[] = [];
-        let idx = 1;
-
-        if (name) { updates.push(`name = $${idx++}`); params.push(name); }
-        if (address) { updates.push(`address = $${idx++}`); params.push(address); }
-        if (phone !== undefined) { updates.push(`phone = $${idx++}`); params.push(phone); }
-        if (email !== undefined) { updates.push(`email = $${idx++}`); params.push(email); }
-        if (managerId !== undefined) { updates.push(`manager_id = $${idx++}`); params.push(managerId); }
-
-        params.push(locationId);
-        await client.query(`UPDATE locations SET ${updates.join(', ')} WHERE id = $${idx}`, params);
-
-        // Auditar
-        await client.query(`
-            INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
-            VALUES ($1, 'LOCATION_UPDATED', 'LOCATION', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [validManager.id, locationId, JSON.stringify({
-            name: prev.name,
-            address: prev.address,
-        }), JSON.stringify({ name, address, phone, email })]);
-
-        await client.query('COMMIT');
-
-        logger.info({ locationId }, '✏️ [Network] Location updated');
-        revalidatePath('/settings/organization');
-        return { success: true };
-
-    } catch (error: any) {
-        await client.query('ROLLBACK');
-        logger.error({ error }, '[Network] Update location error');
-        return { success: false, error: 'Error actualizando ubicación' };
-    } finally {
-        client.release();
-    }
-}
-
-// ============================================================================
 // CREATE TERMINAL
 // ============================================================================
 
@@ -403,6 +245,17 @@ export async function createTerminalSecure(
     data: z.infer<typeof CreateTerminalSchema>,
     adminPin: string
 ): Promise<{ success: boolean; terminalId?: string; error?: string }> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
+    }
+
     const validated = CreateTerminalSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -418,7 +271,7 @@ export async function createTerminalSecure(
         const authResult = await validateAdminPin(client, adminPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de administrador inválido' };
+            return { success: false, error: authResult.error || 'PIN de administrador inválido' };
         }
 
         // Verificar ubicación existe
@@ -439,10 +292,12 @@ export async function createTerminalSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'TERMINAL_CREATE', 'TERMINAL', $2, $3::jsonb, NOW())
-        `, [authResult.admin!.id, terminalId, JSON.stringify({
+        `, [actor.userId, terminalId, JSON.stringify({
             name,
             location_id: locationId,
-            created_by: authResult.admin!.name,
+            created_by: actor.userName || actor.userId,
+            authorized_by: authResult.admin!.name,
+            authorized_by_id: authResult.admin!.id,
         })]);
 
         await client.query('COMMIT');
@@ -472,6 +327,17 @@ export async function updateTerminalSecure(
     data: z.infer<typeof UpdateTerminalSchema>,
     adminPin: string
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
+    }
+
     const validated = UpdateTerminalSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -487,7 +353,7 @@ export async function updateTerminalSecure(
         const authResult = await validateAdminPin(client, adminPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de administrador inválido' };
+            return { success: false, error: authResult.error || 'PIN de administrador inválido' };
         }
 
         // Obtener valores anteriores
@@ -498,8 +364,8 @@ export async function updateTerminalSecure(
         }
         const prev = prevRes.rows[0];
 
-        // Actualizar
-        const updates: string[] = ['updated_at = NOW()'];
+        // Actualizar solo columnas presentes en el contrato runtime de terminals.
+        const updates: string[] = [];
         const params: any[] = [];
         let idx = 1;
 
@@ -508,17 +374,24 @@ export async function updateTerminalSecure(
         if (allowedUsers !== undefined) { updates.push(`allowed_users = $${idx++}`); params.push(allowedUsers); }
         if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); params.push(isActive); }
 
-        params.push(terminalId);
-        await client.query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+        if (updates.length > 0) {
+            params.push(terminalId);
+            await client.query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+        }
 
         // Auditar
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
             VALUES ($1, 'TERMINAL_UPDATE', 'TERMINAL', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [authResult.admin!.id, terminalId, JSON.stringify({
+        `, [actor.userId, terminalId, JSON.stringify({
             name: prev.name,
             is_active: prev.is_active,
-        }), JSON.stringify({ name, is_active: isActive })]);
+        }), JSON.stringify({
+            name,
+            is_active: isActive,
+            authorized_by: authResult.admin!.name,
+            authorized_by_id: authResult.admin!.id,
+        })]);
 
         await client.query('COMMIT');
 
@@ -547,6 +420,17 @@ export async function deleteTerminalSecure(
     terminalId: string,
     adminPin: string
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
+    }
+
     if (!UUIDSchema.safeParse(terminalId).success) {
         return { success: false, error: 'ID inválido' };
     }
@@ -560,14 +444,14 @@ export async function deleteTerminalSecure(
         const authResult = await validateAdminPin(client, adminPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de administrador inválido' };
+            return { success: false, error: authResult.error || 'PIN de administrador inválido' };
         }
 
         // Verificar si tiene sesiones
         const sessionCheck = await client.query('SELECT id FROM cash_register_sessions WHERE terminal_id = $1 LIMIT 1', [terminalId]);
         if ((sessionCheck.rowCount || 0) > 0) {
             // Soft delete
-            await client.query('UPDATE terminals SET is_active = false, status = \'CLOSED\', updated_at = NOW() WHERE id = $1', [terminalId]);
+            await client.query('UPDATE terminals SET is_active = false, status = \'CLOSED\' WHERE id = $1', [terminalId]);
         } else {
             // Hard delete
             await client.query('DELETE FROM terminals WHERE id = $1', [terminalId]);
@@ -577,7 +461,7 @@ export async function deleteTerminalSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, created_at)
             VALUES ($1, 'TERMINAL_DELETE', 'TERMINAL', $2, NOW())
-        `, [authResult.admin!.id, terminalId]);
+        `, [actor.userId, terminalId]);
 
         await client.query('COMMIT');
 
@@ -608,6 +492,17 @@ export async function assignEmployeeSecure(
     locationId: string,
     adminPin: string
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
+    }
+
     if (!UUIDSchema.safeParse(userId).success || !UUIDSchema.safeParse(locationId).success) {
         return { success: false, error: 'IDs inválidos' };
     }
@@ -621,7 +516,7 @@ export async function assignEmployeeSecure(
         const authResult = await validateAdminPin(client, adminPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de administrador inválido' };
+            return { success: false, error: authResult.error || 'PIN de administrador inválido' };
         }
 
         // Actualizar asignación
@@ -634,9 +529,11 @@ export async function assignEmployeeSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'EMPLOYEE_ASSIGNED', 'USER', $2, $3::jsonb, NOW())
-        `, [authResult.admin!.id, userId, JSON.stringify({
+        `, [actor.userId, userId, JSON.stringify({
             assigned_location_id: locationId,
-            assigned_by: authResult.admin!.name,
+            assigned_by: actor.userName || actor.userId,
+            authorized_by: authResult.admin!.name,
+            authorized_by_id: authResult.admin!.id,
         })]);
 
         await client.query('COMMIT');
@@ -666,6 +563,17 @@ export async function deactivateLocationSecure(
     adminPin: string,
     reason: string
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
+        return { success: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
+    }
+
     if (!UUIDSchema.safeParse(locationId).success) {
         return { success: false, error: 'ID inválido' };
     }
@@ -683,7 +591,7 @@ export async function deactivateLocationSecure(
         const authResult = await validateAdminPin(client, adminPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'PIN de administrador inválido' };
+            return { success: false, error: authResult.error || 'PIN de administrador inválido' };
         }
 
         // Desactivar
@@ -694,7 +602,7 @@ export async function deactivateLocationSecure(
 
         // Desactivar terminales asociados
         await client.query(`
-            UPDATE terminals SET is_active = false, updated_at = NOW()
+            UPDATE terminals SET is_active = false
             WHERE location_id = $1
         `, [locationId]);
 
@@ -702,9 +610,11 @@ export async function deactivateLocationSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'LOCATION_DEACTIVATED', 'LOCATION', $2, $3::jsonb, NOW())
-        `, [authResult.admin!.id, locationId, JSON.stringify({
+        `, [actor.userId, locationId, JSON.stringify({
             reason,
-            deactivated_by: authResult.admin!.name,
+            deactivated_by: actor.userName || actor.userId,
+            authorized_by: authResult.admin!.name,
+            authorized_by_id: authResult.admin!.id,
         })]);
 
         await client.query('COMMIT');
@@ -738,13 +648,14 @@ export async function updateLocationConfigSecure(
         return { success: false, error: 'ID de ubicación inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
-
-    const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'MANAGER'];
-    if (!ADMIN_ROLES.includes(session.role)) {
+    const actor = auth.actor;
+    try {
+        requireRole(actor, ROLE_GROUPS.MANAGER);
+    } catch {
         return { success: false, error: 'Requiere permisos de administrador' };
     }
 
@@ -777,7 +688,7 @@ export async function updateLocationConfigSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, created_at)
             VALUES ($1, 'LOCATION_CONFIG_UPDATED', 'LOCATION', $2, $3::jsonb, $4::jsonb, NOW())
-        `, [session.userId, locationId, JSON.stringify({ config: oldConfig }), JSON.stringify({ config })]);
+        `, [actor.userId, locationId, JSON.stringify({ config: oldConfig }), JSON.stringify({ config })]);
 
         await client.query('COMMIT');
 

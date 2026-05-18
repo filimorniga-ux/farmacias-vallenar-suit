@@ -20,6 +20,12 @@ const mockDirectQuery = vi.fn();
 const mockRelease = vi.fn();
 const mockConnect = vi.fn();
 const mockBcryptCompare = vi.fn();
+const mockGetValidatedSession = vi.fn();
+const mockRequireInventoryActor = vi.fn();
+const mockResolveEffectiveInventoryLocation = vi.fn();
+const mockResolveWarehouseForInventoryActor = vi.fn();
+const mockEnsureBatchInInventoryScope = vi.fn();
+const mockEnsureProductInInventoryScope = vi.fn();
 
 // Mock DB
 vi.mock('@/lib/db', () => ({
@@ -61,9 +67,81 @@ vi.mock('@/lib/logger', () => ({
     },
 }));
 
-// Mock bcryptjs
-vi.mock('bcryptjs', () => ({
-    compare: (...args: any[]) => mockBcryptCompare(...args),
+vi.mock('@/lib/pin-rbac', () => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        PinRbacError: MockPinRbacError,
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+            MANAGER_OR_HR: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'],
+            OVERRIDE: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'],
+            TREASURY_AUTH: ['ADMIN', 'MANAGER', 'GERENTE_GENERAL', 'TESORERO'],
+        },
+        normalizeRole: (role: string | null | undefined) => String(role || '').trim().toUpperCase(),
+        getActorOrFail: async () => {
+            const session = await mockGetValidatedSession();
+            if (!session) {
+                throw new MockPinRbacError('AUTH_UNAUTHORIZED', 'Sesión no válida. Vuelve a iniciar sesión.');
+            }
+            return {
+                ...session,
+                role: String(session.role || '').trim().toUpperCase(),
+            };
+        },
+        requireRole: (actor: { role: string }, allowedRoles: readonly string[]) => {
+            if (!allowedRoles.includes(actor.role)) {
+                throw new MockPinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+            }
+            return actor;
+        },
+        validatePinForRoles: async (client: { query: (sql: string) => Promise<{ rows: Array<Record<string, unknown>> }> }, pin: string) => {
+            const usersRes = await client.query('SELECT mock_pin_validation');
+            const user = usersRes.rows[0];
+            if (!user) {
+                return { valid: false, error: 'PIN inválido' };
+            }
+
+            if (user.access_pin_hash) {
+                const valid = await mockBcryptCompare(pin, user.access_pin_hash);
+                if (!valid) {
+                    return { valid: false, error: 'PIN inválido' };
+                }
+            } else if (user.access_pin && user.access_pin !== pin) {
+                return { valid: false, error: 'PIN inválido' };
+            }
+
+            return {
+                valid: true,
+                authorizedBy: {
+                    id: String(user.id),
+                    name: String(user.name),
+                    role: String(user.role),
+                },
+                matchedBy: 'hash',
+            };
+        },
+    };
+});
+
+vi.mock('@/actions/inventory-scope', () => ({
+    INVENTORY_READ_ROLES: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'],
+    INVENTORY_WRITE_ROLES: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'],
+    INVENTORY_DELETE_ROLES: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+    requireInventoryActor: (...args: unknown[]) => mockRequireInventoryActor(...args),
+    resolveEffectiveInventoryLocation: (...args: unknown[]) => mockResolveEffectiveInventoryLocation(...args),
+    resolveWarehouseForInventoryActor: (...args: unknown[]) => mockResolveWarehouseForInventoryActor(...args),
+    ensureBatchInInventoryScope: (...args: unknown[]) => mockEnsureBatchInInventoryScope(...args),
+    ensureProductInInventoryScope: (...args: unknown[]) => mockEnsureProductInInventoryScope(...args),
 }));
 
 // Import after mocks
@@ -74,6 +152,7 @@ import {
     fractionateBatchSecure,
     fractionateBatchSecureDetailed,
     clearLocationInventorySecure,
+    findBestBatchSecure,
     getInventorySecure,
     getWMSInventorySecure,
 } from '@/actions/inventory-v2';
@@ -94,6 +173,56 @@ const VALID_USER_ID = 'user-123';
 const VALID_BATCH_ID = '123e4567-e89b-12d3-a456-426614174003';
 const VALID_TARGET_LOCATION = '123e4567-e89b-12d3-a456-426614174004';
 const VALID_PIN = '1234';
+
+beforeEach(() => {
+    mockGetValidatedSession.mockResolvedValue({
+        userId: VALID_USER_ID,
+        role: 'ADMIN',
+        locationId: VALID_LOCATION_ID,
+        userName: 'Admin Inventario',
+        tokenVersion: 1,
+        sessionToken: 'inventory-session-token',
+    });
+    mockRequireInventoryActor.mockImplementation(async () => {
+        const session = await mockGetValidatedSession();
+        if (!session) {
+            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
+        }
+
+        return {
+            success: true,
+            actor: {
+                ...session,
+                role: String(session.role || '').trim().toUpperCase(),
+            },
+        };
+    });
+    mockResolveEffectiveInventoryLocation.mockImplementation((actor: { locationId?: string; role?: string }, requestedLocationId?: string) => ({
+        success: true,
+        locationId: requestedLocationId || actor.locationId,
+    }));
+    mockResolveWarehouseForInventoryActor.mockImplementation(async (actor: { locationId?: string }, requestedWarehouseId?: string, requestedLocationId?: string) => ({
+        success: true,
+        warehouseId: requestedWarehouseId || VALID_WAREHOUSE_ID,
+        locationId: requestedLocationId || actor.locationId || VALID_LOCATION_ID,
+    }));
+    mockEnsureBatchInInventoryScope.mockImplementation(async (_batchId: string) => ({
+        success: true,
+        batch: {
+            id: VALID_BATCH_ID,
+            product_id: '123e4567-e89b-12d3-a456-426614174099',
+            location_id: VALID_LOCATION_ID,
+            warehouse_id: VALID_WAREHOUSE_ID,
+        },
+        locationId: VALID_LOCATION_ID,
+        warehouseId: VALID_WAREHOUSE_ID,
+    }));
+    mockEnsureProductInInventoryScope.mockImplementation(async (productId: string) => ({
+        success: true,
+        product: { id: productId, location_id: VALID_LOCATION_ID },
+        locationId: VALID_LOCATION_ID,
+    }));
+});
 
 // =====================================================
 // TESTS: createBatchSecure
@@ -291,6 +420,59 @@ describe('adjustStockSecure', () => {
 
         expect(result.success).toBe(true);
         expect(mockBcryptCompare).toHaveBeenCalled();
+    });
+
+    it('should use validated session user for authorized stock adjustments instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-adjust',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Ajuste',
+            tokenVersion: 2,
+            sessionToken: 'inventory-session-adjust',
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ id: 'manager-1', name: 'Manager', role: 'MANAGER', access_pin_hash: 'hashed' }] }, // Auth
+            { rows: [{ id: VALID_BATCH_ID, sku: 'MED-001', name: 'Test', quantity_real: 1000, location_id: VALID_LOCATION_ID, warehouse_id: VALID_WAREHOUSE_ID }] }, // Batch
+            { rows: [], rowCount: 1 }, // Update
+            { rows: [] }, // Movement
+            { rows: [] }, // Audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        mockBcryptCompare.mockResolvedValue(true);
+
+        const result = await adjustStockSecure({
+            batchId: VALID_BATCH_ID,
+            adjustment: 200,
+            reason: 'Recepción autorizada',
+            userId: 'payload-user-adjust',
+            supervisorPin: VALID_PIN,
+        });
+
+        expect(result.success).toBe(true);
+
+        const movementCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO stock_movements')
+        );
+        expect(movementCall?.[1]?.[7]).toBe('session-user-adjust');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-adjust');
+        expect(JSON.parse(String(auditCall?.[1]?.[6]))).toMatchObject({
+            authorized_by: 'manager-1',
+        });
     });
 
     it('should fail if adjustment would result in negative stock', async () => {
@@ -526,7 +708,6 @@ describe('clearLocationInventorySecure', () => {
         const responses = [
             { rows: [] }, // BEGIN
             { rows: [{ id: VALID_USER_ID, name: 'Admin', role: 'ADMIN', access_pin_hash: 'hashed' }] }, // Auth
-            { rows: [{ role: 'ADMIN' }] }, // User role check
             { rows: [{ count: 50, total_units: 1000 }] }, // Snapshot
             { rows: [], rowCount: 50 }, // Delete
             { rows: [] }, // Audit
@@ -553,11 +734,19 @@ describe('clearLocationInventorySecure', () => {
     });
 
     it('should reject non-admin users', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: VALID_USER_ID,
+            role: 'CASHIER',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Cajero',
+            tokenVersion: 1,
+            sessionToken: 'inventory-session-token-cashier',
+        });
+
         let callIndex = 0;
         const responses = [
             { rows: [] }, // BEGIN
             { rows: [{ id: VALID_USER_ID, name: 'Admin', role: 'ADMIN', access_pin_hash: 'hashed' }] }, // Auth
-            { rows: [{ role: 'CASHIER' }] }, // User is not admin
         ];
 
         mockQuery.mockImplementation((sql: string) => {
@@ -766,6 +955,52 @@ describe('getInventorySecure', () => {
     });
 });
 
+describe('findBestBatchSecure', () => {
+    it('normaliza condicion_venta legacy del producto al contrato corto del batch', async () => {
+        mockDirectQuery.mockReset();
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{
+                id: VALID_BATCH_ID,
+                sku: 'SKU-RR',
+                name: 'Producto retenido',
+                condition: 'RECETA_RETENIDA',
+                price: 1500,
+                quantity: 7,
+                lot_number: 'LOT-RR',
+                expiry_date: null,
+            }],
+        });
+
+        const result = await findBestBatchSecure('SKU-RR', VALID_LOCATION_ID);
+
+        expect(result.success).toBe(true);
+        expect(result.batch?.condition).toBe('RR');
+        expect(String(mockDirectQuery.mock.calls[0]?.[0])).toContain("to_jsonb(p)->>'condicion_venta'");
+        expect(String(mockDirectQuery.mock.calls[0]?.[0])).not.toContain('p.condicion_venta');
+    });
+
+    it('degrada condiciones desconocidas a venta directa en read-side', async () => {
+        mockDirectQuery.mockReset();
+        mockDirectQuery.mockResolvedValueOnce({
+            rows: [{
+                id: VALID_BATCH_ID,
+                sku: 'SKU-UNKNOWN',
+                name: 'Producto sin contrato',
+                condition: 'OTRA_CONDICION',
+                price: 1500,
+                quantity: 7,
+                lot_number: 'LOT-VD',
+                expiry_date: null,
+            }],
+        });
+
+        const result = await findBestBatchSecure('SKU-UNKNOWN', VALID_LOCATION_ID);
+
+        expect(result.success).toBe(true);
+        expect(result.batch?.condition).toBe('VD');
+    });
+});
+
 describe('getWMSInventorySecure', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -823,8 +1058,21 @@ describe('getWMSInventorySecure', () => {
         expect(result.data[0].sku).toBe('WMS-001');
         expect(result.data[0].stock_actual).toBe(22);
         expect(result.data[0].location_id).toBe(VALID_LOCATION_ID);
+        expect(capturedSql).toContain("to_jsonb(p)->>'laboratory'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'barcode'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'stock_minimo_seguridad'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'cost_price'");
+        expect(capturedSql).toContain("to_jsonb(ib)->>'barcode'");
+        expect(capturedSql).toContain("to_jsonb(ib)->>'units_per_box'");
+        expect(capturedSql).not.toContain('p.laboratory');
+        expect(capturedSql).not.toContain('p.barcode');
+        expect(capturedSql).not.toContain('p.stock_minimo_seguridad');
+        expect(capturedSql).not.toContain('p.cost_net');
+        expect(capturedSql).not.toContain('p.price_sell_unit');
+        expect(capturedSql).not.toContain('ib.barcode');
         expect(capturedSql).toContain('ib.warehouse_id IN');
-        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id = $1::uuid');
+        expect(capturedSql).toContain('ib.location_id::text = $1::text');
+        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id::text = $1::text');
     });
 
     it('should include warehouse scope in getInventorySecure fallback query', async () => {
@@ -839,8 +1087,22 @@ describe('getWMSInventorySecure', () => {
         const result = await getInventorySecure(VALID_LOCATION_ID, { pagination: false });
 
         expect(result.success).toBe(true);
+        expect(capturedSql).toContain("to_jsonb(p)->>'laboratory'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'stock_minimo_seguridad'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'cost_price'");
+        expect(capturedSql).toContain("to_jsonb(p)->>'location_id'");
+        expect(capturedSql).toContain("to_jsonb(ib)->>'units_per_box'");
+        expect(capturedSql).not.toContain('p.laboratory');
+        expect(capturedSql).not.toContain('p.stock_minimo_seguridad');
+        expect(capturedSql).not.toContain('p.cost_net');
+        expect(capturedSql).not.toContain('p.price_sell_unit');
+        expect(capturedSql).not.toContain('p.location_id');
+        expect(capturedSql).not.toContain('p.is_active');
+        expect(capturedSql).toContain('LEFT JOIN products p ON ib.product_id::text = p.id::text');
         expect(capturedSql).toContain('ib.warehouse_id IN');
-        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id = $1::uuid');
+        expect(capturedSql).toContain('ib.location_id::text = $1::text');
+        expect(capturedSql).toContain("to_jsonb(p)->>'location_id' = $1::text");
+        expect(capturedSql).toContain('SELECT id FROM warehouses WHERE location_id::text = $1::text');
     });
 });
 
@@ -1007,5 +1269,178 @@ describe('fractionateBatchSecureDetailed', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('cajas suficientes');
+    });
+});
+
+describe('Inventory V2 - Session contracts', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+        mockDirectQuery.mockResolvedValue({ rows: [] });
+        mockBcryptCompare.mockResolvedValue(true);
+        mockGetValidatedSession.mockResolvedValue({
+            userId: VALID_USER_ID,
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Admin Inventario',
+            tokenVersion: 1,
+            sessionToken: 'inventory-session-token',
+        });
+    });
+
+    it('should reject createBatchSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await createBatchSecure({
+            sku: 'MED-010',
+            name: 'Lote sin sesión',
+            locationId: VALID_LOCATION_ID,
+            quantity: 10,
+            userId: VALID_USER_ID,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for stock movement and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-inventory',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Inventario',
+            tokenVersion: 2,
+            sessionToken: 'inventory-session-2',
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            { rows: [{ default_warehouse_id: VALID_WAREHOUSE_ID }] }, // warehouse lookup
+            { rows: [] }, // insert batch
+            { rows: [] }, // stock movement
+            { rows: [] }, // audit
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await createBatchSecure({
+            sku: 'MED-011',
+            name: 'Actor real',
+            locationId: VALID_LOCATION_ID,
+            quantity: 20,
+            userId: 'payload-user-inventory',
+        });
+
+        expect(result.success).toBe(true);
+
+        const stockMovementCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO stock_movements')
+        );
+        expect(stockMovementCall?.[1]?.[5]).toBe('session-user-inventory');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-inventory');
+    });
+
+    it('should reject fractionateBatchSecure when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await fractionateBatchSecure({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should reject fractionateBatchSecureDetailed when validated session is missing', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce(null);
+
+        const result = await fractionateBatchSecureDetailed({
+            batchId: VALID_BATCH_ID,
+            userId: VALID_USER_ID,
+            unitsInBox: 12,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Sesión no válida');
+        expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('should use validated session user for fractionation movements and audit instead of payload userId', async () => {
+        mockGetValidatedSession.mockResolvedValueOnce({
+            userId: 'session-user-fraction',
+            role: 'ADMIN',
+            locationId: VALID_LOCATION_ID,
+            userName: 'Actor Fraccionamiento',
+            tokenVersion: 2,
+            sessionToken: 'inventory-session-token-2',
+        });
+
+        let callIndex = 0;
+        const responses = [
+            { rows: [] }, // BEGIN
+            {
+                rows: [{
+                    id: VALID_BATCH_ID,
+                    product_id: '123e4567-e89b-12d3-a456-426614174099',
+                    sku: 'MED-004',
+                    name: 'Omeprazol',
+                    location_id: VALID_LOCATION_ID,
+                    warehouse_id: VALID_WAREHOUSE_ID,
+                    quantity_real: 2,
+                    sale_price: 9000,
+                    cost_net: 3000,
+                    price_sell_box: 9000,
+                    price_sell_unit: 750,
+                    expiry_date: null,
+                    lot_number: 'LOT-004',
+                }],
+            }, // Source batch lock
+            { rows: [] }, // Update source
+            { rows: [] }, // Existing retail search
+            { rows: [] }, // Insert retail lot
+            { rows: [] }, // Source movement
+            { rows: [] }, // Retail movement
+            { rows: [] }, // SAVEPOINT audit_safe
+            { rows: [] }, // Audit insert
+            { rows: [] }, // RELEASE SAVEPOINT
+            { rows: [] }, // COMMIT
+        ];
+
+        mockQuery.mockImplementation(() => {
+            const response = responses[callIndex] || { rows: [] };
+            callIndex++;
+            return Promise.resolve(response);
+        });
+
+        const result = await fractionateBatchSecureDetailed({
+            batchId: VALID_BATCH_ID,
+            userId: 'payload-user-fraction',
+            unitsInBox: 12,
+        });
+
+        expect(result.success).toBe(true);
+
+        const movementCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO stock_movements')
+        );
+        expect(movementCall?.[1]?.[6]).toBe('session-user-fraction');
+
+        const auditCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
+        );
+        expect(auditCall?.[1]?.[0]).toBe('session-user-fraction');
     });
 });

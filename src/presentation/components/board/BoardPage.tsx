@@ -55,9 +55,6 @@ export default function BoardPage() {
         startTransition(async () => {
             const res = await postNote({
                 content,
-                userId: user.id,
-                authorName: user.name,
-                authorRole: user.role,
                 branch: 'General' // Simplified for now, can perform lookup if needed
             });
 
@@ -75,7 +72,7 @@ export default function BoardPage() {
         if (!confirm('¿Borrar esta nota?')) return;
         if (!user) return;
 
-        const res = await deleteNote(id, user.id);
+        const res = await deleteNote(id);
         if (res.success) {
             toast.success('Nota eliminada');
             loadNotes();
@@ -102,7 +99,7 @@ export default function BoardPage() {
         const res = await verifyUserPin(user.id, pin);
         if (res.success) {
             // Proceed to delete
-            const deleteRes = await deleteNote(pinModal.noteId, user.id);
+            const deleteRes = await deleteNote(pinModal.noteId);
             if (deleteRes.success) {
                 toast.success('Nota eliminada');
                 loadNotes();

@@ -1,34 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { X, ScanBarcode, Save, Package, Calendar, AlertTriangle, CheckCircle2, Camera, Receipt, Truck } from 'lucide-react';
 import { InventoryBatch } from '../../../domain/types';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { toast } from 'sonner';
-import CameraScanner from '../ui/CameraScanner';
 
 import { useQueryClient } from '@tanstack/react-query';
 import { calculateRecommendedPrice } from '../../../domain/logic/pricing-rules';
+
+const CameraScanner = dynamic(() => import('../ui/CameraScanner'), { ssr: false });
 
 
 interface StockEntryModalProps {
     isOpen: boolean;
     onClose: () => void;
     initialProduct?: InventoryBatch | null;
+    inventoryItems?: InventoryBatch[];
 }
 
-const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, initialProduct }) => {
+const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, initialProduct, inventoryItems = [] }) => {
     const queryClient = useQueryClient();
-    const {
-        inventory,
-        updateStock,
-        addNewProduct,
-        currentLocationId,
-        currentWarehouseId,
-        user,
-        locations,
-        fetchLocations,
-        suppliers
-    } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentWarehouseId = usePharmaStore((state) => state.currentWarehouseId);
+    const user = usePharmaStore((state) => state.user);
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const locations = useLocationStore((state) => state.locations);
+    const fetchLocations = useLocationStore((state) => state.fetchLocations);
     const { isOnline } = useNetworkStatus();
     const [activeTab, setActiveTab] = useState<'SCAN' | 'CREATE'>('SCAN');
     const [step, setStep] = useState<'SCAN' | 'DETAILS' | 'NEW_PRODUCT'>('SCAN');
@@ -91,7 +90,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
 
     const handleCameraScan = (decodedText: string) => {
         setScannedSku(decodedText);
-        const product = inventory.find(p => p.sku === decodedText);
+        const product = inventoryItems.find(p => p.sku === decodedText);
         if (product) {
             setSelectedProduct(product);
             const initialPrice = product.price_sell_box || product.price || 0;
@@ -144,7 +143,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
         e.preventDefault();
         if (!scannedSku) return;
 
-        const product = inventory.find(p => p.sku === scannedSku);
+        const product = inventoryItems.find(p => p.sku === scannedSku);
         if (product) {
             setSelectedProduct(product);
             const initialPrice = product.price_sell_box || product.price || 0;
@@ -339,11 +338,12 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
             };
 
             if (!isOnline) {
-                addNewProduct(newProduct);
                 import('../../../lib/store/outboxStore').then(({ useOutboxStore }) => {
                     useOutboxStore.getState().addToOutbox('PRODUCT_CREATE', payload);
                 });
-                toast.warning('Producto guardado localmente (sin conexión)');
+                toast.warning('Producto en cola local', {
+                    description: 'Se creará cuando se recupere conexión y luego aparecerá al recargar inventario.'
+                });
                 resetFlow();
                 return;
             }
@@ -368,23 +368,37 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl h-[90dvh] md:h-auto overflow-hidden flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 px-2 backdrop-blur-sm [padding-bottom:max(env(safe-area-inset-bottom),0.5rem)] [padding-top:max(env(safe-area-inset-top),0.5rem)] sm:items-center sm:px-4">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="stock-entry-modal-title"
+                data-testid="stock-entry-modal"
+                className="flex h-[calc(100dvh-1rem)] max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl md:h-auto"
+            >
                 {/* Header */}
-                <div className="bg-slate-900 p-6 flex justify-between items-center text-white">
-                    <div className="flex items-center gap-3">
-                        <Package className="text-cyan-400" size={28} />
-                        <div>
-                            <h2 className="text-xl font-bold">Ingreso Rápido de Stock</h2>
+                <div className="bg-slate-900 p-4 flex justify-between items-center gap-3 text-white sm:p-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <Package className="text-cyan-400" size={28} aria-hidden="true" />
+                        <div className="min-w-0">
+                            <h2 id="stock-entry-modal-title" className="text-lg font-bold text-pretty sm:text-xl">Ingreso Rápido de Stock</h2>
                             <p className="text-slate-400 text-sm">WMS Ágil - Bodega Central</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white"><X /></button>
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Cerrar ingreso rápido de stock"
+                        className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                    >
+                        <X aria-hidden="true" />
+                    </button>
                 </div>
 
                 {/* Tabs */}
                 <div className="flex border-b border-slate-100">
                     <button
+                        type="button"
                         onClick={() => {
                             setActiveTab('SCAN');
                             // Only reset to SCAN if there's no selected product and we're in NEW_PRODUCT
@@ -397,11 +411,12 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                 setStep('DETAILS');
                             }
                         }}
-                        className={`flex-1 py-4 font-bold text-sm transition-colors ${activeTab === 'SCAN' ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`min-h-11 flex-1 px-3 py-3 font-bold text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 ${activeTab === 'SCAN' ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         Escaneo Rápido (Stock)
                     </button>
                     <button
+                        type="button"
                         onClick={() => {
                             setActiveTab('CREATE');
                             setStep('NEW_PRODUCT');
@@ -410,19 +425,19 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                 setNewProductData(prev => ({ ...prev, sku: scannedSku }));
                             }
                         }}
-                        className={`flex-1 py-4 font-bold text-sm transition-colors ${activeTab === 'CREATE' ? 'text-amber-600 border-b-2 border-amber-600 bg-amber-50' : 'text-slate-500 hover:bg-slate-50'}`}
+                        className={`min-h-11 flex-1 px-3 py-3 font-bold text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${activeTab === 'CREATE' ? 'text-amber-600 border-b-2 border-amber-600 bg-amber-50' : 'text-slate-500 hover:bg-slate-50'}`}
                     >
                         Crear Producto Maestro
                     </button>
                 </div>
                 {/* Content */}
-                <div className="p-6 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                <div data-testid="stock-entry-modal-content" className="flex-1 overflow-y-auto overscroll-contain p-4 custom-scrollbar sm:p-6">
                     {step === 'SCAN' && (
-                        <div className="flex flex-col items-center justify-center py-12">
+                        <div className="flex flex-col items-center justify-center py-8 sm:py-12">
                             <div className="w-24 h-24 bg-cyan-50 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                                <ScanBarcode className="text-cyan-500" size={48} />
+                                <ScanBarcode className="text-cyan-500" size={48} aria-hidden="true" />
                             </div>
-                            <h3 className="text-2xl font-bold text-slate-800 mb-2">Escanea un Producto</h3>
+                            <h3 className="text-xl font-bold text-slate-800 mb-2 text-pretty sm:text-2xl">Escanea un Producto</h3>
                             <p className="text-slate-500 mb-8 text-center max-w-xs">
                                 Escanea el código de barras o escribe el SKU para identificar o crear un producto.
                             </p>
@@ -431,24 +446,26 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                 <input
                                     ref={scanInputRef}
                                     type="text"
-                                    className="w-full pl-6 pr-12 py-4 text-xl font-mono bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-all text-center uppercase text-base"
-                                    placeholder="EAN / SKU..."
+                                    className="w-full pl-6 pr-12 py-4 text-xl font-mono bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-cyan-500 focus:outline-none transition-colors text-center uppercase text-base"
+                                    placeholder="EAN / SKU…"
                                     value={scannedSku}
                                     onChange={e => setScannedSku(e.target.value.toUpperCase())}
                                 />
                                 <button
                                     type="submit"
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 transition"
+                                    aria-label="Buscar producto escaneado"
+                                    className="absolute right-3 top-1/2 inline-flex min-h-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-xl bg-cyan-500 p-2 text-white transition-colors hover:bg-cyan-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2"
                                 >
-                                    <ScanBarcode size={20} />
+                                    <ScanBarcode size={20} aria-hidden="true" />
                                 </button>
                             </form>
 
                             <button
+                                type="button"
                                 onClick={() => setIsScannerOpen(true)}
-                                className="mt-6 md:hidden flex items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform"
+                                className="mt-6 md:hidden flex min-h-11 items-center gap-2 bg-slate-900 text-white px-6 py-3 rounded-full font-bold shadow-lg active:scale-95 transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
                             >
-                                <Camera size={20} />
+                                <Camera size={20} aria-hidden="true" />
                                 Escanear con Cámara
                             </button>
                         </div>
@@ -465,21 +482,21 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                         <div className="space-y-6">
                             <div className="bg-cyan-50 p-4 rounded-2xl border border-cyan-100 flex gap-4 items-center">
                                 <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
-                                    <Package className="text-cyan-600" />
+                                    <Package className="text-cyan-600" aria-hidden="true" />
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                     <h3 className="font-bold text-slate-800 text-lg">{selectedProduct.name}</h3>
                                     <p className="text-slate-500 text-sm font-mono">{selectedProduct.sku}</p>
                                 </div>
                             </div>
 
-                            <form onSubmit={handleQuickSave} className="grid grid-cols-2 gap-4">
+                            <form onSubmit={handleQuickSave} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
                                 {/* New Fields: Supplier & Invoice */}
-                                <div className="col-span-2 grid grid-cols-12 gap-3 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                                    <div className="col-span-12 md:col-span-6">
+                                <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-100 bg-slate-50 p-3 sm:col-span-2 sm:grid-cols-12">
+                                    <div className="sm:col-span-12 md:col-span-6">
                                         <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
-                                            <Truck size={14} className="text-cyan-600" /> Proveedor
+                                            <Truck size={14} className="text-cyan-600" aria-hidden="true" /> Proveedor
                                         </label>
                                         <select
                                             className="w-full p-2 border border-slate-200 rounded-lg text-base bg-white"
@@ -493,9 +510,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         </select>
                                     </div>
 
-                                    <div className="col-span-6 md:col-span-3">
+                                    <div className="sm:col-span-6 md:col-span-3">
                                         <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
-                                            <Receipt size={14} className="text-cyan-600" /> N° Factura
+                                            <Receipt size={14} className="text-cyan-600" aria-hidden="true" /> N° Factura
                                         </label>
                                         <input
                                             type="text"
@@ -506,9 +523,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         />
                                     </div>
 
-                                    <div className="col-span-6 md:col-span-3">
+                                    <div className="sm:col-span-6 md:col-span-3">
                                         <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
-                                            <Calendar size={14} className="text-cyan-600" /> Fecha Doc.
+                                            <Calendar size={14} className="text-cyan-600" aria-hidden="true" /> Fecha Doc.
                                         </label>
                                         <input
                                             type="date"
@@ -518,16 +535,15 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                         />
                                     </div>
                                 </div>
-                                <div className="col-span-2">
+                                <div className="sm:col-span-2">
                                     <label className="block text-sm font-bold text-slate-700 mb-1">Cantidad a Ingresar</label>
                                     <input
                                         ref={qtyInputRef}
                                         type="number"
-                                        className="w-full p-4 text-2xl font-bold text-center border-2 border-slate-200 rounded-xl focus:border-cyan-500 outline-none text-base"
+                                        className="w-full p-4 text-2xl font-bold text-center border-2 border-slate-200 rounded-xl focus:border-cyan-500 focus:outline-none text-base"
                                         value={quantity}
                                         onChange={e => setQuantity(e.target.value)}
                                         placeholder="0"
-                                        autoFocus
                                     />
                                 </div>
 
@@ -563,13 +579,13 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                 </div>
 
                                 {/* Pricing Calculator for Batch */}
-                                <div className="col-span-2 bg-slate-100 p-3 rounded-xl border border-slate-200 mt-2">
+                                <div className="bg-slate-100 p-3 rounded-xl border border-slate-200 mt-2 sm:col-span-2">
                                     <h5 className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-1">
-                                        <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                                        <span className="w-2 h-2 bg-emerald-500 rounded-full" aria-hidden="true"></span>
                                         Actualizar Precios (Opcional)
                                     </h5>
-                                    <div className="grid grid-cols-12 gap-3">
-                                        <div className="col-span-4">
+                                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                                        <div className="sm:col-span-4">
                                             <div className="flex justify-between items-center mb-1">
                                                 <label className="block text-[10px] font-bold text-slate-400">Nuevo Costo Neto</label>
                                                 <span className="text-xs font-bold font-mono text-cyan-700 bg-cyan-100 px-2 py-0.5 rounded border border-cyan-200 shadow-sm animate-pulse-subtle">
@@ -591,7 +607,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                                 placeholder={selectedProduct.cost_net?.toString()}
                                             />
                                         </div>
-                                        <div className="col-span-4 flex items-end gap-2 pb-1">
+                                        <div className="flex items-end gap-2 pb-1 sm:col-span-4">
                                             <div className="flex-1">
                                                 <label className="block text-[10px] font-bold text-slate-400 mb-1">Margen %</label>
                                                 <input
@@ -625,7 +641,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                                 <span className="text-[10px] font-bold text-slate-500">IVA</span>
                                             </label>
                                         </div>
-                                        <div className="col-span-4">
+                                        <div className="sm:col-span-4">
                                             <div className="flex justify-between items-center mb-1">
                                                 <label className="block text-[10px] font-bold text-slate-400">Nuevo Precio Venta</label>
                                                 <span className="text-xs font-bold font-mono text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 shadow-sm animate-pulse-subtle">
@@ -645,9 +661,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
 
                                 <button
                                     type="submit"
-                                    className="col-span-2 py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-2 mt-4"
+                                    className="mt-4 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 py-4 font-bold text-white transition-colors hover:bg-slate-800 sm:col-span-2"
                                 >
-                                    <Save size={20} /> Confirmar Ingreso
+                                    <Save size={20} aria-hidden="true" /> Confirmar Ingreso
                                 </button>
                             </form>
                         </div>
@@ -659,35 +675,35 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                             {/* SECTION A: Identificación y Norma */}
                             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-cyan-500 rounded-full"></span>
+                                    <span className="w-2 h-2 bg-cyan-500 rounded-full" aria-hidden="true"></span>
                                     A. Identificación y Norma
                                 </h4>
-                                <div className="grid grid-cols-12 gap-3">
-                                    <div className="col-span-4">
+                                <div data-testid="stock-entry-new-product-identification-grid" className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">SKU / Código Barra</label>
                                         <div className="relative">
                                             <input
                                                 type="text"
-                                                className="w-full p-2 pl-8 border border-slate-200 rounded-lg font-mono text-sm uppercase focus:border-cyan-500 outline-none text-base"
+                                                className="w-full p-2 pl-8 border border-slate-200 rounded-lg font-mono text-sm uppercase focus:border-cyan-500 focus:outline-none text-base"
                                                 value={scannedSku || ''}
                                                 onChange={e => setScannedSku(e.target.value.toUpperCase())}
                                                 placeholder="Generar Automático"
                                             />
-                                            <ScanBarcode className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                            <ScanBarcode className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" size={16} aria-hidden="true" />
                                         </div>
                                     </div>
-                                    <div className="col-span-8">
+                                    <div className="sm:col-span-8">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Nombre Comercial *</label>
                                         <input
                                             type="text"
                                             required
-                                            className="w-full p-2 border border-slate-200 rounded-lg font-bold text-slate-700 focus:border-cyan-500 outline-none uppercase text-base"
+                                            className="w-full p-2 border border-slate-200 rounded-lg font-bold text-slate-700 focus:border-cyan-500 focus:outline-none uppercase text-base"
                                             value={newProductData.name || ''}
                                             onChange={e => setNewProductData({ ...newProductData, name: e.target.value.toUpperCase() })}
                                             placeholder="Ej: PARACETAMOL 500MG"
                                         />
                                     </div>
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Registro ISP *</label>
                                         <input
                                             type="text"
@@ -698,7 +714,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             placeholder="F-1234/20"
                                         />
                                     </div>
-                                    <div className="col-span-6">
+                                    <div className="sm:col-span-6">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Principio Activo (DCI) *</label>
                                         <input
                                             type="text"
@@ -709,7 +725,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             placeholder="PARACETAMOL"
                                         />
                                     </div>
-                                    <div className="col-span-6">
+                                    <div className="sm:col-span-6">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Laboratorio</label>
                                         <input
                                             type="text"
@@ -719,7 +735,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             placeholder="MINTLAB"
                                         />
                                     </div>
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Formato</label>
                                         <select
                                             className="w-full p-2 border border-slate-200 rounded-lg text-base bg-white"
@@ -734,7 +750,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             <option value="Supositorios">Supositorios</option>
                                         </select>
                                     </div>
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Condición Venta</label>
                                         <select
                                             className="w-full p-2 border border-slate-200 rounded-lg text-base bg-white font-bold text-slate-700"
@@ -747,8 +763,8 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             <option value="RCH">Receta Cheque</option>
                                         </select>
                                     </div>
-                                    <div className="col-span-4 flex items-center pt-5">
-                                        <label className="flex items-center gap-2 cursor-pointer">
+                                    <div className="flex items-center pt-2 sm:col-span-4 sm:pt-5">
+                                        <label className="flex min-h-11 items-center gap-2 cursor-pointer">
                                             <input
                                                 type="checkbox"
                                                 className="w-5 h-5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500"
@@ -764,12 +780,12 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                             {/* SECTION B: Datos Financieros */}
                             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                                    <span className="w-2 h-2 bg-emerald-500 rounded-full" aria-hidden="true"></span>
                                     B. Inteligencia de Precios
                                 </h4>
-                                <div className="grid grid-cols-12 gap-3">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
                                     {/* 1. Costo Neto */}
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Costo Neto (Compra)</label>
                                         <div className="relative">
                                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
@@ -797,7 +813,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     </div>
 
                                     {/* 2. Configuración de Margen */}
-                                    <div className="col-span-4 flex flex-col justify-end pb-1">
+                                    <div className="flex flex-col justify-end pb-1 sm:col-span-4">
                                         <label className="flex items-center gap-2 cursor-pointer mb-2">
                                             <input
                                                 type="checkbox"
@@ -843,7 +859,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     </div>
 
                                     {/* 3. Precio Sugerido (Resultado) */}
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Precio Venta (Sugerido)</label>
                                         <div className="relative">
                                             <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
@@ -871,7 +887,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                     </div>
 
                                     {/* Extra: Unidades por Caja */}
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Unidades x Caja</label>
                                         <input
                                             type="number"
@@ -895,11 +911,11 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                             {/* SECTION C: Logística y Ubicación */}
                             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                                    <span className="w-2 h-2 bg-amber-500 rounded-full" aria-hidden="true"></span>
                                     C. Logística y Ubicación
                                 </h4>
-                                <div className="grid grid-cols-12 gap-3">
-                                    <div className="col-span-6">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                                    <div className="sm:col-span-6">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Categoría</label>
                                         <input
                                             list="categories"
@@ -915,7 +931,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             <option value="SUPLEMENTO" />
                                         </datalist>
                                     </div>
-                                    <div className="col-span-6">
+                                    <div className="sm:col-span-6">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Ubicación (Sucursal) *</label>
                                         <select
                                             className="w-full p-2 border border-slate-200 rounded-lg text-sm bg-white"
@@ -933,7 +949,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             )}
                                         </select>
                                     </div>
-                                    <div className="col-span-6">
+                                    <div className="sm:col-span-6">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Pasillo / Estante</label>
                                         <input
                                             type="text"
@@ -943,7 +959,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             placeholder="Ej: Estante A1"
                                         />
                                     </div>
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-slate-500 mb-1">Stock Mínimo</label>
                                         <input
                                             type="number"
@@ -959,11 +975,11 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                             {/* SECTION D: Ingreso Primer Lote */}
                             <div className="bg-cyan-50 p-4 rounded-2xl border border-cyan-100">
                                 <h4 className="text-xs font-bold text-cyan-700 uppercase tracking-wider mb-3 flex items-center gap-2">
-                                    <span className="w-2 h-2 bg-cyan-600 rounded-full"></span>
+                                    <span className="w-2 h-2 bg-cyan-600 rounded-full" aria-hidden="true"></span>
                                     D. Ingreso Primer Lote (Stock Inicial)
                                 </h4>
-                                <div className="grid grid-cols-12 gap-3">
-                                    <div className="col-span-4">
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-cyan-700 mb-1">N° Lote</label>
                                         <input
                                             type="text"
@@ -973,7 +989,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             placeholder="LOTE-001"
                                         />
                                     </div>
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-cyan-700 mb-1">Vencimiento (MM/AAAA)</label>
                                         <input
                                             type="text"
@@ -990,7 +1006,7 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                                             maxLength={7}
                                         />
                                     </div>
-                                    <div className="col-span-4">
+                                    <div className="sm:col-span-4">
                                         <label className="block text-xs font-bold text-cyan-700 mb-1">Cantidad Inicial</label>
                                         <input
                                             type="number"
@@ -1006,9 +1022,9 @@ const StockEntryModal: React.FC<StockEntryModalProps> = ({ isOpen, onClose, init
                             <button
                                 type="submit"
                                 disabled={isSubmitting}
-                                className={`w-full py-4 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition shadow-lg flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-wait' : ''}`}
+                                className={`flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-4 font-bold text-white shadow-lg transition-colors hover:bg-slate-800 ${isSubmitting ? 'opacity-50 cursor-wait' : ''}`}
                             >
-                                <Save size={20} /> {isSubmitting ? 'Guardando...' : 'Crear Ficha e Ingresar Stock'}
+                                <Save size={20} aria-hidden="true" /> {isSubmitting ? 'Guardando…' : 'Crear Ficha e Ingresar Stock'}
                             </button>
                         </form>
                     )}

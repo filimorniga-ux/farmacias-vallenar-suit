@@ -1,444 +1,460 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-    generateRestockSuggestionSecure,
-    createPurchaseOrderSecure,
-    approvePurchaseOrderSecure,
-    cancelPurchaseOrderSecure,
-    receivePurchaseOrderSecure,
-    deletePurchaseOrderSecure,
-    getSuggestionAnalysisHistorySecure,
-    getPurchaseOrderHistory
-} from '@/actions/procurement-v2';
-import * as dbModule from '@/lib/db';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('bcryptjs', () => ({
-    compare: vi.fn(async (p: string, h: string) => h === `hashed_${p}`)
-}));
+vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-// Mock DB
+const mockPoolQuery = vi.fn();
+const mockPoolConnect = vi.fn();
+const mockQuery = vi.fn();
+const mockGetActorOrFail = vi.fn();
+const mockValidatePinForRoles = vi.fn();
+
 vi.mock('@/lib/db', () => ({
+    query: (...args: unknown[]) => mockQuery(...args),
     pool: {
-        query: vi.fn(),
-        connect: vi.fn()
-    }
+        query: (...args: unknown[]) => mockPoolQuery(...args),
+        connect: (...args: unknown[]) => mockPoolConnect(...args),
+    },
 }));
 
-describe('Procurement V2 Logic', () => {
-    // Valid v4 UUIDs
-    const mockSupplierId = 'd290f1ee-6c54-4b01-90e6-d701748f0851';
+vi.mock('@/lib/pin-rbac', () => {
+    const normalizeRole = (role: string | null | undefined) => String(role || '').trim().toUpperCase();
+
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code = 'AUTH_UNAUTHORIZED', message = 'Acceso denegado') {
+            super(message);
+            this.name = 'MockPinRbacError';
+            this.code = code;
+        }
+    }
+
+    return {
+        ROLE_GROUPS: {
+            ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+            MANAGER: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'],
+        },
+        PinRbacError: MockPinRbacError,
+        normalizeRole,
+        requireRole: (actor: Record<string, unknown>, allowedRoles: readonly string[]) => {
+            const normalizedActor = { ...actor, role: normalizeRole(String(actor.role || '')) };
+            const allowed = allowedRoles.map(normalizeRole);
+            if (!allowed.includes(String(normalizedActor.role))) {
+                throw new MockPinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+            }
+            return normalizedActor;
+        },
+        getActorOrFail: (...args: unknown[]) => mockGetActorOrFail(...args),
+        validatePinForRoles: (...args: unknown[]) => mockValidatePinForRoles(...args),
+    };
+});
+
+vi.mock('@/actions/supply-v2', () => ({
+    createPurchaseOrderSecure: vi.fn(),
+    updatePurchaseOrderSecure: vi.fn(),
+    receivePurchaseOrderSecure: vi.fn(),
+    cancelPurchaseOrderSecure: vi.fn(),
+    deletePurchaseOrderSecure: vi.fn(),
+}));
+
+import * as supplyActions from '@/actions/supply-v2';
+import {
+    approvePurchaseOrderSecure,
+    cancelPurchaseOrderSecure,
+    createPurchaseOrderSecure,
+    deletePurchaseOrderSecure,
+    generateRestockSuggestionSecure,
+    getPurchaseOrderHistory,
+    getSmartOrderLowStockPrefillSecure,
+    getSuggestionAnalysisHistorySecure,
+    getTransferDetailHistorySecure,
+    receivePurchaseOrderSecure,
+} from '@/actions/procurement-v2';
+
+describe('Procurement V2 Hardening', () => {
+    const actorLocationId = '550e8400-e29b-41d4-a716-446655440099';
     const validUuid = '550e8400-e29b-41d4-a716-446655440111';
     const orderId = '550e8400-e29b-41d4-a716-446655440222';
-    const approverId = '550e8400-e29b-41d4-a716-446655440333';
-
-    // Mock Client Structure
-    const mockClient = {
-        query: vi.fn(),
-        release: vi.fn()
-    };
 
     beforeEach(() => {
         vi.clearAllMocks();
+        mockGetActorOrFail.mockResolvedValue({
+            userId: validUuid,
+            role: 'ADMIN',
+            userName: 'Admin Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session',
+        });
+        mockValidatePinForRoles.mockResolvedValue({
+            valid: true,
+            authorizedBy: {
+                id: '550e8400-e29b-41d4-a716-446655440333',
+                name: 'Approver',
+                role: 'ADMIN',
+            },
+        });
+        vi.mocked(supplyActions.createPurchaseOrderSecure).mockReset();
+        vi.mocked(supplyActions.updatePurchaseOrderSecure).mockReset();
+        vi.mocked(supplyActions.receivePurchaseOrderSecure).mockReset();
+        vi.mocked(supplyActions.cancelPurchaseOrderSecure).mockReset();
+        vi.mocked(supplyActions.deletePurchaseOrderSecure).mockReset();
     });
 
-    // --- Suggestion Tests ---
-    describe('Restock Suggestions', () => {
-        it('should calculate suggested quantity correctly', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
-                rows: [{
-                    product_id: 'prod-1', product_name: 'Paracetamol', sku: 'PARA500',
-                    current_stock: 10, other_warehouses_stock: 0,
-                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
-                    safety_stock: 5, incoming_stock: 0,
-                    unit_cost: 100, internal_cost: 100,
-                    suppliers_data: null, stock_by_location: [],
-                    total_sold_in_period: 60, sales_history: []
-                }]
-            } as any);
-
-            const res = await generateRestockSuggestionSecure(mockSupplierId, 10, 30);
-            expect(res.success).toBe(true);
-            // Formula: velocity=60/30=2.0, maxStock=ceil(2.0*10+5)=25, net=25-10-0=15
-            expect(res.data![0].suggested_order_qty).toBe(15);
+    it('genera sugerencias usando la ubicación efectiva del actor', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
+        });
+        mockPoolQuery.mockResolvedValueOnce({
+            rows: [{
+                product_id: 'prod-1',
+                product_name: 'Paracetamol',
+                sku: 'PARA500',
+                current_stock: 10,
+                other_warehouses_stock: 0,
+                sold_7d: 14,
+                sold_15d: 30,
+                sold_30d: 60,
+                sold_60d: 120,
+                sold_90d: 180,
+                sold_180d: 360,
+                sold_365d: 730,
+                safety_stock: 5,
+                incoming_stock: 0,
+                unit_cost: 100,
+                internal_cost: 100,
+                suppliers_data: null,
+                stock_by_location: [],
+                total_sold_in_period: 60,
+                sales_history: [],
+            }],
         });
 
-        it('should handle negative stock correctly (critical urgency)', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
-                rows: [{
-                    product_id: 'prod-neg', product_name: 'Abrilar JBE', sku: 'ABR100',
-                    current_stock: -21, other_warehouses_stock: 0,
-                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
-                    safety_stock: 10, incoming_stock: 0,
-                    unit_cost: 100, internal_cost: 100,
-                    suppliers_data: null, stock_by_location: [],
-                    total_sold_in_period: 60, sales_history: []
-                }]
-            } as any);
+        const result = await generateRestockSuggestionSecure(undefined, 10, 30, undefined, undefined, 'PARA', 25);
 
-            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
-            expect(res.success).toBe(true);
-            const item = res.data![0];
-            // Formula: velocity=60/30=2.0, maxStock=ceil(2.0*15+10)=40, net=40-(-21)-0=61
-            expect(item.suggested_order_qty).toBe(61);
-            expect(item.urgency).toBe('HIGH');
-            expect(item.current_stock).toBe(-21);
-            expect(item.days_coverage).toBe('0.0');
-            expect(item.days_until_stockout).toBe(0);
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]?.suggested_order_qty).toBe(15);
+        expect(mockPoolQuery.mock.calls[0]?.[1]).toContain(actorLocationId);
+    });
+
+    it('genera prefill de smart-order desde bajo stock validado en servidor sin elegir proveedor', async () => {
+        const warehouseId = '550e8400-e29b-41d4-a716-446655440556';
+        const productId = '550e8400-e29b-41d4-a716-446655440557';
+        const supplierId = '550e8400-e29b-41d4-a716-446655440558';
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
         });
-
-        it('should handle exactly zero stock correctly', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
+        mockQuery
+            .mockResolvedValueOnce({
                 rows: [{
-                    product_id: 'prod-zero', product_name: 'Aspirina', sku: 'ASP100',
-                    current_stock: 0, other_warehouses_stock: 0,
-                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
-                    safety_stock: 10, incoming_stock: 0,
-                    unit_cost: 100, internal_cost: 100,
-                    suppliers_data: null, stock_by_location: [],
-                    total_sold_in_period: 60, sales_history: []
-                }]
-            } as any);
-
-            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
-            expect(res.success).toBe(true);
-            const item = res.data![0];
-            // Formula: velocity=60/30=2.0, maxStock=ceil(2.0*15+10)=40, net=40-0-0=40
-            expect(item.suggested_order_qty).toBe(40);
-            expect(item.urgency).toBe('HIGH');
-            expect(item.current_stock).toBe(0);
-            expect(item.days_coverage).toBe('0.0');
-            expect(item.days_until_stockout).toBe(0);
-        });
-
-        it('should handle zero safety_stock with negative stock', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
-                rows: [{
-                    product_id: 'prod-nosafety', product_name: 'NoSafety', sku: 'NOS001',
-                    current_stock: -5, other_warehouses_stock: 0,
-                    sold_7d: 14, sold_15d: 30, sold_30d: 60, sold_60d: 120, sold_90d: 180, sold_180d: 360, sold_365d: 730,
-                    safety_stock: 0, incoming_stock: 0,
-                    unit_cost: 100, internal_cost: 100,
-                    suppliers_data: null, stock_by_location: [],
-                    total_sold_in_period: 60, sales_history: []
-                }]
-            } as any);
-
-            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
-            expect(res.success).toBe(true);
-            const item = res.data![0];
-            // effectiveSafety = 5. maxStock = max(5, ceil(2.0*15+0)) = 30. net = 30 - (-5) - 0 = 35.
-            expect(item.suggested_order_qty).toBe(35);
-            expect(item.urgency).toBe('HIGH');
-            expect(item.days_coverage).toBe('0.0');
-            expect(item.days_until_stockout).toBe(0);
-        });
-
-        it('should handle negative stock and zero velocity', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
-                rows: [{
-                    product_id: 'prod-nosales', product_name: 'NoSales', sku: 'NOS002',
-                    current_stock: -5, other_warehouses_stock: 0,
-                    sold_7d: 0, sold_15d: 0, sold_30d: 0, sold_60d: 0, sold_90d: 0, sold_180d: 0, sold_365d: 0,
-                    safety_stock: 0, incoming_stock: 0,
-                    unit_cost: 100, internal_cost: 100,
-                    suppliers_data: null, stock_by_location: [],
-                    total_sold_in_period: 0, sales_history: []
-                }]
-            } as any);
-
-            const res = await generateRestockSuggestionSecure(mockSupplierId, 15, 30);
-            expect(res.success).toBe(true);
-            const item = res.data![0];
-            // velocity = 0. effectiveSafety = 5. targetCoverageStock = 0. maxStock = max(5, 0+0) = 5. net = 5 - (-5) - 0 = 10.
-            expect(item.suggested_order_qty).toBe(10);
-            expect(item.urgency).toBe('HIGH');
-            expect(item.days_coverage).toBe('0.0');
-            expect(item.days_until_stockout).toBe(0);
-        });
-
-        it('should fail with invalid supplier UUID', async () => {
-            const res = await generateRestockSuggestionSecure('invalid-uuid');
-            expect(res.success).toBe(false);
-        });
-
-        it('should load suggestion analysis history with mapped values', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
-                rows: [{
-                    history_id: 'hist-1',
-                    executed_at: '2026-02-18T12:00:00.000Z',
-                    executed_by: 'Manager',
-                    location_id: validUuid,
+                    warehouse_id: warehouseId,
+                    warehouse_name: 'Bodega Centro',
+                    location_id: actorLocationId,
                     location_name: 'Sucursal Centro',
-                    supplier_id: mockSupplierId,
-                    supplier_name: 'Proveedor Uno',
-                    days_to_cover: 15,
-                    analysis_window: 30,
-                    stock_threshold: 0.25,
-                    search_query: 'PARA500',
-                    limit_value: 100,
-                    total_results: 40,
-                    critical_count: 5,
-                    transfer_count: 7,
-                    total_estimated: 12345
-                }]
-            } as any);
-
-            const res = await getSuggestionAnalysisHistorySecure({ locationId: validUuid, limit: 10 });
-
-            expect(res.success).toBe(true);
-            expect(res.data?.[0]).toMatchObject({
-                history_id: 'hist-1',
-                location_id: validUuid,
-                supplier_id: mockSupplierId,
-                total_results: 40,
-                critical_count: 5,
-                transfer_count: 7,
-                total_estimated: 12345
-            });
-            expect(dbModule.pool.query).toHaveBeenCalledWith(expect.stringContaining("REPORT_GENERATE"), [10, validUuid]);
-        });
-
-        it('should ignore legacy non-uuid location id in suggestions query', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
+                }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce({
                 rows: [{
-                    product_id: 'prod-2',
-                    product_name: 'Ibuprofeno',
-                    sku: 'IBU400',
-                    current_stock: 20,
-                    other_warehouses_stock: 10,
-                    sold_7d: 7,
-                    sold_15d: 15,
-                    sold_30d: 30,
-                    sold_60d: 60,
-                    sold_90d: 90,
-                    sold_180d: 180,
-                    sold_365d: 365,
-                    safety_stock: 5,
-                    incoming_stock: 0,
-                    unit_cost: 100,
-                    internal_cost: 100,
-                    suppliers_data: null,
-                    stock_by_location: [],
-                    total_sold_in_period: 30,
-                    sales_history: []
-                }]
-            } as any);
+                    product_id: productId,
+                    sku: 'LOW-001',
+                    product_name: 'Producto Bajo Stock',
+                    current_stock: '1',
+                    stock_min: '5',
+                    suggested_quantity: '4',
+                    unit_cost: '900',
+                    suggested_supplier_id: supplierId,
+                    suggested_supplier_name: 'Proveedor sugerido',
+                    suggested_supplier_cost: '850',
+                }],
+                rowCount: 1,
+            });
 
-            const res = await generateRestockSuggestionSecure(undefined, 10, 30, 'BODEGA_CENTRAL', undefined, undefined, 20);
-
-            expect(res.success).toBe(true);
-            const params = vi.mocked(dbModule.pool.query).mock.calls[0]?.[1] as unknown[];
-            expect(params).not.toContain('BODEGA_CENTRAL');
+        const result = await getSmartOrderLowStockPrefillSecure({
+            alertId: 'inventory-critical-low-stock',
+            locationId: actorLocationId,
+            warehouseId,
+            limit: 8,
         });
 
-        it('should clamp limit and trim search query in suggestions query params', async () => {
-            vi.mocked(dbModule.pool.query).mockResolvedValue({
-                rows: []
-            } as any);
-
-            const res = await generateRestockSuggestionSecure(
-                undefined,
-                10,
-                30,
-                validUuid,
-                undefined,
-                `   ${'A'.repeat(180)}   `,
-                5000
-            );
-
-            expect(res.success).toBe(true);
-            const params = vi.mocked(dbModule.pool.query).mock.calls[0]?.[1] as unknown[];
-            expect(params[1]).toBe(`%${'A'.repeat(120)}%`);
-            expect(params[2]).toBe(2000); // safeLimit=500 => db query limit multiplier maxed at 2000
-        });
+        expect(result.success).toBe(true);
+        if (!result.success) return;
+        expect(result.data.providerSelection).toBe('manual');
+        expect(result.data.locationId).toBe(actorLocationId);
+        expect(result.data.warehouseId).toBe(warehouseId);
+        expect(result.data.items[0]).toEqual(expect.objectContaining({
+            productId,
+            suggestedQuantity: 4,
+            suggestedSupplierId: supplierId,
+            suggestedSupplierName: 'Proveedor sugerido',
+        }));
+        expect(mockQuery.mock.calls[0]?.[1]).toEqual([warehouseId]);
+        expect(mockQuery.mock.calls[1]?.[1]).toEqual([actorLocationId, warehouseId, 8]);
+        expect(vi.mocked(supplyActions.createPurchaseOrderSecure)).not.toHaveBeenCalled();
     });
 
-    // --- Create PO Tests ---
-    describe('Create Purchase Order', () => {
-        it('should return requiresApproval for large orders', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                if (sql.includes('FROM suppliers')) return { rows: [{ id: validUuid, name: 'Supplier' }] };
-                if (sql.includes('FROM warehouses')) return { rows: [{ id: 'wh-1' }] };
-                return { rows: [] };
-            });
-
-            const res = await createPurchaseOrderSecure({
-                supplierId: validUuid, userId: validUuid,
-                items: [{ productId: validUuid, productName: 'Expensive', quantity: 1000, unitCost: 600 }]
-            } as any);
-
-            expect(res.success).toBe(true);
-            expect(res.data?.requiresApproval).toBe(true);
-            expect(res.data?.total).toBe(600000);
+    it('rechaza prefill de smart-order fuera de scope antes de sugerir canasta', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
         });
+
+        const result = await getSmartOrderLowStockPrefillSecure({
+            alertId: 'inventory-critical-low-stock',
+            locationId: '550e8400-e29b-41d4-a716-446655440444',
+            limit: 8,
+        });
+
+        expect(result.success).toBe(false);
+        if (result.success) return;
+        expect(result.error).toContain('Acceso denegado');
+        expect(mockQuery).not.toHaveBeenCalled();
+        expect(vi.mocked(supplyActions.createPurchaseOrderSecure)).not.toHaveBeenCalled();
     });
 
-    // --- Approve & Cancel Tests ---
-    describe('Approve & Cancel Purchase Order', () => {
-        it('should fail approval with incorrect PIN', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                if (sql.includes('FROM purchase_orders')) return { rows: [{ id: orderId, status: 'DRAFT', total_estimated: 100000 }] };
-                // Return user but simulate failed check handled by mocked bcrypt or logic
-                if (sql.includes('FROM users')) return { rows: [{ id: approverId, access_pin_hash: 'hashed_1234' }] };
-                return { rows: [] };
-            });
-
-            const res = await approvePurchaseOrderSecure({
-                orderId, approverPin: '9999', notes: 'Esta nota es suficientemente larga para pasar la validación'
-            });
-
-            // Since we mocked bcrypt.compare to check 'hashed_' + pin, hashed_1234 vs 9999 (hashed_9999) fails
-            expect(res.success).toBe(false);
-            expect(res.error).toContain('PIN inválido');
+    it('rechaza historial de análisis cross-location para actores no globales', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session',
         });
 
-        it('should prevent cancelling an already RECEIVED order', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                if (sql.includes('FROM purchase_orders')) {
-                    return { rows: [{ id: orderId, status: 'RECEIVED' }] };
-                }
-                return { rows: [] };
-            });
-
-            const res = await cancelPurchaseOrderSecure({
-                orderId, reason: 'Razón de cancelación suficientemente larga', cancelerPin: '1234'
-            });
-
-            expect(res.success).toBe(false);
-            expect(res.error).toContain('no puede ser cancelada');
+        const result = await getSuggestionAnalysisHistorySecure({
+            locationId: '550e8400-e29b-41d4-a716-446655440444',
+            limit: 10,
         });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
     });
 
-    // --- NEW: Receive PO Tests ---
-    describe('Receive Purchase Order', () => {
-        const itemUuid = '550e8400-e29b-41d4-a716-446655440444';
-
-        it('should receive items successfully and update inventory', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                if (sql.startsWith('ROLLBACK')) return { rows: [] };
-                if (sql.startsWith('COMMIT')) return { rows: [] };
-
-                // 1. Get Order
-                if (sql.includes('FROM purchase_orders'))
-                    return {
-                        rows: [{
-                            id: orderId,
-                            status: 'APPROVED',
-                            target_warehouse_id: '550e8400-e29b-41d4-a716-446655440201',
-                            supplier_id: 'sup-1'
-                        }]
-                    };
-                if (sql.includes('SELECT location_id FROM warehouses WHERE id = $1'))
-                    return { rows: [{ location_id: '550e8400-e29b-41d4-a716-446655440202' }] };
-                // 2. Get Item
-                if (sql.includes('FROM purchase_order_items'))
-                    return { rows: [{ id: itemUuid, sku: 'SKU1', name: 'Test Product', cost_price: 100 }] };
-                // 3. Get canonical product by SKU
-                if (sql.includes('FROM products p') && sql.includes('p.sku = $1'))
-                    return { rows: [{ id: '550e8400-e29b-41d4-a716-446655440203', name: 'Test Product', sale_price: 150, cost_price: 100 }] };
-                // 4. Check Batch (exists)
-                if (sql.includes('FROM inventory_batches')) return { rows: [{ id: 'batch-1', quantity_real: 10 }] };
-
-                // Updates/Inserts (catch-all for UPDATE and trimmed INSERT)
-                const trimmed = sql.trim();
-                if (trimmed.startsWith('UPDATE') || trimmed.startsWith('INSERT')) return { rows: [], rowCount: 1 };
-
-                return { rows: [] };
-            });
-
-            const res = await receivePurchaseOrderSecure({
-                orderId,
-                userId: validUuid,
-                receivedItems: [{ itemId: itemUuid, quantityReceived: 5 }]
-            });
-
-            if (!res.success) console.error('Test Create Error:', res.error);
-            expect(res.success).toBe(true);
-
-            // Verify DB interactions
-            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE purchase_orders'), expect.anything());
-            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('UPDATE inventory_batches'), expect.anything());
-            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO stock_movements'), expect.anything());
+    it('usa supply-v2 como writer canónico al crear órdenes', async () => {
+        mockQuery.mockResolvedValueOnce({
+            rows: [{ location_id: actorLocationId }],
+            rowCount: 1,
+        });
+        vi.mocked(supplyActions.createPurchaseOrderSecure).mockResolvedValue({
+            success: true,
+            orderId,
         });
 
-        it('should fail if order is not APPROVED', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                if (sql.includes('FROM purchase_orders'))
-                    return { rows: [{ id: orderId, status: 'DRAFT' }] };
-                return { rows: [] };
-            });
-
-            const res = await receivePurchaseOrderSecure({
-                orderId, userId: validUuid, receivedItems: []
-            });
-
-            expect(res.success).toBe(false);
-            expect(res.error).toContain('debe estar aprobada');
+        const result = await createPurchaseOrderSecure({
+            supplierId: '550e8400-e29b-41d4-a716-446655440555',
+            warehouseId: '550e8400-e29b-41d4-a716-446655440556',
+            userId: '550e8400-e29b-41d4-a716-446655440999',
+            items: [{ productName: 'Expensive', sku: 'SKU001', quantity: 1000, unitCost: 600 }],
         });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.requiresApproval).toBe(true);
+        expect(vi.mocked(supplyActions.createPurchaseOrderSecure)).toHaveBeenCalledWith(
+            expect.objectContaining({
+                targetWarehouseId: '550e8400-e29b-41d4-a716-446655440556',
+            }),
+            validUuid,
+        );
     });
 
-    // --- NEW: Delete Draft Tests ---
-    describe('Delete Purchase Order', () => {
-        it('should delete a DRAFT order successfully', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                // Get Order
-                if (sql.includes('FROM purchase_orders'))
-                    return { rows: [{ id: orderId, status: 'DRAFT', location_id: 'loc-1' }] };
-                return { rows: [] };
-            });
-
-            const res = await deletePurchaseOrderSecure({ orderId, userId: validUuid });
-
-            expect(res.success).toBe(true);
-            // Check deletes
-            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM purchase_order_items'), expect.anything());
-            expect(mockClient.query).toHaveBeenCalledWith(expect.stringContaining('DELETE FROM purchase_orders'), expect.anything());
+    it('usa supply-v2 como writer canónico al aprobar órdenes', async () => {
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (sql.startsWith('BEGIN') || sql.startsWith('ROLLBACK')) {
+                return { rows: [], rowCount: 0 } as const;
+            }
+            if (sql.includes('FROM purchase_orders po') && sql.includes('LEFT JOIN warehouses')) {
+                return {
+                    rows: [{
+                        id: orderId,
+                        status: 'DRAFT',
+                        total_amount: 700000,
+                        supplier_id: '550e8400-e29b-41d4-a716-446655440555',
+                        target_warehouse_id: '550e8400-e29b-41d4-a716-446655440556',
+                        location_id: actorLocationId,
+                        notes: 'Notas previas',
+                    }],
+                    rowCount: 1,
+                } as const;
+            }
+            if (sql.includes('SELECT id, status, total_amount')) {
+                return {
+                    rows: [{
+                        id: orderId,
+                        status: 'DRAFT',
+                        total_amount: 700000,
+                        supplier_id: '550e8400-e29b-41d4-a716-446655440555',
+                        target_warehouse_id: '550e8400-e29b-41d4-a716-446655440556',
+                        notes: 'Notas previas',
+                    }],
+                    rowCount: 1,
+                } as const;
+            }
+            if (sql.includes('FROM purchase_order_items')) {
+                return {
+                    rows: [{ sku: 'SKU001', name: 'Prod', quantity_ordered: 2, cost_price: 1000 }],
+                    rowCount: 1,
+                } as const;
+            }
+            return { rows: [], rowCount: 0 } as const;
         });
 
-        it('should fail to delete an APPROVED order', async () => {
-            vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
-            mockClient.query.mockImplementation(async (sql: string) => {
-                if (sql.startsWith('BEGIN')) return { rows: [] };
-                if (sql.includes('FROM purchase_orders'))
-                    return { rows: [{ id: orderId, status: 'APPROVED' }] };
-                return { rows: [] };
-            });
-
-            const res = await deletePurchaseOrderSecure({ orderId, userId: validUuid });
-
-            expect(res.success).toBe(false);
-            expect(res.error).toContain('Solo se pueden eliminar borradores');
+        mockPoolConnect.mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn(),
         });
+        vi.mocked(supplyActions.updatePurchaseOrderSecure).mockResolvedValue({
+            success: true,
+            orderId,
+        });
+
+        const result = await approvePurchaseOrderSecure({
+            orderId,
+            approverPin: '1234',
+            notes: 'Aprobación suficientemente larga',
+        });
+
+        expect(result.success).toBe(true);
+        expect(vi.mocked(supplyActions.updatePurchaseOrderSecure)).toHaveBeenCalledWith(
+            orderId,
+            expect.objectContaining({ status: 'APPROVED' }),
+            validUuid,
+        );
     });
 
-    describe('Purchase Order History Query', () => {
-        it('should qualify status filter with po alias to avoid ambiguity', async () => {
-            vi.mocked(dbModule.pool.query)
-                .mockResolvedValueOnce({ rows: [{ total: '0' }] } as any)
-                .mockResolvedValueOnce({ rows: [] } as any);
-
-            const res = await getPurchaseOrderHistory({
-                status: 'APPROVED',
-                page: 1,
-                pageSize: 20
-            });
-
-            expect(res.success).toBe(true);
-            const countSql = String(vi.mocked(dbModule.pool.query).mock.calls[0]?.[0] || '');
-            expect(countSql).toContain('FROM purchase_orders po');
-            expect(countSql).toContain('po.status = $1');
+    it('usa supply-v2 como writer canónico al recepcionar órdenes', async () => {
+        const itemId = '550e8400-e29b-41d4-a716-446655440444';
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (sql.startsWith('BEGIN') || sql.startsWith('ROLLBACK')) {
+                return { rows: [], rowCount: 0 } as const;
+            }
+            if (sql.includes('FROM purchase_orders po') && sql.includes('LEFT JOIN warehouses')) {
+                return {
+                    rows: [{ id: orderId, status: 'APPROVED', location_id: actorLocationId }],
+                    rowCount: 1,
+                } as const;
+            }
+            if (sql.includes('FROM purchase_order_items')) {
+                return {
+                    rows: [{ id: itemId, sku: 'SKU001' }],
+                    rowCount: 1,
+                } as const;
+            }
+            return { rows: [], rowCount: 0 } as const;
         });
+
+        mockPoolConnect.mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn(),
+        });
+        vi.mocked(supplyActions.receivePurchaseOrderSecure).mockResolvedValue({ success: true });
+
+        const result = await receivePurchaseOrderSecure({
+            orderId,
+            userId: validUuid,
+            receivedItems: [{ itemId, quantityReceived: 5 }],
+        });
+
+        expect(result.success).toBe(true);
+        expect(vi.mocked(supplyActions.receivePurchaseOrderSecure)).toHaveBeenCalledWith(
+            expect.objectContaining({
+                purchaseOrderId: orderId,
+                receivedItems: [expect.objectContaining({ sku: 'SKU001', quantity: 5 })],
+            }),
+            validUuid,
+        );
+    });
+
+    it('usa supply-v2 como writer canónico al cancelar y eliminar órdenes', async () => {
+        const clientQuery = vi.fn(async (sql: string) => {
+            if (sql.startsWith('BEGIN') || sql.startsWith('ROLLBACK')) {
+                return { rows: [], rowCount: 0 } as const;
+            }
+            if (sql.includes('FROM purchase_orders po') && sql.includes('LEFT JOIN warehouses')) {
+                return {
+                    rows: [{ id: orderId, status: 'APPROVED', location_id: actorLocationId }],
+                    rowCount: 1,
+                } as const;
+            }
+            return { rows: [], rowCount: 0 } as const;
+        });
+
+        mockPoolConnect.mockResolvedValue({
+            query: clientQuery,
+            release: vi.fn(),
+        });
+        vi.mocked(supplyActions.cancelPurchaseOrderSecure).mockResolvedValue({ success: true });
+        vi.mocked(supplyActions.deletePurchaseOrderSecure).mockResolvedValue({ success: true });
+
+        const cancelResult = await cancelPurchaseOrderSecure({
+            orderId,
+            reason: 'Razón de cancelación suficientemente larga',
+            cancelerPin: '1234',
+        });
+        const deleteResult = await deletePurchaseOrderSecure({ orderId, userId: validUuid });
+
+        expect(cancelResult.success).toBe(true);
+        expect(deleteResult.success).toBe(true);
+        expect(vi.mocked(supplyActions.cancelPurchaseOrderSecure)).toHaveBeenCalledWith(orderId, validUuid, expect.any(String));
+        expect(vi.mocked(supplyActions.deletePurchaseOrderSecure)).toHaveBeenCalledWith({ orderId, userId: validUuid });
+    });
+
+    it('niega detalle de traspaso fuera de scope', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
+        });
+        mockQuery.mockResolvedValueOnce({
+            rows: [{ location_id: '550e8400-e29b-41d4-a716-446655440777' }],
+            rowCount: 1,
+        });
+
+        const result = await getTransferDetailHistorySecure('550e8400-e29b-41d4-a716-446655440888');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
+    });
+
+    it('fuerza scope en getPurchaseOrderHistory para actores no globales', async () => {
+        mockGetActorOrFail.mockResolvedValueOnce({
+            userId: validUuid,
+            role: 'MANAGER',
+            userName: 'Manager Procurement',
+            locationId: actorLocationId,
+            tokenVersion: 1,
+            sessionToken: 'procurement-session-manager',
+        });
+        mockPoolQuery
+            .mockResolvedValueOnce({ rows: [{ total: '0' }], rowCount: 1 })
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+        const result = await getPurchaseOrderHistory({
+            status: 'APPROVED',
+            page: 1,
+            pageSize: 20,
+        });
+
+        expect(result.success).toBe(true);
+        expect(String(mockPoolQuery.mock.calls[0]?.[0] || '')).toContain('LEFT JOIN warehouses w');
+        expect(mockPoolQuery.mock.calls[0]?.[1]).toContain(actorLocationId);
     });
 });

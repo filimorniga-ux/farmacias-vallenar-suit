@@ -16,9 +16,18 @@
 import { pool, query } from '@/lib/db';
 import { PoolClient } from 'pg';
 import { z } from 'zod';
-import { headers } from 'next/headers';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
+import { verifyKioskSessionToken } from '@/lib/kiosk-session';
+import { validateAttendanceKioskExitPinSecure } from './kiosk-auth-v2';
 
 // ============================================================================
 // SCHEMAS
@@ -49,7 +58,6 @@ const OvertimeApprovalSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
 // const OVERTIME_THRESHOLD_MINUTES = 240; // 4 horas sin aprobación
 
 // Secuencia válida de marcajes
@@ -69,59 +77,177 @@ const VALID_SEQUENCE: Record<string, string[]> = {
 // HELPERS
 // ============================================================================
 
-async function getSession(): Promise<{ userId: string; role: string } | null> {
+const attendanceQueryClient = {
+    query: (sql: string, params?: unknown[]) => query(sql, params as never[] | undefined),
+};
+
+type AttendanceActor = Awaited<ReturnType<typeof getActorOrFail>>;
+
+type AttendanceKioskStatus = 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION';
+
+const ATTENDANCE_GLOBAL_ROLES = ['ADMIN', 'GERENTE_GENERAL', 'RRHH'];
+
+function hasAttendanceGlobalScope(role: string) {
+    return ATTENDANCE_GLOBAL_ROLES.includes(String(role || '').toUpperCase());
+}
+
+function maskRut(value?: string | null) {
+    const clean = String(value || '').replace(/\./g, '').trim();
+    if (!clean) {
+        return '';
+    }
+
+    if (clean.length <= 4) {
+        return clean;
+    }
+
+    return `${clean.slice(0, 2)}*****${clean.slice(-2)}`;
+}
+
+function mapKioskStatus(dbType?: string): AttendanceKioskStatus {
+    if (!dbType) return 'OUT';
+
+    if (dbType === 'CHECK_IN') return 'IN';
+    if (dbType === 'BREAK_START') return 'LUNCH';
+    if (dbType === 'BREAK_END' || dbType === 'LUNCH_RETURN' || dbType === 'PERMISSION_END') return 'IN';
+    if (['PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'].includes(dbType)) return 'ON_PERMISSION';
+    if (dbType === 'CHECK_OUT') return 'OUT';
+
+    return 'OUT';
+}
+
+async function getActiveEmployeeForLocation(
+    client: Pick<PoolClient, 'query'> | typeof attendanceQueryClient,
+    userId: string,
+    locationId: string
+) {
+    const result = await client.query(
+        `
+            SELECT id, name, role, assigned_location_id, status, biometric_credentials
+            FROM users
+            WHERE id = $1
+              AND is_active = true
+              AND assigned_location_id = $2
+            LIMIT 1
+        `,
+        [userId, locationId]
+    );
+
+    return result.rows[0] || null;
+}
+
+function resolveAttendanceLocation(
+    actor: AttendanceActor,
+    requestedLocationId?: string | null
+): { success: true; locationId?: string } | { success: false; error: string } {
+    const requested = requestedLocationId || undefined;
+
+    if (hasAttendanceGlobalScope(actor.role)) {
+        return { success: true, locationId: requested };
+    }
+
+    if (!actor.locationId) {
+        return {
+            success: false,
+            error: 'La sesión no tiene sucursal asignada para consultar asistencia',
+        };
+    }
+
+    if (requested && requested !== actor.locationId) {
+        return {
+            success: false,
+            error: 'No autorizado para consultar otra sucursal',
+        };
+    }
+
+    return { success: true, locationId: actor.locationId };
+}
+
+function sanitizeAttendanceMonitorRow(row: Record<string, unknown>, actorRole: string) {
+    if (hasAttendanceGlobalScope(actorRole)) {
+        return row;
+    }
+
+    return {
+        ...row,
+        rut: maskRut(typeof row.rut === 'string' ? row.rut : undefined),
+        last_login_ip: null,
+    };
+}
+
+function sanitizeAttendanceHistoryRow(row: Record<string, unknown>, actorRole: string) {
+    if (hasAttendanceGlobalScope(actorRole)) {
+        return row;
+    }
+
+    return {
+        ...row,
+        user_rut: maskRut(typeof row.user_rut === 'string' ? row.user_rut : undefined),
+        evidence_photo_url: null,
+    };
+}
+
+function validateAttendanceKioskToken(
+    kioskToken: string
+): { success: true; locationId: string } | { success: false; error: string } {
+    const tokenResult = verifyKioskSessionToken(kioskToken, 'ATTENDANCE');
+    if (!tokenResult.valid) {
+        return { success: false, error: tokenResult.error };
+    }
+
+    return {
+        success: true,
+        locationId: tokenResult.payload.locationId,
+    };
+}
+
+async function requireAttendanceActor() {
     try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
-
-        // 1. Try Headers (Middleware injection)
-        let userId = headersList.get('x-user-id');
-        let role = headersList.get('x-user-role');
-
-        // 2. Fallback to Cookies (Direct usage)
-        if (!userId || !role) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            role = cookieStore.get('user_role')?.value || null;
+        const actor = await getActorOrFail();
+        return { success: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
         }
 
-        if (!userId || !role) return null;
-        return { userId, role };
-    } catch {
-        return null;
+        throw error;
     }
 }
 
-async function validateManagerPin(
+function ensureAttendanceManager(
+    actor: Awaited<ReturnType<typeof getActorOrFail>>,
+    errorMessage: string
+) {
+    try {
+        requireRole(actor, ROLE_GROUPS.MANAGER_OR_HR);
+        return { success: true as const };
+    } catch (error) {
+        if (error instanceof PinRbacError && error.code === 'AUTH_FORBIDDEN') {
+            return { success: false as const, error: errorMessage };
+        }
+
+        throw error;
+    }
+}
+
+async function validateAttendanceManagerPin(
     client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string }; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER_OR_HR, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name } };
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de manager inválido' };
         }
-        return { valid: false, error: 'PIN de manager inválido' };
+
+        return {
+            valid: true,
+            manager: { id: result.authorizedBy.id, name: result.authorizedBy.name },
+        };
     } catch {
         return { valid: false, error: 'Error validando PIN' };
     }
@@ -131,19 +257,72 @@ async function validateManagerPin(
 // VALIDACIÓN PIN PARA KIOSKO
 // ============================================================================
 
-const MASTER_PIN = '1213'; // PIN maestro para desarrollo/administración
+/**
+ * 👥 Empleados Disponibles para Kiosko de Asistencia
+ * - Requiere kiosko pareado
+ * - Retorna solo el mínimo necesario para operar
+ */
+export async function getAttendanceKioskEmployeesSecure(
+    kioskToken: string
+): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
+    const kioskScope = validateAttendanceKioskToken(kioskToken);
+    if (!kioskScope.success) {
+        return { success: false, error: kioskScope.error };
+    }
+
+    try {
+        const res = await query(
+            `
+                SELECT
+                    id,
+                    name,
+                    role,
+                    assigned_location_id,
+                    status,
+                    job_title,
+                    biometric_credentials
+                FROM users
+                WHERE is_active = true
+                  AND assigned_location_id = $1
+                ORDER BY name ASC
+            `,
+            [kioskScope.locationId]
+        );
+
+        return {
+            success: true,
+            data: res.rows.map((row) => ({
+                id: row.id,
+                name: row.name || '',
+                role: row.role || 'CASHIER',
+                assigned_location_id: row.assigned_location_id || kioskScope.locationId,
+                status: row.status || 'ACTIVE',
+                job_title: row.job_title || 'EMPLEADO',
+                biometric_credentials: row.biometric_credentials || [],
+            })),
+        };
+    } catch (error: unknown) {
+        logger.error({ error, locationId: kioskScope.locationId }, '[Attendance] Error loading kiosk employees');
+        return { success: false, error: 'Error cargando empleados del kiosko' };
+    }
+}
 
 /**
  * 🔐 Validar PIN de Empleado para Kiosko de Asistencia
- * - Valida PIN contra hash en DB (bcrypt)
- * - Acepta PIN maestro como fallback para desarrollo
- * - Sin sesión requerida (es público para kiosko)
+ * - Valida PIN contra el helper compartido
+ * - Requiere kiosko pareado y empleado dentro de la sucursal autorizada
  */
 export async function validateEmployeePinSecure(
     employeeId: string,
-    pin: string
+    pin: string,
+    kioskToken: string
 ): Promise<{ success: boolean; valid: boolean; employeeName?: string; error?: string }> {
     try {
+        const kioskScope = validateAttendanceKioskToken(kioskToken);
+        if (!kioskScope.success) {
+            return { success: false, valid: false, error: kioskScope.error };
+        }
+
         // Validar inputs
         const employeeIdParsed = UUIDSchema.safeParse(employeeId);
         if (!employeeIdParsed.success) {
@@ -154,38 +333,25 @@ export async function validateEmployeePinSecure(
             return { success: false, valid: false, error: 'PIN inválido' };
         }
 
-        // PIN maestro bypass para desarrollo
-        if (pin === MASTER_PIN) {
-            // Obtener nombre del empleado para confirmación
-            const nameRes = await query(`SELECT name FROM users WHERE id = $1`, [employeeId]);
-            const employeeName = nameRes.rows[0]?.name || 'Usuario';
-            return { success: true, valid: true, employeeName };
+        const employee = await getActiveEmployeeForLocation(
+            attendanceQueryClient,
+            employeeIdParsed.data,
+            kioskScope.locationId
+        );
+        if (!employee) {
+            return { success: false, valid: false, error: 'Empleado fuera de la sucursal del kiosko' };
         }
 
-        // Validación real con bcrypt
-        const bcrypt = await import('bcryptjs');
+        const validation = await validatePinForUser(attendanceQueryClient, employeeIdParsed.data, pin, {
+            allowLegacyPlaintext: true,
+        });
 
-        const userRes = await query(`
-            SELECT id, name, access_pin_hash, access_pin 
-            FROM users 
-            WHERE id = $1 AND is_active = true
-        `, [employeeId]);
-
-        if (userRes.rows.length === 0) {
-            return { success: false, valid: false, error: 'Empleado no encontrado' };
-        }
-
-        const user = userRes.rows[0];
-
-        // Validar PIN con hash (bcrypt) o plaintext fallback
-        if (user.access_pin_hash) {
-            const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-            if (isValid) {
-                return { success: true, valid: true, employeeName: user.name };
-            }
-        } else if (user.access_pin === pin) {
-            // Fallback para PINs no hasheados (legacy)
-            return { success: true, valid: true, employeeName: user.name };
+        if (validation.valid) {
+            return {
+                success: true,
+                valid: true,
+                employeeName: validation.authorizedBy.name,
+            };
         }
 
         return { success: true, valid: false, error: 'PIN incorrecto' };
@@ -200,15 +366,30 @@ export async function validateEmployeePinSecure(
  * 📊 Obtener Estado Actual del Empleado para Kiosko
  * - Consulta el último marcaje de hoy
  * - Retorna estado mapeado: 'OUT', 'IN', 'LUNCH'
- * - Sin sesión requerida (es público para kiosko)
+ * - Requiere kiosko pareado
  */
 export async function getEmployeeStatusForKiosk(
-    employeeId: string
-): Promise<{ success: boolean; status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION'; lastAction?: string; lastTime?: string; error?: string }> {
+    employeeId: string,
+    kioskToken: string
+): Promise<{ success: boolean; status: AttendanceKioskStatus; lastAction?: string; lastTime?: string; error?: string }> {
     try {
+        const kioskScope = validateAttendanceKioskToken(kioskToken);
+        if (!kioskScope.success) {
+            return { success: false, status: 'OUT', error: kioskScope.error };
+        }
+
         const employeeIdParsed = UUIDSchema.safeParse(employeeId);
         if (!employeeIdParsed.success) {
             return { success: false, status: 'OUT', error: 'ID de empleado inválido' };
+        }
+
+        const employee = await getActiveEmployeeForLocation(
+            attendanceQueryClient,
+            employeeIdParsed.data,
+            kioskScope.locationId
+        );
+        if (!employee) {
+            return { success: false, status: 'OUT', error: 'Empleado fuera de la sucursal del kiosko' };
         }
 
         const res = await query(`
@@ -223,13 +404,7 @@ export async function getEmployeeStatusForKiosk(
         const lastType = res.rows[0]?.type || null;
         const lastTime = res.rows[0]?.timestamp;
 
-        // Mapear tipo de DB a estado de UI
-        let status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION' = 'OUT';
-        if (lastType === 'CHECK_IN') status = 'IN';
-        else if (lastType === 'BREAK_START') status = 'LUNCH';
-        else if (lastType === 'BREAK_END' || lastType === 'LUNCH_RETURN' || lastType === 'PERMISSION_END') status = 'IN';
-        else if (['PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'].includes(lastType)) status = 'ON_PERMISSION';
-        else if (lastType === 'CHECK_OUT') status = 'OUT';
+        const status = mapKioskStatus(lastType || undefined);
 
         return {
             success: true,
@@ -250,11 +425,32 @@ export async function getEmployeeStatusForKiosk(
  * - Retorna mapa de employeeId -> status
  */
 export async function getBatchEmployeeStatusForKiosk(
-    employeeIds: string[]
-): Promise<{ success: boolean; statuses: Record<string, { status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION'; lastTime?: string }>; error?: string }> {
+    employeeIds: string[],
+    kioskToken: string
+): Promise<{ success: boolean; statuses: Record<string, { status: AttendanceKioskStatus; lastTime?: string }>; error?: string }> {
     try {
+        const kioskScope = validateAttendanceKioskToken(kioskToken);
+        if (!kioskScope.success) {
+            return { success: false, statuses: {}, error: kioskScope.error };
+        }
+
         if (employeeIds.length === 0) {
             return { success: true, statuses: {} };
+        }
+
+        const employeesInScope = await query(
+            `
+                SELECT id
+                FROM users
+                WHERE id = ANY($1::uuid[])
+                  AND is_active = true
+                  AND assigned_location_id = $2
+            `,
+            [employeeIds, kioskScope.locationId]
+        );
+
+        if (employeesInScope.rows.length !== employeeIds.length) {
+            return { success: false, statuses: {}, error: 'Hay empleados fuera de la sucursal del kiosko' };
         }
 
         const res = await query(`
@@ -273,22 +469,15 @@ export async function getBatchEmployeeStatusForKiosk(
             WHERE rn = 1
         `, [employeeIds]);
 
-        const statuses: Record<string, { status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION'; lastTime?: string }> = {};
+        const statuses: Record<string, { status: AttendanceKioskStatus; lastTime?: string }> = {};
 
         for (const id of employeeIds) {
             statuses[id] = { status: 'OUT' };
         }
 
         for (const row of res.rows) {
-            let status: 'OUT' | 'IN' | 'LUNCH' | 'ON_PERMISSION' = 'OUT';
-            if (row.type === 'CHECK_IN') status = 'IN';
-            else if (row.type === 'BREAK_START') status = 'LUNCH';
-            else if (row.type === 'BREAK_END' || row.type === 'LUNCH_RETURN' || row.type === 'PERMISSION_END') status = 'IN';
-            else if (['PERMISSION_START', 'MEDICAL_LEAVE', 'EMERGENCY'].includes(row.type)) status = 'ON_PERMISSION';
-            else if (row.type === 'CHECK_OUT') status = 'OUT';
-
             statuses[row.user_id] = {
-                status,
+                status: mapKioskStatus(row.type),
                 lastTime: row.timestamp ? new Date(row.timestamp).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : undefined
             };
         }
@@ -320,7 +509,8 @@ async function getLastAttendanceType(client: PoolClient, userId: string): Promis
  * 📝 Registrar Asistencia con Validación de Secuencia
  */
 export async function registerAttendanceSecure(
-    data: z.infer<typeof RegisterAttendanceSchema>
+    data: z.infer<typeof RegisterAttendanceSchema>,
+    options?: { kioskToken?: string }
 ): Promise<{ success: boolean; attendanceId?: string; error?: string }> {
     const validated = RegisterAttendanceSchema.safeParse(data);
     if (!validated.success) {
@@ -328,6 +518,12 @@ export async function registerAttendanceSecure(
     }
 
     const { userId, type, locationId, method, observation, evidencePhotoUrl, overtimeMinutes } = validated.data;
+    const kioskToken = options?.kioskToken;
+    const actorAuth = kioskToken ? null : await requireAttendanceActor();
+
+    if (!kioskToken && actorAuth && !actorAuth.success) {
+        return { success: false, error: actorAuth.error };
+    }
 
     // Modificado: Permitir overtime > 4h (se marcará como pendiente de aprobación implícitamente)
     // El estado 'overtime_approved' es FALSE por defecto en DB, así que queda pendiente.
@@ -337,6 +533,56 @@ export async function registerAttendanceSecure(
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        if (kioskToken) {
+            const kioskScope = validateAttendanceKioskToken(kioskToken);
+            if (!kioskScope.success) {
+                await client.query('ROLLBACK');
+                return { success: false, error: kioskScope.error };
+            }
+
+            if (kioskScope.locationId !== locationId) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'El kiosko no está autorizado para esta sucursal' };
+            }
+
+            const employee = await getActiveEmployeeForLocation(client, userId, kioskScope.locationId);
+            if (!employee) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Empleado fuera de la sucursal del kiosko' };
+            }
+        } else if (actorAuth?.success) {
+            const actor = actorAuth.actor;
+            const resolvedLocation = resolveAttendanceLocation(actor, locationId);
+            if (!resolvedLocation.success) {
+                await client.query('ROLLBACK');
+                return { success: false, error: resolvedLocation.error };
+            }
+
+            if (!resolvedLocation.locationId) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Debe especificar una sucursal válida' };
+            }
+
+            if (resolvedLocation.locationId !== locationId) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'No autorizado para registrar asistencia en otra sucursal' };
+            }
+
+            const employee = await getActiveEmployeeForLocation(client, userId, locationId);
+            if (!employee) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Empleado fuera de la sucursal autorizada' };
+            }
+
+            if (actor.userId !== userId) {
+                const authorization = ensureAttendanceManager(actor, 'Solo managers/RRHH pueden registrar asistencia de otro empleado');
+                if (!authorization.success) {
+                    await client.query('ROLLBACK');
+                    return { success: false, error: authorization.error };
+                }
+            }
+        }
 
         // Validar secuencia
         const lastType = await getLastAttendanceType(client, userId);
@@ -416,9 +662,9 @@ export async function getMyAttendanceHistory(
     startDate?: Date,
     endDate?: Date
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
@@ -427,7 +673,7 @@ export async function getMyAttendanceHistory(
             FROM attendance_logs
             WHERE user_id = $1
         `;
-        const params: (string | Date)[] = [session.userId];
+        const params: (string | Date)[] = [auth.actor.userId];
         let paramIndex = 2;
 
         if (startDate) {
@@ -456,13 +702,19 @@ export async function getMyAttendanceHistory(
 export async function getTeamAttendanceHistory(
     filters?: { locationId?: string; startDate?: Date; endDate?: Date }
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'Solo managers pueden ver historial del equipo' };
+    const authorization = ensureAttendanceManager(auth.actor, 'Solo managers pueden ver historial del equipo');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
+    }
+
+    const resolvedLocation = resolveAttendanceLocation(auth.actor, filters?.locationId);
+    if (!resolvedLocation.success) {
+        return { success: false, error: resolvedLocation.error };
     }
 
     try {
@@ -475,9 +727,9 @@ export async function getTeamAttendanceHistory(
         const params: (string | Date)[] = [];
         let paramIndex = 1;
 
-        if (filters?.locationId) {
+        if (resolvedLocation.locationId) {
             sql += ` AND a.location_id = $${paramIndex++}`;
-            params.push(filters.locationId);
+            params.push(resolvedLocation.locationId);
         }
         if (filters?.startDate) {
             sql += ` AND a.timestamp >= $${paramIndex++}::timestamp AT TIME ZONE 'America/Santiago'`;
@@ -495,7 +747,10 @@ export async function getTeamAttendanceHistory(
         sql += ` ORDER BY a.timestamp DESC LIMIT ${limit} OFFSET ${offset}`;
 
         const res = await query(sql, params);
-        return { success: true, data: res.rows };
+        return {
+            success: true,
+            data: res.rows.map((row) => sanitizeAttendanceHistoryRow(row, auth.actor.role)),
+        };
 
     } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get team history error');
@@ -515,14 +770,17 @@ export async function calculateOvertimeSecure(
     month: number,
     year: number
 ): Promise<{ success: boolean; data?: { totalMinutes: number; pendingApproval: number }; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     // Solo puede ver su propio overtime o si es manager
-    if (session.userId !== userId && !MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'No autorizado' };
+    if (auth.actor.userId !== userId) {
+        const authorization = ensureAttendanceManager(auth.actor, 'No autorizado');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
     }
 
     if (!UUIDSchema.safeParse(userId).success) {
@@ -562,6 +820,16 @@ export async function calculateOvertimeSecure(
 export async function approveOvertimeSecure(
     data: z.infer<typeof OvertimeApprovalSchema>
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
+    const authorization = ensureAttendanceManager(auth.actor, 'Solo managers pueden aprobar overtime');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
+    }
+
     const validated = OvertimeApprovalSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -574,10 +842,10 @@ export async function approveOvertimeSecure(
         await client.query('BEGIN');
 
         // Validar PIN
-        const authResult = await validateManagerPin(client, managerPin);
-        if (!authResult.valid) {
+        const pinResult = await validateAttendanceManagerPin(client, managerPin);
+        if (!pinResult.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: authResult.error };
+            return { success: false, error: pinResult.error };
         }
 
         // Actualizar
@@ -585,7 +853,7 @@ export async function approveOvertimeSecure(
             UPDATE attendance_logs
             SET overtime_approved = $2, overtime_approved_by = $3, overtime_approval_notes = $4
             WHERE id = $1 AND overtime_minutes > 0
-        `, [attendanceId, approved, authResult.manager!.id, notes]);
+        `, [attendanceId, approved, auth.actor.userId, notes]);
 
         if (res.rowCount === 0) {
             await client.query('ROLLBACK');
@@ -596,7 +864,11 @@ export async function approveOvertimeSecure(
         await client.query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, new_values, created_at)
             VALUES ($1, 'OVERTIME_APPROVED', 'ATTENDANCE', $2, $3::jsonb, NOW())
-        `, [authResult.manager!.id, attendanceId, JSON.stringify({ approved, notes })]);
+        `, [auth.actor.userId, attendanceId, JSON.stringify({
+            approved,
+            notes,
+            authorized_by: pinResult.manager?.name,
+        })]);
 
         await client.query('COMMIT');
 
@@ -630,13 +902,16 @@ export async function getAttendanceSummary(
     };
     error?: string;
 }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (session.userId !== userId && !MANAGER_ROLES.includes(session.role)) {
-        return { success: false, error: 'No autorizado' };
+    if (auth.actor.userId !== userId) {
+        const authorization = ensureAttendanceManager(auth.actor, 'No autorizado');
+        if (!authorization.success) {
+            return { success: false, error: authorization.error };
+        }
     }
 
     try {
@@ -707,14 +982,20 @@ export async function getAttendanceSummary(
 export async function getTodayAttendanceSecure(
     locationId?: string
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     // Validar permisos (Solo roles de gestión)
-    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'RRHH') {
-        return { success: false, error: 'No autorizado para ver monitor en vivo' };
+    const authorization = ensureAttendanceManager(auth.actor, 'No autorizado para ver monitor en vivo');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
+    }
+
+    const resolvedLocation = resolveAttendanceLocation(auth.actor, locationId);
+    if (!resolvedLocation.success) {
+        return { success: false, error: resolvedLocation.error };
     }
 
     const client = await pool.connect();
@@ -741,16 +1022,16 @@ export async function getTodayAttendanceSecure(
             ORDER BY u.name ASC
         `;
 
-        const res = await client.query(query, [locationId || null]);
+        const res = await client.query(query, [resolvedLocation.locationId || null]);
 
         // Mapear status a formato frontend si es necesario
         // Frontend espera: 'IN' | 'OUT' | 'LUNCH' | 'ON_PERMISSION'
-        const mappedData = res.rows.map(row => ({
+        const mappedData = res.rows.map(row => sanitizeAttendanceMonitorRow({
             ...row,
             // Si no hay log hoy, asume OUT. Si hay log, mapea CHECK_IN -> IN, CHECK_OUT -> OUT, etc.
             current_status: mapStatus(row.current_status),
             last_log_timestamp: row.last_log_time ? new Date(row.last_log_time).getTime() : null
-        }));
+        }, auth.actor.role));
 
         return { success: true, data: mappedData };
 
@@ -790,13 +1071,19 @@ export async function getApprovedAttendanceHistory(
         userId?: string;
     }
 ): Promise<{ success: boolean; data?: Record<string, unknown>[]; error?: string }> {
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireAttendanceActor();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
-    if (!MANAGER_ROLES.includes(session.role) && session.role !== 'RRHH') {
-        return { success: false, error: 'No autorizado' };
+    const authorization = ensureAttendanceManager(auth.actor, 'No autorizado');
+    if (!authorization.success) {
+        return { success: false, error: authorization.error };
+    }
+
+    const resolvedLocation = resolveAttendanceLocation(auth.actor, filters.locationId);
+    if (!resolvedLocation.success) {
+        return { success: false, error: resolvedLocation.error };
     }
 
     try {
@@ -821,9 +1108,9 @@ export async function getApprovedAttendanceHistory(
             sql += ` AND a.timestamp <= $${paramIndex++}::timestamp AT TIME ZONE 'America/Santiago'`;
             params.push(new Date(filters.endDate));
         }
-        if (filters.locationId) {
+        if (resolvedLocation.locationId) {
             sql += ` AND a.location_id = $${paramIndex++}`;
-            params.push(filters.locationId);
+            params.push(resolvedLocation.locationId);
         }
         if (filters.userId) {
             sql += ` AND a.user_id = $${paramIndex++}`;
@@ -836,7 +1123,10 @@ export async function getApprovedAttendanceHistory(
         sql += ` ORDER BY a.timestamp DESC LIMIT ${limit} OFFSET ${offset}`;
 
         const res = await query(sql, params);
-        return { success: true, data: res.rows };
+        return {
+            success: true,
+            data: res.rows.map((row) => sanitizeAttendanceHistoryRow(row, auth.actor.role)),
+        };
 
     } catch (error: unknown) {
         logger.error({ error }, '[Attendance] Get approved history error');
@@ -933,57 +1223,17 @@ export async function ensureCheckInSecure(
  * 🔐 Validar PIN para cerrar Kiosko
  * Permite a Managers/Admins salir del modo Kiosko
  */
-export async function validateKioskExitPin(pin: string): Promise<{ valid: boolean; error?: string }> {
-    try {
-        // 1. Validar PIN Maestro (hardcoded por ahora, idealmente en ENV)
-        if (pin === '1213') return { valid: true };
+export async function validateKioskExitPin(
+    pin: string,
+    kioskToken: string
+): Promise<{ valid: boolean; error?: string }> {
+    const result = await validateAttendanceKioskExitPinSecure({
+        pin,
+        kioskToken,
+    });
 
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
-        const { query } = await import('@/lib/db');
-
-        // 2. Rate Limiting por IP (o global si se prefiere)
-        const ip = (await headers()).get('x-forwarded-for') || 'unknown';
-        const isAllowedResult = checkRateLimit(`kiosk_exit_${ip}`); // Usar defaults del modulo
-
-        if (!isAllowedResult.allowed) {
-            return { valid: false, error: isAllowedResult.reason || 'Demasiados intentos.' };
-        }
-
-        // 3. Buscar usuarios con rol MANAGER o superior
-        // NOTA: MANAGER_ROLES DEBE estar accesible en este scope, si no, lo redefinimos aquí o lo importamos
-        const ADMIN_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH']; // Redefinido por seguridad scope
-
-        const result = await query(`
-            SELECT id, name, access_pin_hash, access_pin, role
-            FROM users 
-            WHERE role = ANY($1::text[]) 
-            AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const user of result.rows) {
-            let isValid = false;
-            // Verificar hash primero
-            if (user.access_pin_hash) {
-                isValid = await bcrypt.compare(pin, user.access_pin_hash);
-            }
-            // Fallback a PIN plano (legacy)
-            else if (user.access_pin === pin) {
-                isValid = true;
-            }
-
-            if (isValid) {
-                await resetAttempts(`kiosk_exit_${ip}`);
-                logger.info({ userId: user.id, role: user.role }, '[Kiosk] Exit authorized by admin');
-                return { valid: true };
-            }
-        }
-
-        await recordFailedAttempt(`kiosk_exit_${ip}`);
-        return { valid: false, error: 'PIN no autorizado' };
-
-    } catch (error) {
-        logger.error({ error }, '[Kiosk] Error validating exit PIN');
-        return { valid: false, error: 'Error de validación' };
-    }
+    return {
+        valid: result.success,
+        error: result.error,
+    };
 }

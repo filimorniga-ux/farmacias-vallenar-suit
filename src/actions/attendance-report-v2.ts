@@ -17,6 +17,13 @@ import { query } from '@/lib/db';
 
 import { logger } from '@/lib/logger';
 import { getSessionSecure } from './auth-v2';
+import {
+    ATTENDANCE_FULL_REPORT_ROLES,
+    hasGlobalReportScope,
+    maskRutForLimitedScope,
+    requireReportActor,
+    resolveEffectiveLocation,
+} from './report-scope';
 
 // ============================================================================
 // SCHEMAS
@@ -227,24 +234,29 @@ export async function getTeamAttendanceSecure(
 export async function getAttendanceReportSecure(
     params: { startDate: string; endDate: string; locationId?: string; role?: string }
 ): Promise<{ success: boolean; data?: AttendanceDailySummary[]; error?: string }> {
-    const session = await getSessionSecure();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const actorResult = await requireReportActor(ATTENDANCE_FULL_REPORT_ROLES);
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
     }
 
-    // Solo RRHH y ADMIN pueden ver reporte completo
-    if (!['RRHH', 'ADMIN', 'GERENTE_GENERAL', 'MANAGER'].includes(session.role)) {
-        return { success: false, error: 'Solo RRHH y administradores pueden ver reporte completo' };
+    const actor = actorResult.actor;
+
+    const effectiveLocationResult = resolveEffectiveLocation(actor, params.locationId);
+    if (!effectiveLocationResult.success) {
+        return { success: false, error: effectiveLocationResult.error };
     }
 
     try {
+        const effectiveLocationId = effectiveLocationResult.locationId;
+        const canViewFullRut = hasGlobalReportScope(actor.role) || actor.role === 'RRHH';
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const sqlParams: any[] = [params.startDate, params.endDate];
         let filters = '';
 
-        if (params.locationId) {
+        if (effectiveLocationId) {
             filters += ` AND a.location_id = $${sqlParams.length + 1}`;
-            sqlParams.push(params.locationId);
+            sqlParams.push(effectiveLocationId);
         }
 
         if (params.role && params.role !== 'ALL') {
@@ -290,7 +302,7 @@ export async function getAttendanceReportSecure(
                 date: row.work_date.toISOString().split('T')[0],
                 user_id: row.user_id,
                 user_name: row.name,
-                rut: row.rut,
+                rut: canViewFullRut ? row.rut : maskRutForLimitedScope(row.rut),
                 job_title: row.job_title || row.role,
                 check_in: row.first_in?.toISOString() || null,
                 check_out: row.last_out > row.first_in ? row.last_out?.toISOString() : null,
@@ -304,7 +316,7 @@ export async function getAttendanceReportSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, new_values, created_at)
             VALUES ($1, 'ATTENDANCE_REPORT_ACCESS', 'ATTENDANCE', $2::jsonb, NOW())
-        `, [session.userId, JSON.stringify({ ...params, rows: data.length })]);
+        `, [actor.userId, JSON.stringify({ ...params, locationId: effectiveLocationId, rows: data.length })]);
 
         return { success: true, data };
 

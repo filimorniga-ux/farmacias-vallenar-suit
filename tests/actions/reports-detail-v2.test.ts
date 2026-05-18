@@ -1,19 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as reportsV2 from '@/actions/reports-detail-v2';
 import * as dbModule from '@/lib/db';
+import { getActorOrFail, validatePinForRoles } from '@/lib/pin-rbac';
+import { getSessionSecure } from '@/actions/auth-v2';
 
-const { mockCookies, mockHeaders } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn(),
-    },
-    mockHeaders: {
-        get: vi.fn(),
+const { PinRbacError } = vi.hoisted(() => {
+    class MockPinRbacError extends Error {
+        code: string;
+
+        constructor(code: string, message: string) {
+            super(message);
+            this.name = 'PinRbacError';
+            this.code = code;
+        }
     }
-}));
 
-vi.mock('next/headers', () => ({
-    headers: vi.fn(async () => mockHeaders),
-    cookies: vi.fn(async () => mockCookies)
+    return {
+        PinRbacError: MockPinRbacError,
+    };
+});
+
+vi.mock('@/actions/auth-v2', () => ({
+    getSessionSecure: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -27,16 +35,49 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('bcryptjs', () => ({ default: { compare: vi.fn() } }));
+vi.mock('@/lib/pin-rbac', () => ({
+    getActorOrFail: vi.fn(),
+    normalizeRole: vi.fn((role?: string) => String(role || '').trim().toUpperCase()),
+    requireRole: vi.fn((actor, allowedRoles: readonly string[]) => {
+        if (!allowedRoles.includes(actor.role)) {
+            throw new PinRbacError('AUTH_FORBIDDEN', 'Acceso denegado');
+        }
+
+        return actor;
+    }),
+    validatePinForRoles: vi.fn(),
+    ROLE_GROUPS: {
+        ADMIN: ['ADMIN', 'GERENTE_GENERAL'],
+    },
+    PinRbacError,
+}));
 
 beforeEach(() => {
     vi.clearAllMocks();
-    // Default success mock: MANAGER from Location-1
-    mockCookies.get.mockImplementation((key) => {
-        if (key === 'user_id') return { value: 'user-1' };
-        if (key === 'user_role') return { value: 'MANAGER' };
-        if (key === 'user_location') return { value: 'loc-1' };
-        return undefined;
+    vi.mocked(getSessionSecure).mockResolvedValue({
+        userId: 'user-1',
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Manager Uno',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+    vi.mocked(getActorOrFail).mockResolvedValue({
+        userId: 'user-1',
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Manager Uno',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
+    vi.mocked(validatePinForRoles).mockResolvedValue({
+        valid: true,
+        authorizedBy: {
+            id: 'admin-pin-1',
+            name: 'Admin Pin',
+            role: 'ADMIN',
+        },
+        matchedBy: 'hash',
     });
 });
 
@@ -87,9 +128,13 @@ describe('Reports V2 - Cash Flow', () => {
     });
 
     it('should require MANAGER role for cash flow access', async () => {
-        mockCookies.get.mockImplementation((name) => {
-            if (name === 'user_role') return { value: 'CASHIER' };
-            return { value: 'user-1' };
+        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const result = await reportsV2.getCashFlowLedgerSecure({});
@@ -110,9 +155,13 @@ describe('Reports V2 - Tax Summary', () => {
             rows: [{ total: 59500 }], rowCount: 1, command: '', oid: 0, fields: []
         }); // Purchases
 
-        mockCookies.get.mockImplementation((key) => {
-            if (key === 'user_role') return { value: 'CONTADOR' };
-            return { value: 'user-c' };
+        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+            userId: 'user-c',
+            role: 'CONTADOR',
+            locationId: 'loc-1',
+            userName: 'Contador Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const result = await reportsV2.getTaxSummarySecure('2024-01');
@@ -125,32 +174,285 @@ describe('Reports V2 - Tax Summary', () => {
 });
 
 describe('Reports V2 - Inventory Valuation', () => {
-    it('should return totals for warehouse', async () => {
+    it('should return totals for scoped location when manager has no explicit warehouse', async () => {
         vi.mocked(dbModule.query).mockResolvedValueOnce({
             rows: [{ total_units: 50, total_cost: 5000, total_sale: 8000 }],
             rowCount: 1, command: '', oid: 0, fields: []
+        }).mockResolvedValueOnce({
+            rows: [],
+            rowCount: 1, command: 'INSERT', oid: 0, fields: []
         });
 
-        const result = await reportsV2.getInventoryValuationSecure('loc-1');
+        const result = await reportsV2.getInventoryValuationSecure();
         expect(result.success).toBe(true);
         expect(result.data.total_items).toBe(50);
         expect(result.data.potential_gross_margin).toBe(3000);
+
+        const sql = String(vi.mocked(dbModule.query).mock.calls[0]?.[0] || '');
+        const params = (vi.mocked(dbModule.query).mock.calls[0]?.[1] || []) as unknown[];
+
+        expect(sql).toContain('JOIN warehouses w ON ib.warehouse_id::text = w.id::text');
+        expect(sql).toContain('w.location_id::text = $1::text');
+        expect(params[0]).toBe('loc-1');
+    });
+
+    it('should deny warehouse from another location to non-global manager', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{ location_id: 'loc-2' }],
+            rowCount: 1, command: 'SELECT', oid: 0, fields: []
+        });
+
+        const result = await reportsV2.getInventoryValuationSecure('warehouse-foreign');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ubicación');
+    });
+});
+
+describe('Reports V2 - Operational Drilldowns', () => {
+    it('returns critical low stock rows scoped to manager location', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        product_id: 'prod-1',
+                        sku: 'SKU-1',
+                        name: 'Producto Bajo',
+                        quantity: 1,
+                        stock_min: 5,
+                        deficit: 4,
+                        warehouse_id: 'wh-1',
+                        warehouse_name: 'Bodega 1',
+                        location_id: 'loc-1',
+                        location_name: 'Sucursal 1',
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: [],
+            });
+
+        const result = await reportsV2.getCriticalLowStockReportSecure();
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]).toMatchObject({
+            productId: 'prod-1',
+            deficit: 4,
+            locationId: 'loc-1',
+        });
+
+        const dataCall = vi.mocked(dbModule.query).mock.calls[0];
+        expect(String(dataCall?.[0] || '')).toContain('inventory_batches');
+        expect(dataCall?.[1]).toContain('loc-1');
+    });
+
+    it('returns open purchase orders with canonical date and location filters', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'po-1',
+                        status: 'SENT',
+                        supplier_name: 'Proveedor 1',
+                        total_amount: 150000,
+                        created_at: new Date('2026-04-02T10:00:00.000Z'),
+                        delivery_date: null,
+                        item_count: 3,
+                        warehouse_id: 'wh-1',
+                        warehouse_name: 'Bodega 1',
+                        location_id: 'loc-1',
+                        location_name: 'Sucursal 1',
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: [],
+            });
+
+        const result = await reportsV2.getOpenPurchaseOrdersReportSecure({
+            startDate: '2026-04-01',
+            endDate: '2026-04-19',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]).toMatchObject({
+            id: 'po-1',
+            status: 'SENT',
+            supplierName: 'Proveedor 1',
+            totalAmount: 150000,
+        });
+
+        const dataCall = vi.mocked(dbModule.query).mock.calls[0];
+        expect(String(dataCall?.[0] || '')).toContain('purchase_orders');
+        const params = dataCall?.[1] || [];
+        expect(String(params[0])).toContain('2026-04-01');
+        expect(String(params[1])).toMatch(/^2026-04-(19|20)/);
+        expect(params[2]).toBe('loc-1');
+    });
+
+    it('returns pending shipment drilldown without using stock movement detail', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'ship-1',
+                        type: 'INTER_BRANCH',
+                        status: 'IN_TRANSIT',
+                        created_at: new Date('2026-04-02T10:00:00.000Z'),
+                        expected_delivery: null,
+                        origin_location_name: 'Origen',
+                        destination_location_name: 'Destino',
+                        created_by_name: 'Operador',
+                        item_count: 2,
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: [],
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: [],
+            });
+
+        const result = await reportsV2.getPendingShipmentsReportSecure('TRANSFERS', {
+            startDate: '2026-04-01',
+            endDate: '2026-04-19',
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0]).toMatchObject({
+            id: 'ship-1',
+            type: 'INTER_BRANCH',
+            status: 'IN_TRANSIT',
+            itemCount: 2,
+        });
+
+        const dataCall = vi.mocked(dbModule.query).mock.calls[0];
+        expect(String(dataCall?.[0] || '')).toContain('FROM shipments s');
+        expect(String(dataCall?.[0] || '')).not.toContain('stock_movements');
+    });
+});
+
+describe('Reports V2 - Financial Scope', () => {
+    it('should scope financial summary to manager location', async () => {
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{ total: 1000 }], rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [{ total: 100 }], rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 0, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [], rowCount: 1, command: 'INSERT', oid: 0, fields: []
+            });
+
+        const result = await reportsV2.getDetailedFinancialSummarySecure('2024-01-01', '2024-01-31');
+
+        expect(result.success).toBe(true);
+
+        const salesCall = vi.mocked(dbModule.query).mock.calls.find(([sql]) =>
+            String(sql).includes('FROM sales')
+        );
+        const refundsCall = vi.mocked(dbModule.query).mock.calls.find(([sql]) =>
+            String(sql).includes('FROM refunds')
+        );
+        const cashMovementsCall = vi.mocked(dbModule.query).mock.calls.find(([sql]) =>
+            String(sql).includes('FROM cash_movements')
+        );
+
+        expect(String(salesCall?.[0] || '')).toContain('location_id::text = $3::text');
+        expect(String(refundsCall?.[0] || '')).toContain('location_id::text = $3::text');
+        expect(String(cashMovementsCall?.[0] || '')).toContain('location_id::text = $3::text');
+        expect((salesCall?.[1] || [])[2]).toBe('loc-1');
+    });
+});
+
+describe('Reports V2 - Logistics Scope', () => {
+    it('should deny cross-location filter for logistics KPIs', async () => {
+        vi.mocked(dbModule.query).mockResolvedValueOnce({
+            rows: [{ location_id: 'loc-2' }],
+            rowCount: 1, command: 'SELECT', oid: 0, fields: []
+        });
+
+        const result = await reportsV2.getLogisticsKPIsSecure('2024-01-01', '2024-01-31', 'warehouse-foreign');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('ubicación');
+    });
+
+    it('should allow global admin access to another location for stock movements', async () => {
+        vi.mocked(getSessionSecure).mockResolvedValueOnce({
+            userId: 'admin-1',
+            role: 'ADMIN',
+            userName: 'Admin Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
+        vi.mocked(dbModule.query)
+            .mockResolvedValueOnce({
+                rows: [{ location_id: 'loc-2' }],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [
+                    {
+                        id: 'mov-1',
+                        timestamp: new Date('2024-01-05T10:00:00.000Z'),
+                        movement_type: 'TRANSFER_OUT',
+                        quantity: -2,
+                        product_name: 'Producto Test',
+                        sku: 'SKU-1',
+                        user_name: 'Operador',
+                        reason: 'Ajuste',
+                    },
+                ],
+                rowCount: 1, command: 'SELECT', oid: 0, fields: []
+            })
+            .mockResolvedValueOnce({
+                rows: [],
+                rowCount: 1, command: 'INSERT', oid: 0, fields: []
+            });
+
+        const result = await reportsV2.getStockMovementsDetailSecure(
+            'ALL',
+            '2024-01-01',
+            '2024-01-31',
+            'warehouse-global',
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.data?.[0].id).toBe('mov-1');
     });
 });
 
 describe('Reports V2 - Payroll', () => {
     it('should require ADMIN role for payroll', async () => {
-        // Default is MANAGER
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: 'loc-1',
+            userName: 'Manager Uno',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '1234');
         expect(result.success).toBe(false);
         expect(result.error).toContain('administradores');
     });
 
     it('should require PIN for payroll access even if ADMIN', async () => {
-        mockCookies.get.mockImplementation((key) => {
-            if (key === 'user_role') return { value: 'ADMIN' };
-            if (key === 'user_id') return { value: 'admin-1' };
-            return undefined;
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'admin-session',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin Real',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '');
@@ -159,10 +461,13 @@ describe('Reports V2 - Payroll', () => {
     });
 
     it('should allow access with correct PIN', async () => {
-        mockCookies.get.mockImplementation((key) => {
-            if (key === 'user_role') return { value: 'ADMIN' };
-            if (key === 'user_id') return { value: 'admin-1' };
-            return undefined;
+        vi.mocked(getActorOrFail).mockResolvedValueOnce({
+            userId: 'admin-session',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin Real',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
         const mockClient = {
@@ -171,13 +476,8 @@ describe('Reports V2 - Payroll', () => {
         };
         vi.mocked(dbModule.pool.connect).mockResolvedValue(mockClient as any);
 
-        // Security check: mock validateAdminPin logic inside query
         mockClient.query
             .mockResolvedValueOnce({ rows: [], command: 'BEGIN', rowCount: 0 }) // BEGIN
-            .mockResolvedValueOnce({ // pin check
-                rows: [{ id: 'admin-1', name: 'Admin', access_pin: '1234' }],
-                rowCount: 1
-            })
             .mockResolvedValueOnce({ // users data
                 rows: [{ id: 'emp-1', rut: '1-1', name: 'Emp 1', base_salary: 500000 }],
                 rowCount: 1
@@ -188,5 +488,18 @@ describe('Reports V2 - Payroll', () => {
         const result = await reportsV2.getPayrollPreviewSecure(1, 2024, '1234');
         expect(result.success).toBe(true);
         expect(result.data?.[0].base_salary).toBe(500000);
+        expect(validatePinForRoles).toHaveBeenCalledWith(
+            mockClient,
+            '1234',
+            ['ADMIN', 'GERENTE_GENERAL'],
+            expect.objectContaining({
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            })
+        );
+        expect(mockClient.query).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO audit_log'),
+            expect.arrayContaining(['admin-session'])
+        );
     });
 });

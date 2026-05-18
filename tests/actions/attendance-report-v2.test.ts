@@ -2,23 +2,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as actionModule from '@/actions/attendance-export-v2';
 import * as dbModule from '@/lib/db';
+import { getValidatedSession } from '@/lib/server-session';
 
 const validUserId = '550e8400-e29b-41d4-a716-446655440001';
 
-const { mockCookies } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn((key) => {
-            if (key === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440001' };
-            if (key === 'user_role') return { value: 'MANAGER' };
-            if (key === 'x-user-location') return { value: 'loc-1' };
-            return undefined;
-        })
-    }
-}));
-
-vi.mock('next/headers', () => ({
-    headers: vi.fn(() => Promise.resolve({ get: () => null })),
-    cookies: vi.fn(() => Promise.resolve(mockCookies))
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -42,6 +31,14 @@ vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: 
 
 beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getValidatedSession).mockResolvedValue({
+        userId: validUserId,
+        role: 'MANAGER',
+        locationId: 'loc-1',
+        userName: 'Test User',
+        tokenVersion: 1,
+        sessionToken: 'token',
+    });
 });
 
 describe('Attendance Export V2', () => {
@@ -51,8 +48,11 @@ describe('Attendance Export V2', () => {
     });
 
     it('should fail authentication if headers/cookies missing', async () => {
-        // Override for failure
-        vi.mocked(mockCookies.get).mockReturnValue(undefined); 
-        // Note: We need to reset this for other tests if we had them, but here it's fine or we use mockImplementationOnce
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
+
+        const result = await actionModule.exportAttendanceReportSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('No autenticado');
     });
 });

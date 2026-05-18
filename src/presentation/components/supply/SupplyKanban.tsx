@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle, Package, RefreshCw, Trash2, Truck } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
+import { usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
 import { toast } from 'sonner';
 import { deletePurchaseOrderSecure, getHistoryItemDetailsSecure, updatePurchaseOrderSecure } from '@/actions/supply-v2';
 import {
@@ -9,6 +11,7 @@ import {
     SupplyKanbanColumnKey,
     SupplyKanbanEntry,
 } from './supplyKanbanUtils';
+import { resolveProcurementVisibleContext } from '@/presentation/lib/procurement-visible-context';
 
 function isUuid(value: string | undefined): boolean {
     if (!value) return false;
@@ -16,11 +19,13 @@ function isUuid(value: string | undefined): boolean {
 }
 
 interface SupplyKanbanProps {
+    locationId?: string;
     onEditOrder: (order: any) => void;
     onReceiveOrder: (order: any) => void;
     onViewOrder?: (order: any) => void;
     onFinalizeReview?: (order: any) => void;
     direction?: 'row' | 'col';
+    bootstrapOnMount?: boolean;
 }
 
 interface KanbanColumnProps {
@@ -35,8 +40,7 @@ interface KanbanColumnProps {
     onReceiveOrder: (order: any) => void;
     onViewOrder?: (order: any) => void;
     onFinalizeReview?: (order: any) => void;
-    removePurchaseOrder: (id: string) => void;
-    updatePurchaseOrder: (id: string, data: any) => void;
+    onPurchaseOrdersChanged: () => Promise<unknown>;
 }
 
 function formatDate(ts: number): string {
@@ -99,8 +103,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
     onReceiveOrder,
     onViewOrder,
     onFinalizeReview,
-    removePurchaseOrder,
-    updatePurchaseOrder,
+    onPurchaseOrdersChanged,
 }) => {
     const columnEntries = entries.filter((entry) => entry.column === columnKey);
     const [submittingApproveId, setSubmittingApproveId] = useState<string | null>(null);
@@ -154,7 +157,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
 
             const res = await updatePurchaseOrderSecure(mappedData.id, mappedData as any, String(user.id));
             if (res.success) {
-                updatePurchaseOrder(entry.id, { ...po, status: 'APPROVED' });
+                await onPurchaseOrdersChanged();
                 toast.success('Solicitud aprobada');
             } else {
                 toast.error(res.error || 'Error al aprobar solicitud');
@@ -216,7 +219,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
             const res = await updatePurchaseOrderSecure(mappedData.id, mappedData as any, String(user.id));
 
             if (res.success) {
-                updatePurchaseOrder(entry.id, { ...po, status: 'SENT' });
+                await onPurchaseOrdersChanged();
                 toast.success('Orden marcada como enviada');
                 setPendingMarkAsSentId(null);
             } else {
@@ -302,7 +305,7 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
                                             try {
                                                 const res = await deletePurchaseOrderSecure({ orderId: entry.id, userId: String(user.id) });
                                                 if (res.success) {
-                                                    removePurchaseOrder(entry.id);
+                                                    await onPurchaseOrdersChanged();
                                                     toast.success('Orden eliminada correctamente');
                                                 } else {
                                                     toast.error(res.error || 'Error al eliminar');
@@ -424,90 +427,70 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
 };
 
 const SupplyKanban: React.FC<SupplyKanbanProps> = ({
+    locationId,
     onEditOrder,
     onReceiveOrder,
     onViewOrder,
     onFinalizeReview,
-    direction = 'col'
+    direction = 'col',
+    bootstrapOnMount = true,
 }) => {
-    const {
-        currentLocationId,
-        purchaseOrders,
-        shipments,
-        suppliers,
-        removePurchaseOrder,
-        updatePurchaseOrder,
-        refreshShipments,
-        refreshPurchaseOrders,
-        user,
-    } = usePharmaStore();
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const suppliers = usePharmaStore((state) => state.suppliers);
+    const user = usePharmaStore((state) => state.user);
 
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [lastError, setLastError] = useState<string | null>(null);
     const locationStoreCurrentId = useLocationStore((state) => state.currentLocation?.id);
-    const [localStorageLocationId, setLocalStorageLocationId] = useState<string | null>(null);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            const contextId = localStorage.getItem('context_location_id');
-            const preferredId = localStorage.getItem('preferred_location_id');
-            setLocalStorageLocationId(contextId || preferredId || null);
-        } catch {
-            setLocalStorageLocationId(null);
-        }
-    }, []);
-
-    const effectiveLocationId = currentLocationId || locationStoreCurrentId || localStorageLocationId || undefined;
+    const locationStoreCurrent = useLocationStore((state) => state.currentLocation);
+    const locations = useLocationStore((state) => state.locations);
+    const procurementContext = useMemo(() => resolveProcurementVisibleContext({
+        requestedLocationId: locationId,
+        currentLocationId,
+        user,
+        locationStoreCurrent,
+        locations,
+    }), [
+        currentLocationId,
+        locationId,
+        locationStoreCurrent,
+        locations,
+        user,
+    ]);
+    const effectiveLocationId = procurementContext.locationId || currentLocationId || locationStoreCurrentId || undefined;
     const scopedLocationId = isUuid(effectiveLocationId) ? effectiveLocationId : undefined;
+    const shouldEnableDomainQuery = bootstrapOnMount || !!scopedLocationId;
+    const {
+        data: shipments = [],
+        refetch: refetchShipments,
+    } = useShipmentsQuery(scopedLocationId, { enabled: shouldEnableDomainQuery });
+    const {
+        data: purchaseOrders = [],
+        refetch: refetchPurchaseOrders,
+        invalidatePurchaseOrders,
+    } = usePurchaseOrdersQuery(scopedLocationId, { enabled: shouldEnableDomainQuery });
 
     const refreshKanban = useCallback(async () => {
         setIsRefreshing(true);
         setLastError(null);
         try {
-            const [shipmentsResult, purchaseOrdersResult] = await Promise.allSettled([
-                refreshShipments(scopedLocationId),
-                refreshPurchaseOrders(scopedLocationId),
+            const [shipmentsResult, purchaseOrdersResult] = await Promise.all([
+                refetchShipments(),
+                refetchPurchaseOrders(),
             ]);
             const errors: string[] = [];
 
-            if (shipmentsResult.status === 'rejected') {
-                errors.push(shipmentsResult.reason instanceof Error ? shipmentsResult.reason.message : 'Error cargando envíos');
+            if (shipmentsResult.error) {
+                errors.push(shipmentsResult.error instanceof Error ? shipmentsResult.error.message : 'Error cargando envíos');
             }
-            if (purchaseOrdersResult.status === 'rejected') {
-                errors.push(purchaseOrdersResult.reason instanceof Error ? purchaseOrdersResult.reason.message : 'Error cargando órdenes');
+            if (purchaseOrdersResult.error) {
+                errors.push(purchaseOrdersResult.error instanceof Error ? purchaseOrdersResult.error.message : 'Error cargando órdenes');
             }
 
             if (errors.length > 0) {
                 const message = errors.join(' | ');
                 setLastError(message);
                 toast.error(message);
-                return;
-            }
-
-            const stateAfterScopedRefresh = usePharmaStore.getState();
-            const hasEntriesWithScope = stateAfterScopedRefresh.shipments.length > 0 || stateAfterScopedRefresh.purchaseOrders.length > 0;
-
-            if (scopedLocationId && !hasEntriesWithScope) {
-                const [globalShipmentsResult, globalPurchaseOrdersResult] = await Promise.allSettled([
-                    refreshShipments(undefined),
-                    refreshPurchaseOrders(undefined),
-                ]);
-                const globalErrors: string[] = [];
-
-                if (globalShipmentsResult.status === 'rejected') {
-                    globalErrors.push(globalShipmentsResult.reason instanceof Error ? globalShipmentsResult.reason.message : 'Error cargando envíos globales');
-                }
-                if (globalPurchaseOrdersResult.status === 'rejected') {
-                    globalErrors.push(globalPurchaseOrdersResult.reason instanceof Error ? globalPurchaseOrdersResult.reason.message : 'Error cargando órdenes globales');
-                }
-
-                if (globalErrors.length > 0) {
-                    const globalMessage = globalErrors.join(' | ');
-                    setLastError(globalMessage);
-                    toast.error(globalMessage);
-                    return;
-                }
             }
         } catch (error: any) {
             const message = error?.message || 'No se pudo actualizar el tablero';
@@ -516,11 +499,12 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({
         } finally {
             setIsRefreshing(false);
         }
-    }, [refreshPurchaseOrders, refreshShipments, scopedLocationId]);
+    }, [refetchPurchaseOrders, refetchShipments]);
 
-    useEffect(() => {
-        void refreshKanban();
-    }, [refreshKanban]);
+    const handlePurchaseOrdersChanged = useCallback(async () => {
+        await invalidatePurchaseOrders();
+        await refetchPurchaseOrders();
+    }, [invalidatePurchaseOrders, refetchPurchaseOrders]);
 
     const entries = useMemo(() => buildSupplyKanbanEntries({
         purchaseOrders,
@@ -536,8 +520,7 @@ const SupplyKanban: React.FC<SupplyKanbanProps> = ({
         onReceiveOrder,
         onViewOrder,
         onFinalizeReview,
-        removePurchaseOrder,
-        updatePurchaseOrder,
+        onPurchaseOrdersChanged: handlePurchaseOrdersChanged,
     };
 
     return (

@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductSalesReportPage } from '@/presentation/pages/reports/ProductSalesReportPage';
 
 const mocks = vi.hoisted(() => {
-    const navigateMock = vi.fn();
+    const pushMock = vi.fn();
     const fetchLocationsMock = vi.fn().mockResolvedValue(undefined);
     const getReportMock = vi.fn().mockResolvedValue({
         success: true,
@@ -27,15 +27,19 @@ const mocks = vi.hoisted(() => {
     };
 
     return {
-        navigateMock,
+        pushMock,
         fetchLocationsMock,
         getReportMock,
         locationState,
+        searchParams: new URLSearchParams(),
     };
 });
 
-vi.mock('react-router-dom', () => ({
-    useNavigate: () => mocks.navigateMock,
+vi.mock('next/navigation', () => ({
+    useRouter: () => ({
+        push: mocks.pushMock,
+    }),
+    useSearchParams: () => mocks.searchParams,
 }));
 
 vi.mock('@/presentation/store/useStore', () => ({
@@ -69,6 +73,7 @@ vi.mock('sonner', () => ({
 describe('ProductSalesReportPage - filtro de sucursales', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.searchParams = new URLSearchParams();
     });
 
     it('solo lista sucursales activas cuando hay flag is_active', async () => {
@@ -84,6 +89,34 @@ describe('ProductSalesReportPage - filtro de sucursales', () => {
 
         await waitFor(() => {
             expect(mocks.fetchLocationsMock).toHaveBeenCalledWith(true);
+        });
+    });
+
+    it('vuelve a /reports usando navegación de Next', async () => {
+        render(<ProductSalesReportPage />);
+
+        await waitFor(() => {
+            expect(mocks.fetchLocationsMock).toHaveBeenCalledWith(true);
+        });
+
+        const backButton = screen.getByRole('button', { name: /Volver a reportes/i });
+        backButton.click();
+
+        expect(mocks.pushMock).toHaveBeenCalledWith('/reports');
+    });
+
+    it('hereda filtros canónicos desde analytics al consultar ventas por producto', async () => {
+        mocks.searchParams = new URLSearchParams('startDate=2026-04-01&endDate=2026-04-19&locationId=loc-active');
+
+        render(<ProductSalesReportPage />);
+
+        await waitFor(() => {
+            expect(mocks.getReportMock).toHaveBeenCalledWith(expect.objectContaining({
+                period: 'CUSTOM',
+                startDate: '2026-04-01',
+                endDate: '2026-04-19',
+                locationId: 'loc-active',
+            }));
         });
     });
 });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Send, Trash2, Box, Info, X } from 'lucide-react';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import { WMSProductScanner } from '../WMSProductScanner';
@@ -7,6 +7,7 @@ import { createReturnSecure } from '@/actions/wms-v2';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocationStore } from '@/presentation/store/useLocationStore';
+import { resolveWmsVisibleContext } from '@/presentation/lib/wms-visible-context';
 
 interface ReturnItem {
     id: string; // pseudo-id or real product id
@@ -19,15 +20,25 @@ interface ReturnItem {
 }
 
 interface DispatchWizardProps {
+    inventory: InventoryBatch[];
     onClose: () => void;
 }
 
-export const DispatchWizard: React.FC<DispatchWizardProps> = ({ onClose }) => {
+export const DispatchWizard: React.FC<DispatchWizardProps> = ({ inventory, onClose }) => {
     const queryClient = useQueryClient();
-    const inventory = usePharmaStore(s => s.inventory);
     const currentLocationId = usePharmaStore(s => s.currentLocationId);
+    const currentWarehouseId = usePharmaStore(s => s.currentWarehouseId);
+    const user = usePharmaStore(s => s.user);
     const locationStoreCurrent = useLocationStore(s => s.currentLocation);
-    const effectiveLocationId = currentLocationId || locationStoreCurrent?.id || '';
+    const locationStoreLocations = useLocationStore(s => s.locations);
+    const wmsContext = useMemo(() => resolveWmsVisibleContext({
+        currentLocationId,
+        currentWarehouseId,
+        user,
+        locationStoreCurrent,
+        locations: locationStoreLocations,
+    }), [currentLocationId, currentWarehouseId, user, locationStoreCurrent, locationStoreLocations]);
+    const effectiveLocationId = wmsContext.locationId;
 
     const [items, setItems] = useState<ReturnItem[]>([]);
     const [warehouseId, setWarehouseId] = useState(''); // Main warehouse ID (usually fixed or selectable)

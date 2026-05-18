@@ -26,6 +26,15 @@ import { pool, type PoolClient } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
+import {
+    canUseGlobalCustomerDirectory,
+    CUSTOMER_CREATE_ROLES,
+    CUSTOMER_DIRECTORY_ROLES,
+    CUSTOMER_EXPORT_ROLES,
+    CUSTOMER_LOOKUP_ROLES,
+    CUSTOMER_WRITE_ROLES,
+    requireCustomerActor,
+} from './customer-scope';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -91,7 +100,6 @@ const LoyaltyPointsSchema = z.object({
     customerId: UUIDSchema,
     points: z.number().int('Puntos deben ser enteros'),
     reason: z.string().min(5, 'Razón requerida'),
-    userId: UUIDSchema,
 });
 
 const GetCustomersSchema = z.object({
@@ -184,7 +192,12 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
     data?: { id: string };
     error?: string;
 }> {
-    console.log('[CUSTOMERS-V2] createCustomerSecure called with:', JSON.stringify(data));
+    console.info('[CUSTOMERS-V2] createCustomerSecure called');
+
+    const auth = await requireCustomerActor(CUSTOMER_CREATE_ROLES, 'createCustomerSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
 
     // 1. Validate input
     const validated = CreateCustomerSchema.safeParse(data);
@@ -196,7 +209,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
         };
     }
 
-    console.log('[CUSTOMERS-V2] Validation passed, normalized RUT:', validated.data.rut);
+    console.info('[CUSTOMERS-V2] Validation passed');
 
     const client = await pool.connect();
 
@@ -251,7 +264,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
         // This way audit FK errors don't corrupt the main transaction
         insertCustomerAudit(client, {
             actionCode: 'CUSTOMER_CREATED',
-            userId: 'SYSTEM',
+            userId: auth.actor.userId,
             customerId,
             newValues: { name: validated.data.fullName, status: 'ACTIVE' }
         }).catch(() => { }); // Fire and forget
@@ -263,7 +276,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
 
     } catch (error: unknown) {
         await client.query('ROLLBACK');
-        console.error('[CUSTOMERS-V2] Create customer error:', error);
+        console.error('[CUSTOMERS-V2] Create customer error:', error instanceof Error ? error.name : 'UnknownError');
 
         if (error && typeof error === 'object' && 'code' in error && error.code === '23505') { // Unique violation
             return { success: false, error: 'Cliente ya existe' };
@@ -271,7 +284,7 @@ export async function createCustomerSecure(data: z.infer<typeof CreateCustomerSc
 
         return {
             success: false,
-            error: error instanceof Error ? error.message : 'Error al crear cliente'
+            error: 'Error al crear cliente'
         };
     } finally {
         client.release();
@@ -285,6 +298,11 @@ export async function updateCustomerSecure(data: z.infer<typeof UpdateCustomerSc
     success: boolean;
     error?: string;
 }> {
+    const auth = await requireCustomerActor(CUSTOMER_WRITE_ROLES, 'updateCustomerSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate input
     const validated = UpdateCustomerSchema.safeParse(data);
     if (!validated.success) {
@@ -367,7 +385,7 @@ export async function updateCustomerSecure(data: z.infer<typeof UpdateCustomerSc
         // 5. Audit
         await insertCustomerAudit(client, {
             actionCode: 'CUSTOMER_UPDATED',
-            userId: 'SYSTEM',
+            userId: auth.actor.userId,
             customerId: validated.data.customerId,
             oldValues,
             newValues: validated.data
@@ -404,6 +422,11 @@ export async function addLoyaltyPointsSecure(data: z.infer<typeof LoyaltyPointsS
     data?: { newBalance: number };
     error?: string;
 }> {
+    const auth = await requireCustomerActor(CUSTOMER_WRITE_ROLES, 'addLoyaltyPointsSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate input
     const validated = LoyaltyPointsSchema.safeParse(data);
     if (!validated.success) {
@@ -460,7 +483,7 @@ export async function addLoyaltyPointsSecure(data: z.infer<typeof LoyaltyPointsS
             validated.data.customerId,
             validated.data.points,
             validated.data.reason,
-            validated.data.userId,
+            auth.actor.userId,
             currentPoints,
             newBalance
         ]);
@@ -468,7 +491,7 @@ export async function addLoyaltyPointsSecure(data: z.infer<typeof LoyaltyPointsS
         // 6. Audit
         await insertCustomerAudit(client, {
             actionCode: 'LOYALTY_POINTS_CHANGED',
-            userId: validated.data.userId,
+            userId: auth.actor.userId,
             customerId: validated.data.customerId,
             oldValues: { points: currentPoints },
             newValues: { points: newBalance, delta: validated.data.points }
@@ -503,6 +526,11 @@ export async function exportCustomerDataSecure(customerId: string): Promise<{
     data?: Record<string, unknown>;
     error?: string;
 }> {
+    const auth = await requireCustomerActor(CUSTOMER_EXPORT_ROLES, 'exportCustomerDataSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = UUIDSchema.safeParse(customerId);
     if (!validated.success) {
         return { success: false, error: 'ID inválido' };
@@ -528,6 +556,7 @@ export async function exportCustomerDataSecure(customerId: string): Promise<{
             personal_data: customerRes.rows[0],
             loyalty_transactions: transactionsRes.rows,
             exported_at: new Date().toISOString(),
+            exported_by: auth.actor.userId,
             format: 'JSON',
             gdpr_compliant: true
         };
@@ -553,6 +582,13 @@ export async function deleteCustomerSecure(customerId: string, userId: string): 
     success: boolean;
     error?: string;
 }> {
+    void userId;
+
+    const auth = await requireCustomerActor(CUSTOMER_WRITE_ROLES, 'deleteCustomerSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = UUIDSchema.safeParse(customerId);
     if (!validated.success) {
         return { success: false, error: 'ID inválido' };
@@ -574,9 +610,9 @@ export async function deleteCustomerSecure(customerId: string, userId: string): 
         // Audit
         await insertCustomerAudit(client, {
             actionCode: 'CUSTOMER_DELETED',
-            userId,
+            userId: auth.actor.userId,
             customerId: validated.data,
-            newValues: { status: 'DELETED', deleted_by: userId }
+            newValues: { status: 'DELETED', deleted_by: auth.actor.userId }
         });
 
         await client.query('COMMIT');
@@ -611,6 +647,11 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
     };
     error?: string;
 }> {
+    const auth = await requireCustomerActor(CUSTOMER_LOOKUP_ROLES, 'getCustomersSecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = GetCustomersSchema.safeParse(filters || {});
     if (!validated.success) {
         return {
@@ -620,25 +661,43 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
     }
 
     try {
+        const globalDirectory = canUseGlobalCustomerDirectory(auth.actor);
+        const searchTerm = validated.data.searchTerm?.trim();
+        const effectivePageSize = globalDirectory ? validated.data.pageSize : Math.min(validated.data.pageSize, 20);
+        const effectivePage = globalDirectory ? validated.data.page : 1;
+
+        if (!globalDirectory && (!searchTerm || searchTerm.length < 3)) {
+            return {
+                success: true,
+                data: {
+                    customers: [],
+                    total: 0,
+                    page: effectivePage,
+                    pageSize: effectivePageSize,
+                    totalPages: 0
+                }
+            };
+        }
+
         // Build WHERE clause
         const conditions: string[] = [];
         const params: (string | number)[] = [];
         let paramIndex = 1;
 
-        if (validated.data.searchTerm) {
+        if (searchTerm) {
             conditions.push(`(name ILIKE $${paramIndex} OR rut ILIKE $${paramIndex})`);
-            params.push(`%${validated.data.searchTerm}%`);
+            params.push(`%${searchTerm}%`);
             paramIndex++;
         }
 
-        if (validated.data.status) {
+        if (globalDirectory && validated.data.status) {
             conditions.push(`status = $${paramIndex++}`);
             params.push(validated.data.status);
         } else {
             conditions.push(`status != 'DELETED'`);
         }
 
-        if (validated.data.minPoints !== undefined) {
+        if (globalDirectory && validated.data.minPoints !== undefined) {
             conditions.push(`loyalty_points >= $${paramIndex++}`);
             params.push(validated.data.minPoints);
         }
@@ -657,15 +716,18 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
         const total = parseInt(countResult.rows[0].total);
 
         // Get paginated customers
-        const offset = (validated.data.page - 1) * validated.data.pageSize;
+        const offset = (effectivePage - 1) * effectivePageSize;
 
-        params.push(validated.data.pageSize);
+        params.push(effectivePageSize);
         params.push(offset);
+        params.push(globalDirectory ? 1 : 0);
 
         const customersResult = await pool.query(`
             SELECT 
-                id, rut, name, phone, email,
-                tags, loyalty_points, status, health_tags,
+                id, rut, name, phone,
+                CASE WHEN $${paramIndex + 2} = 1 THEN email ELSE NULL END AS email,
+                tags, loyalty_points, status,
+                CASE WHEN $${paramIndex + 2} = 1 THEN health_tags ELSE '{}'::text[] END AS health_tags,
                 last_visit, created_at
             FROM customers
             ${whereClause}
@@ -673,7 +735,7 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
         `, params);
 
-        const totalPages = Math.ceil(total / validated.data.pageSize);
+        const totalPages = Math.ceil(total / effectivePageSize);
 
         // Map DB fields to frontend Customer type
         const mappedCustomers = (customersResult.rows as Record<string, unknown>[]).map((c) => ({
@@ -689,8 +751,8 @@ export async function getCustomersSecure(filters?: z.input<typeof GetCustomersSc
             data: {
                 customers: mappedCustomers,
                 total,
-                page: validated.data.page,
-                pageSize: validated.data.pageSize,
+                page: effectivePage,
+                pageSize: effectivePageSize,
                 totalPages
             }
         };
@@ -712,6 +774,11 @@ export async function getCustomerHistorySecure(customerId: string): Promise<{
     data?: Record<string, unknown>[];
     error?: string;
 }> {
+    const auth = await requireCustomerActor(CUSTOMER_EXPORT_ROLES, 'getCustomerHistorySecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = UUIDSchema.safeParse(customerId);
     if (!validated.success) {
         return { success: false, error: 'ID inválido' };

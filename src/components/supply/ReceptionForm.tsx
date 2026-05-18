@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Supplier, receiveProduct } from '@/lib/data/supply';
+import type { Supplier } from '@/lib/data/supply';
 import { useRouter } from 'next/navigation';
 import { CheckCircle, Loader2 } from 'lucide-react';
 
@@ -26,22 +26,6 @@ export default function ReceptionForm({ suppliers, products }: ReceptionFormProp
         e.preventDefault();
         setLoading(true);
         try {
-            // In a real app, we would call a server action or API route.
-            // Since we are using direct DB calls in lib/data/supply.ts which are server-side,
-            // we can't call them directly from client component.
-            // We need a Server Action or pass a server action as prop.
-            // For MVP simplicity, let's assume we have a server action wrapper or API.
-            // BUT, since I can't easily create a server action file right now without more context,
-            // I'll create a simple API route for reception or just simulate it if I can't.
-            // Wait, Next.js App Router allows Server Actions.
-            // I will create a server action in a separate file `src/app/actions/supply.ts` later.
-            // For now, I will just alert.
-
-            // ACTUALLY, I should implement the Server Action pattern properly.
-            // I'll create the action file in the next step.
-            // Here I will assume `receiveProductAction` is passed or imported.
-
-            // Let's use a mock fetch to an API route I will create.
             const res = await fetch('/api/supply/receive', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

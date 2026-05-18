@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/nextjs';
 import { query, pool } from '@/lib/db';
+import { HEALTHCHECK_NO_STORE_HEADERS } from '@/lib/api-health';
 import { classifyPgError } from '@/lib/db-errors';
 import { createCorrelationId } from '@/lib/action-response';
 import { logger } from '@/lib/logger';
@@ -16,8 +17,7 @@ function isAuthorized(request: NextRequest) {
     }
 
     const tokenFromHeader = request.headers.get('x-health-token');
-    const tokenFromQuery = request.nextUrl.searchParams.get('token');
-    return tokenFromHeader === expectedToken || tokenFromQuery === expectedToken;
+    return tokenFromHeader === expectedToken;
 }
 
 export async function GET(request: NextRequest) {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
                 code: 'HEALTH_UNAUTHORIZED',
                 correlationId,
             },
-            { status: 401 }
+            { status: 401, headers: HEALTHCHECK_NO_STORE_HEADERS }
         );
     }
 
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     try {
         const dbStart = Date.now();
-        const ping = await query('SELECT NOW() as server_time, current_database() as database_name, current_user as db_user');
+        const ping = await query('SELECT NOW() as server_time');
         const dbLatencyMs = Date.now() - dbStart;
 
         return NextResponse.json({
@@ -49,15 +49,7 @@ export async function GET(request: NextRequest) {
             elapsedMs: Date.now() - start,
             dbLatencyMs,
             timestamp: ping.rows[0]?.server_time || null,
-            database: ping.rows[0]?.database_name || null,
-            dbUser: ping.rows[0]?.db_user || null,
-            pool: {
-                total: pool.totalCount,
-                idle: pool.idleCount,
-                waiting: pool.waitingCount,
-            },
-            env: process.env.NODE_ENV,
-        });
+        }, { headers: HEALTHCHECK_NO_STORE_HEADERS });
     } catch (error) {
         const classified = classifyPgError(error);
 
@@ -97,10 +89,9 @@ export async function GET(request: NextRequest) {
                 retryable: classified.retryable,
                 correlationId,
                 userMessage: classified.userMessage,
-                technicalMessage: classified.technicalMessage,
                 elapsedMs: Date.now() - start,
             },
-            { status: 503 }
+            { status: 503, headers: HEALTHCHECK_NO_STORE_HEADERS }
         );
     }
 }

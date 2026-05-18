@@ -1,58 +1,84 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as actionModule from '@/actions/customer-export-v2';
-import * as dbModule from '@/lib/db';
-
-const validUserId = '550e8400-e29b-41d4-a716-446655440001';
-
-const { mockCookies } = vi.hoisted(() => ({
-    mockCookies: {
-        get: vi.fn((key) => {
-            if (key === 'user_id') return { value: '550e8400-e29b-41d4-a716-446655440001' };
-            if (key === 'user_role') return { value: 'MANAGER' };
-            if (key === 'x-user-location') return { value: 'loc-1' };
-            return undefined;
-        })
-    }
-}));
-
-vi.mock('next/headers', () => ({
-    headers: vi.fn(() => Promise.resolve({ get: () => null })),
-    cookies: vi.fn(() => Promise.resolve(mockCookies))
+const { mockQuery, mockGenerateReport, requireCustomerActorMock } = vi.hoisted(() => ({
+    mockQuery: vi.fn(),
+    mockGenerateReport: vi.fn(),
+    requireCustomerActorMock: vi.fn(),
 }));
 
 vi.mock('@/lib/db', () => ({
-    query: vi.fn((sql: string) => {
-        if (typeof sql === 'string' && (sql.includes('FROM users') || sql.includes('FROM sessions'))) {
-            return Promise.resolve({
-                rows: [{ id: '550e8400-e29b-41d4-a716-446655440001', role: 'MANAGER', is_active: true, name: 'Test User', assigned_location_id: 'loc-1' }],
-                rowCount: 1
-            });
-        }
-        return Promise.resolve({ rows: [], rowCount: 0 });
-    }),
-    pool: { connect: vi.fn() }
+    query: mockQuery,
+}));
+
+vi.mock('@/actions/customer-scope', () => ({
+    CUSTOMER_EXPORT_ROLES: ['ADMIN', 'GERENTE_GENERAL'],
+    requireCustomerActor: requireCustomerActorMock,
 }));
 
 vi.mock('@/lib/excel-generator', () => ({
-    ExcelService: class { generateReport = vi.fn().mockResolvedValue(Buffer.from('test')) }
+    ExcelService: class {
+        generateReport = mockGenerateReport;
+    }
 }));
 
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-beforeEach(() => {
-    vi.clearAllMocks();
-});
+import * as customerExport from '@/actions/customer-export-v2';
 
 describe('Customer Export V2', () => {
-    it('should success', async () => {
-        const result = await actionModule.generateCustomerReportSecure({ startDate: '2024-01-01', endDate: '2024-01-31' });
-        expect(result.success).toBe(true);
+    beforeEach(() => {
+        vi.clearAllMocks();
+        requireCustomerActorMock.mockResolvedValue({
+            success: true,
+            actor: {
+                userId: '550e8400-e29b-41d4-a716-446655440001',
+                role: 'ADMIN',
+                userName: 'Admin',
+                locationId: '550e8400-e29b-41d4-a716-446655440010',
+                tokenVersion: 1,
+                sessionToken: 'token',
+            },
+        });
+        mockGenerateReport.mockResolvedValue(Buffer.from('xlsx'));
     });
 
-    it('should fail authentication if headers/cookies missing', async () => {
-        // Override for failure
-        vi.mocked(mockCookies.get).mockReturnValue(undefined);
-        // Note: We need to reset this for other tests if we had them, but here it's fine or we use mockImplementationOnce
+    it('rechaza export global si el actor no tiene permiso', async () => {
+        requireCustomerActorMock.mockResolvedValueOnce({
+            success: false,
+            error: 'Acceso denegado',
+        });
+
+        const result = await customerExport.generateCustomerReportSecure({
+            startDate: '2024-01-01',
+            endDate: '2024-01-31',
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('Acceso denegado');
+        expect(mockQuery).not.toHaveBeenCalled();
+    });
+
+    it('no incluye teléfono ni email en el resumen exportado', async () => {
+        mockQuery
+            .mockResolvedValueOnce({
+                rows: [{ id: 'cust-1', rut: '11111111-1', name: 'Cliente Uno', phone: '+56912345678', email: 'cliente@example.com', loyalty_points: 10 }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce({
+                rows: [{ customer_rut: '11111111-1', total: '25000', count: '2', last_purchase: '2024-01-15T12:00:00Z' }],
+                rowCount: 1,
+            })
+            .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        const result = await customerExport.generateCustomerReportSecure({
+            startDate: '2024-01-01',
+            endDate: '2024-01-31',
+        });
+
+        expect(result.success).toBe(true);
+        expect(mockGenerateReport).toHaveBeenCalledTimes(1);
+        const reportConfig = mockGenerateReport.mock.calls[0][0];
+        expect(reportConfig.columns.map((column: { key: string }) => column.key)).not.toContain('phone');
+        expect(reportConfig.columns.map((column: { key: string }) => column.key)).not.toContain('email');
     });
 });

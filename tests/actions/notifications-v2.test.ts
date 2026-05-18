@@ -1,56 +1,49 @@
-/**
- * Tests - Notifications V2 Module
- */
-
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as notificationsV2 from '@/actions/notifications-v2';
+import { getValidatedSession } from '@/lib/server-session';
+import { getClient } from '@/lib/db';
 
-// Global mockClient definition using vi.hoisted
-const { mockClient } = vi.hoisted(() => {
-    return {
-        mockClient: {
-            query: vi.fn(),
-            release: vi.fn(),
-        }
-    };
-});
-
-vi.mock('@/lib/db', () => {
-    return {
-        query: vi.fn(), // This `query` is for the top-level `db` object, not the client.
-        pool: {
-            connect: vi.fn().mockResolvedValue(mockClient)
-        },
-        getClient: vi.fn().mockResolvedValue(mockClient)
-    };
-});
-vi.mock('next/headers', () => ({
-    headers: vi.fn()
+const { mockClient } = vi.hoisted(() => ({
+    mockClient: {
+        query: vi.fn(),
+        release: vi.fn(),
+    },
 }));
+
+vi.mock('@/lib/server-session', () => ({
+    getValidatedSession: vi.fn(),
+}));
+
+vi.mock('@/lib/db', () => ({
+    query: vi.fn(),
+    pool: {
+        connect: vi.fn().mockResolvedValue(mockClient),
+    },
+    getClient: vi.fn().mockResolvedValue(mockClient),
+}));
+
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn() }));
 vi.mock('crypto', () => ({ randomUUID: vi.fn(() => 'new-uuid') }));
 
-describe('Notifications V2 - Security', () => {
+describe('Notifications V2 - server-side session', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        // Reset mockClient.query for each test in this suite
         mockClient.query.mockReset();
+        mockClient.release.mockReset();
     });
 
-    it('should require authentication for getMyNotifications', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValue(new Map() as any);
+    it('rechaza getNotificationsSecure sin sesión válida', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
-        const result = await notificationsV2.getMyNotifications();
+        const result = await notificationsV2.getNotificationsSecure();
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('autenticado');
     });
 
-    it('should require authentication for markAsReadSecure', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValue(new Map() as any);
+    it('rechaza markAsReadSecure sin sesión válida', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
         const result = await notificationsV2.markAsReadSecure(['550e8400-e29b-41d4-a716-446655440000']);
 
@@ -58,67 +51,70 @@ describe('Notifications V2 - Security', () => {
         expect(result.error).toContain('autenticado');
     });
 
-    it('should validate notification ID format', async () => {
-        // Mock headers for success auth but invalid ID input (though markAsReadSecure doesn't check auth FIRST? Let's check impl)
-        // Implementation checks headers only if implementing session check. 
-        // markAsReadSecure currently DOES NOT check session in implementation I read? 
-        // Wait, markAsReadSecure implementation I read earlier (lines 81-100) DOES NOT CALL getSession.
-        // It just gets client and updates. 
-        // User asked to fix "dead module". I added getSession to getMyNotifications.
-        // Did I add it to markAsReadSecure? No.
-        // So the test "should require authentication for markAsReadSecure" might fail if I don't add auth check there too.
-        // But let's fix the TS error first.
+    it('retorna 0 en getUnreadCountSecure si no hay sesión válida', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce(null);
 
-        const result = await notificationsV2.markAsReadSecure(['invalid-id']);
+        const result = await notificationsV2.getUnreadCountSecure('550e8400-e29b-41d4-a716-446655440000');
 
-        // Actually, if markAsReadSecure doesn't check auth, this test expectation is wrong OR the implementation is insecure.
-        // Given "dead module", let's assume I should probably secure it too, but user didn't explicitly ask for that function.
-        // However, the test expects it.
-        // Let's assume the test is right and implementation is missing auth.
-        // But for now, fixing TS error:
-
-        // expect(result.success).toBe(false); 
-    });
-});
-
-describe('Notifications V2 - Content Sanitization', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        // Reset mockClient.query for each test in this suite
-        mockClient.query.mockReset();
+        expect(result).toBe(0);
+        expect(getClient).not.toHaveBeenCalled();
     });
 
-    it('should sanitize HTML in title and message', async () => {
-        mockClient.query.mockResolvedValue({ rows: [], rowCount: 1 });
-
-        await notificationsV2.createNotificationSecure({
-            userId: '550e8400-e29b-41d4-a716-446655440000',
-            title: '<script>alert("XSS")</script>Important',
-            message: '<img src=x onerror=alert("XSS")>Message',
-            type: 'SYSTEM' // Corrected Enum
+    it('fuerza el scope de notificaciones a la ubicación efectiva de la sesión', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440010',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
         });
 
-        // Verify sanitization happened (script tag removed)
-        const insertCall = mockClient.query.mock.calls.find(
-            (call: any) => call[0].includes('INSERT INTO notifications')
+        mockClient.query
+            .mockResolvedValueOnce({ rows: [], rowCount: 0 })
+            .mockResolvedValueOnce({ rows: [{ count: '0' }], rowCount: 1 });
+
+        const result = await notificationsV2.getNotificationsSecure('550e8400-e29b-41d4-a716-446655440099');
+
+        expect(result.success).toBe(true);
+        const fetchCall = mockClient.query.mock.calls[0];
+        expect(String(fetchCall[0])).toContain('notification_reads');
+        expect(fetchCall[1]).toContain('550e8400-e29b-41d4-a716-446655440010');
+        expect(fetchCall[1]).not.toContain('550e8400-e29b-41d4-a716-446655440099');
+    });
+
+    it('mantiene createNotificationSecure como flujo de sistema sin sesión', async () => {
+        mockClient.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        const result = await notificationsV2.createNotificationSecure({
+            userId: '550e8400-e29b-41d4-a716-446655440000',
+            title: '<script>alert(\"XSS\")</script>Importante',
+            message: '<img src=x onerror=alert(\"XSS\")>Mensaje',
+            type: 'SYSTEM',
+        });
+
+        expect(result.success).toBe(true);
+        expect(getValidatedSession).not.toHaveBeenCalled();
+
+        const insertCall = mockClient.query.mock.calls.find((call) =>
+            typeof call[0] === 'string' && call[0].includes('INSERT INTO notifications')
         );
 
-        if (insertCall) {
-            // Title should not contain <script>
-            expect(insertCall[1][3]).not.toContain('<script>');
-            // Message should not contain <img
-            expect(insertCall[1][4]).not.toContain('<img');
-        }
+        expect(insertCall).toBeDefined();
+        if (!insertCall) return;
+        expect(insertCall[1][3]).not.toContain('<script>');
+        expect(insertCall[1][4]).not.toContain('<img');
     });
-});
 
-describe('Notifications V2 - RBAC for Cleanup', () => {
-    it('should require ADMIN role for deleteOldNotifications', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'CASHIER'] // Not admin
-        ]) as any);
+    it('exige rol ADMIN para deleteOldNotifications', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'user-1',
+            role: 'CASHIER',
+            locationId: 'loc-1',
+            userName: 'Caja',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await notificationsV2.deleteOldNotifications(30);
 
@@ -126,46 +122,74 @@ describe('Notifications V2 - RBAC for Cleanup', () => {
         expect(result.error).toContain('administradores');
     });
 
-    it('should require minimum 7 days', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'admin-1'],
-            ['x-user-role', 'ADMIN']
-        ]) as any);
+    it('permite validar el mínimo de retención con sesión admin', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'admin-1',
+            role: 'ADMIN',
+            locationId: 'loc-1',
+            userName: 'Admin',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
         const result = await notificationsV2.deleteOldNotifications(3);
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('7 días');
     });
-});
 
-describe('Notifications V2 - Database Timeout Handling', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mockClient.query.mockReset();
-    });
+    it('retorna error controlado si falla obtener el cliente al leer notificaciones', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440000',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
 
-    it('should return controlled error if acquiring db client fails', async () => {
-        const mockHeaders = await import('next/headers');
-        vi.mocked(mockHeaders.headers).mockResolvedValueOnce(new Map([
-            ['x-user-id', 'user-1'],
-            ['x-user-role', 'MANAGER'],
-        ]) as any);
-
-        const mockDb = await import('@/lib/db');
-        vi.mocked(mockDb.getClient).mockRejectedValueOnce(
-            new Error('Connection terminated due to connection timeout')
-        );
-
-        const loggerModule = await import('@/lib/logger');
-        const sentry = await import('@sentry/nextjs');
+        vi.mocked(getClient).mockRejectedValueOnce(new Error('Connection terminated due to connection timeout'));
 
         const result = await notificationsV2.getNotificationsSecure('550e8400-e29b-41d4-a716-446655440000');
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('Failed to fetch notifications');
-        expect(vi.mocked(loggerModule.logger.error)).toHaveBeenCalledTimes(1);
-        expect(vi.mocked(sentry.captureException)).toHaveBeenCalledTimes(1);
+    });
+
+    it('markAsReadSecure opera sobre notification_reads y no muta notifications globales', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440010',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockClient.query.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+        const result = await notificationsV2.markAsReadSecure(['550e8400-e29b-41d4-a716-446655440000']);
+
+        expect(result.success).toBe(true);
+        expect(String(mockClient.query.mock.calls[0]?.[0])).toContain('INSERT INTO notification_reads');
+        expect(String(mockClient.query.mock.calls[0]?.[0])).not.toContain('UPDATE notifications SET is_read = TRUE');
+    });
+
+    it('deleteNotificationSecure hace soft-delete por usuario en notification_reads', async () => {
+        vi.mocked(getValidatedSession).mockResolvedValueOnce({
+            userId: 'manager-1',
+            role: 'MANAGER',
+            locationId: '550e8400-e29b-41d4-a716-446655440010',
+            userName: 'Manager',
+            tokenVersion: 1,
+            sessionToken: 'token',
+        });
+        mockClient.query.mockResolvedValueOnce({ rows: [{ count: 1 }], rowCount: 1 });
+
+        const result = await notificationsV2.deleteNotificationSecure(['550e8400-e29b-41d4-a716-446655440000']);
+
+        expect(result.success).toBe(true);
+        expect(result.deletedCount).toBe(1);
+        expect(String(mockClient.query.mock.calls[0]?.[0])).toContain('INSERT INTO notification_reads');
+        expect(String(mockClient.query.mock.calls[0]?.[0])).not.toContain('DELETE FROM notifications');
     });
 });

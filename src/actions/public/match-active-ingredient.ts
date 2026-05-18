@@ -1,17 +1,25 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { logger } from '@/lib/logger';
+import {
+    enforcePublicSearchGuard,
+    normalizePublicSearchTerm,
+} from './public-search-guard';
 
 /**
  * Busca si el nombre del producto contiene algún principio activo conocido en la base de datos ISP.
  * Retorna el principio activo más largo encontrado (para priorizar "PARACETAMOL COMPUESTO" sobre "PARACETAMOL").
  */
 export async function matchActiveIngredientAction(productName: string): Promise<string | null> {
-    if (!productName) return null;
+    if (!await enforcePublicSearchGuard('match-active-ingredient')) return null;
+
+    const cleanProductName = normalizePublicSearchTerm(productName);
+    if (cleanProductName.length < 2) return null;
 
     try {
         // Normalizamos el nombre del producto para la búsqueda
-        const normalizedName = productName.toUpperCase();
+        const normalizedName = cleanProductName.toUpperCase();
 
         // Buscamos principios activos que estén contenidos dentro del nombre del producto.
         // Ordenamos por longitud descendente para encontrar la coincidencia más específica.
@@ -27,13 +35,12 @@ export async function matchActiveIngredientAction(productName: string): Promise<
         const result = await query(sql, [normalizedName]);
 
         if (result.rows.length > 0) {
-            console.log(`🧪 [MatchIngredient] Matched "${productName}" -> "${result.rows[0].active_ingredient}"`);
             return result.rows[0].active_ingredient;
         }
 
         return null;
     } catch (error) {
-        console.error('❌ Error matching active ingredient:', error);
+        logger.error({ error }, '[PublicSearch] Active ingredient match failed');
         return null;
     }
 }

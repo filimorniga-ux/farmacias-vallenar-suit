@@ -14,9 +14,6 @@ import {
     GiftCard,
     LoyaltyReward,
     LoyaltyConfig,
-    Shipment,
-    StockTransfer,
-    WarehouseIncident,
     AttendanceStatus,
     AttendanceType,
     Shift,
@@ -24,8 +21,7 @@ import {
     Quote,
     ReorderConfig,
     AutoOrderSuggestion,
-    StockMovement,
-    Location
+    StockMovement
 } from '../../domain/types';
 import { TigerDataService } from '../../domain/services/TigerDataService';
 import { IntelligentOrderingService } from '../services/intelligentOrderingService';
@@ -36,6 +32,19 @@ import { buildSoldQuantityByBatch, resolveCartBatchIds } from '../../domain/logi
 import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { resolveLoginTimeoutMs } from '@/lib/login-resilience';
 import * as Sentry from '@sentry/nextjs';
+import {
+    clearActivePersistenceScope,
+    clearLegacyPersistenceKeys,
+    clearScopedPersistenceKeys,
+    getActivePersistenceScope,
+    hasMatchingOwnership,
+    isOfflineScopeExpired,
+    setActivePersistenceScope,
+    touchActivePersistenceScope,
+} from '@/lib/store/persistenceScope';
+import { useOfflineSales } from '@/lib/store/offlineSales';
+import { useOutboxStore } from '@/lib/store/outboxStore';
+import { sanitizePersistedPosTerminals } from '@/presentation/lib/pos-runtime-state';
 // Mocks removed
 // Mocks removed
 
@@ -61,7 +70,6 @@ interface PharmaState {
 
     // Data Sync
     isLoading: boolean;
-    isLoadingLocations: boolean; // Tracking for locations specifically
     isFetchingTerminals: boolean; // Tracking for terminals specifically
     isInitialized: boolean;
     syncData: (options?: { force?: boolean }) => Promise<void>;
@@ -71,18 +79,11 @@ interface PharmaState {
     setInventory: (inventory: InventoryBatch[]) => void;
     suppliers: Supplier[];
     supplierDocuments: SupplierDocument[];
-    purchaseOrders: PurchaseOrder[];
     updateStock: (batchId: string, quantity: number) => void;
     addStock: (batchId: string, quantity: number, expiry?: number) => void;
     addNewProduct: (product: InventoryBatch) => void;
     // fetchInventory removed - migrated to React Query
     transferStock: (batchId: string, targetLocation: string, quantity: number) => Promise<void>;
-    addPurchaseOrder: (po: PurchaseOrder) => void;
-    receivePurchaseOrder: (poId: string, receivedItems: { sku: string, receivedQty: number; lotNumber?: string; expiryDate?: number }[], destinationLocationId: string) => Promise<void>;
-    finalizePurchaseOrderReview: (poId: string, reviewNotes?: string, receivedItems?: { sku: string; receivedQty: number; lotNumber?: string; expiryDate?: number }[]) => Promise<void>;
-    cancelPurchaseOrder: (poId: string) => void;
-    removePurchaseOrder: (poId: string) => void;
-    updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => void;
 
     // SRM Actions
 
@@ -127,8 +128,8 @@ interface PharmaState {
     customers: Customer[];
     fetchCustomers: (searchTerm?: string) => Promise<void>;
     addCustomer: (customer: Omit<Customer, 'id' | 'totalPoints' | 'lastVisit' | 'health_tags' | 'name' | 'age'>) => Promise<Customer | null>;
-    updateCustomer: (id: string, data: Partial<Customer>) => void;
-    deleteCustomer: (id: string) => void;
+    updateCustomer: (id: string, data: Partial<Customer>) => Promise<boolean>;
+    deleteCustomer: (id: string) => Promise<boolean>;
     redeemPoints: (customerId: string, points: number) => boolean;
 
     // BI & Reports
@@ -136,9 +137,6 @@ interface PharmaState {
     expenses: Expense[];
     addExpense: (expense: Omit<Expense, 'id'>) => void;
 
-    // Locations & Context
-    locations: Location[];
-    fetchLocations: () => Promise<void>;
     fetchTerminals: (locationId: string) => Promise<void>;
 
     // Cash Management & Shifts
@@ -175,21 +173,6 @@ interface PharmaState {
     attendanceLogs: AttendanceLog[];
     registerAttendance: (employeeId: string, type: AttendanceType, observation?: string, evidence_photo_url?: string, overtimeMinutes?: number) => Promise<void>;
     updateEmployeeBiometrics: (employeeId: string, credentialId: string) => void;
-
-    // WMS & Logistics
-    stockTransfers: StockTransfer[]; // Legacy
-    shipments: Shipment[]; // New
-    warehouseIncidents: WarehouseIncident[];
-    dispatchTransfer: (transfer: Omit<StockTransfer, 'id' | 'status' | 'timeline'>) => void;
-    receiveTransfer: (transferId: string, incidents?: Omit<WarehouseIncident, 'id' | 'transfer_id' | 'reported_at' | 'status'>[]) => void;
-
-    // Logistics
-    createDispatch: (shipmentData: Omit<Shipment, 'id' | 'status' | 'created_at' | 'updated_at'>) => void;
-    confirmReception: (shipmentId: string, data: { photos: string[], notes: string, receivedItems: { batchId: string, quantity: number, condition: 'GOOD' | 'DAMAGED' }[] }) => void;
-    uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => void;
-    cancelShipment: (shipmentId: string) => void;
-    refreshShipments: (locationId?: string) => Promise<void>;
-    refreshPurchaseOrders: (locationId?: string) => Promise<void>;
 
     // Import
     importInventory: (items: InventoryBatch[]) => void;
@@ -239,7 +222,56 @@ interface PharmaState {
 }
 
 
-import { indexedDBWithLocalStorageFallback } from './indexedDBStorage';
+import { createScopedIndexedDBWithLocalStorageFallback } from './indexedDBStorage';
+
+const OFFLINE_LOGIN_TTL_MS = 1000 * 60 * 60 * 12;
+
+async function rehydrateScopedOfflineQueues() {
+    useOfflineSales.getState().clearOfflineSales();
+    useOutboxStore.getState().clearOutbox();
+
+    await Promise.allSettled([
+        useOfflineSales.persist.rehydrate(),
+        useOutboxStore.persist.rehydrate(),
+    ]);
+}
+
+function syncPersistenceScopeForActor(user: EmployeeProfile | null, locationId?: string) {
+    if (!user?.id) {
+        clearActivePersistenceScope();
+        return;
+    }
+
+    const effectiveLocationId = locationId || user.assigned_location_id || '';
+    setActivePersistenceScope({
+        userId: user.id,
+        locationId: effectiveLocationId,
+        sessionVersion: Number(user.token_version) || 0,
+        lastSyncAt: Date.now(),
+    });
+}
+
+async function clearScopedOfflineState() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const scope = getActivePersistenceScope();
+    clearScopedPersistenceKeys(window.localStorage, [
+        { baseName: 'pharma-storage', includeDeviceId: true },
+        { baseName: 'farmacias-vallenar-offline-sales', includeDeviceId: false },
+        { baseName: 'farmacias-vallenar-outbox', includeDeviceId: false },
+    ], scope);
+    clearLegacyPersistenceKeys(window.localStorage);
+
+    useOfflineSales.getState().clearOfflineSales();
+    useOutboxStore.getState().clearOutbox();
+
+    await Promise.allSettled([
+        useOfflineSales.persist.clearStorage(),
+        useOutboxStore.persist.clearStorage(),
+    ]);
+}
 
 export const usePharmaStore = create<PharmaState>()(
     persist(
@@ -253,6 +285,8 @@ export const usePharmaStore = create<PharmaState>()(
 
                 // Set new context
                 set({ currentLocationId: loc, currentWarehouseId: wh, currentTerminalId: term });
+                syncPersistenceScopeForActor(get().user, loc);
+                void rehydrateScopedOfflineQueues();
 
                 // If location changed, refresh data
                 if (loc && loc !== prevLoc) {
@@ -358,13 +392,39 @@ export const usePharmaStore = create<PharmaState>()(
                     };
                 }
 
+                if (!authenticatedUser && serverFailure && !serverFailure.retryable) {
+                    return {
+                        success: false,
+                        error: serverFailure.userMessage || serverFailure.error,
+                        code: serverFailure.code,
+                        correlationId: serverFailure.correlationId,
+                        retryable: serverFailure.retryable,
+                    };
+                }
+
                 // 2. Offline Fallback (Store in-memory + SQLite)
                 if (!authenticatedUser && allowOfflineLogin) {
+                    const activeScope = getActivePersistenceScope();
+                    const activeScopeMatchesUser = !!activeScope && activeScope.userId === userId;
+                    const activeScopeMatchesLocation = !locationId || !activeScope?.locationId || activeScope.locationId === locationId;
+                    const activeScopeIsFresh = !isOfflineScopeExpired(OFFLINE_LOGIN_TTL_MS, activeScope);
+
+                    if (!activeScopeMatchesUser || !activeScopeMatchesLocation || !activeScopeIsFresh) {
+                        return {
+                            success: false,
+                            error: 'No hay credenciales offline válidas para esta sesión. Vuelve a conectarte para actualizar el dispositivo.',
+                            code: 'OFFLINE_SCOPE_INVALID',
+                            retryable: false,
+                        };
+                    }
+
                     // 2a. Try in-memory store first (fastest)
                     const { employees } = get();
                     const hashedPin = typeof window !== 'undefined' ? window.btoa(pin).split('').reverse().join('') : pin;
                     let offlineUser = employees.find(e =>
-                        e.id === userId && (e.access_pin === pin || e.access_pin === hashedPin)
+                        e.id === userId
+                        && Number(e.token_version || 0) === Number(activeScope?.sessionVersion || 0)
+                        && (e.access_pin === pin || e.access_pin === hashedPin)
                     );
 
                     // 2b. If not in memory, try SQLite (Electron only)
@@ -378,7 +438,11 @@ export const usePharmaStore = create<PharmaState>()(
                                     sqliteUser.pin_hash === pin ||
                                     sqliteUser.pin_hash === hashedPin;
 
-                                if (pinMatch && sqliteUser.is_active) {
+                                const sqliteTokenVersion = Number(sqliteUser.token_version || 0);
+                                const lastSyncedAt = sqliteUser.last_synced_at ? new Date(sqliteUser.last_synced_at).getTime() : 0;
+                                const isFreshSQLiteCredential = lastSyncedAt > 0 && (Date.now() - lastSyncedAt) <= OFFLINE_LOGIN_TTL_MS;
+
+                                if (pinMatch && sqliteUser.is_active && sqliteTokenVersion === Number(activeScope?.sessionVersion || 0) && isFreshSQLiteCredential) {
                                     // Map SQLite user to EmployeeProfile shape
                                     offlineUser = {
                                         id: sqliteUser.id,
@@ -388,6 +452,7 @@ export const usePharmaStore = create<PharmaState>()(
                                         role: sqliteUser.role || 'vendedor',
                                         access_pin: sqliteUser.pin_hash,
                                         assigned_location_id: sqliteUser.location_id || '',
+                                        token_version: sqliteTokenVersion,
                                         is_active: true,
                                         permissions: sqliteUser.permissions ? JSON.parse(sqliteUser.permissions) : {},
                                     } as unknown as EmployeeProfile;
@@ -408,10 +473,21 @@ export const usePharmaStore = create<PharmaState>()(
                                 duration: 4000,
                             });
                         });
+                    } else {
+                        return {
+                            success: false,
+                            error: 'No hay credenciales offline válidas para esta sesión. Vuelve a conectarte para actualizar el dispositivo.',
+                            code: 'OFFLINE_SCOPE_INVALID',
+                            retryable: false,
+                        };
                     }
                 }
 
                 if (authenticatedUser) {
+                    const effectiveLocationId = locationId || authenticatedUser.assigned_location_id || get().currentLocationId || '';
+                    syncPersistenceScopeForActor(authenticatedUser, effectiveLocationId);
+                    void rehydrateScopedOfflineQueues();
+
                     // Set User
                     set({ user: authenticatedUser });
 
@@ -435,6 +511,7 @@ export const usePharmaStore = create<PharmaState>()(
 
                                         if (shouldForce && currentLocId !== assignedLoc.id) {
                                             console.log(`📍 Auto-Setting Context (${userRole}): Location=${assignedLoc.name}, Warehouse=${warehouseId}`);
+                                            syncPersistenceScopeForActor(authenticatedUser!, assignedLoc.id);
                                             set({
                                                 currentLocationId: assignedLoc.id,
                                                 currentWarehouseId: warehouseId,
@@ -474,6 +551,7 @@ export const usePharmaStore = create<PharmaState>()(
                                         // Last resort: use assigned_location_id directly
                                         const savedLocId = authenticatedUser!.assigned_location_id;
                                         if (savedLocId) {
+                                            syncPersistenceScopeForActor(authenticatedUser!, savedLocId);
                                             set({ currentLocationId: savedLocId, currentWarehouseId: '', currentTerminalId: '' });
                                         }
                                     }
@@ -491,8 +569,9 @@ export const usePharmaStore = create<PharmaState>()(
                             // Set in Store if not already set by auto-assign logic
                             const state = get();
                             let warehouseId = '';
-                            if (state.locations.length > 0) {
-                                const loc = state.locations.find(l => l.id === locationId);
+                            const locationStore = useLocationStore.getState();
+                            if (locationStore.locations.length > 0) {
+                                const loc = locationStore.locations.find(l => l.id === locationId);
                                 warehouseId = loc?.default_warehouse_id || '';
                             }
 
@@ -501,6 +580,7 @@ export const usePharmaStore = create<PharmaState>()(
                                 currentWarehouseId: warehouseId,
                                 currentTerminalId: ''
                             });
+                            syncPersistenceScopeForActor(authenticatedUser, locationId);
 
                             // 🔗 Sync Global Location Store
                             import('./useLocationStore').then(({ useLocationStore }) => {
@@ -536,20 +616,41 @@ export const usePharmaStore = create<PharmaState>()(
                     localStorage.removeItem('pos_session_metadata');
                 } catch (e) { /* ignore */ }
 
+                useOfflineSales.getState().clearOfflineSales();
+                useOutboxStore.getState().clearOutbox();
+
                 // Limpiar sesión en store
                 set({
                     user: null,
+                    employees: [],
+                    inventory: [],
+                    customers: [],
+                    suppliers: [],
+                    salesHistory: [],
+                    cashMovements: [],
+                    expenses: [],
                     currentTerminalId: '',
+                    currentLocationId: '',
+                    currentWarehouseId: '',
                     currentShift: null,
+                    dailyShifts: [],
                     cart: [],
                     currentCustomer: null,
-                    // Mantener location para no forzar re-selección
+                    terminals: [],
                 });
                 // Limpiar cookies de sesión
                 try {
                     document.cookie = 'user_id=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
                     document.cookie = 'user_role=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
                 } catch (e) { /* ignore */ }
+
+                void (async () => {
+                    await Promise.allSettled([
+                        clearScopedOfflineState(),
+                        usePharmaStore.persist.clearStorage(),
+                    ]);
+                    clearActivePersistenceScope();
+                })();
             },
 
             // --- Data Sync ---
@@ -566,12 +667,77 @@ export const usePharmaStore = create<PharmaState>()(
 
                 try {
                     const currentStoreState = get();
+                    const syncCriticalReferenceData = async () => {
+                        const [employeesRes, suppliersRes, locationsRes, customers] = await Promise.all([
+                            import('../../actions/sync-v2').then(m => m.fetchEmployeesSecure()).catch(() => ({ success: false, data: [] })),
+                            import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()).catch(() => ({ success: false, data: [] })),
+                            import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()).catch(() => ({ success: false, data: [] })),
+                            TigerDataService.fetchCustomers().catch(() => [])
+                        ]);
+
+                        return {
+                            employees: employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [],
+                            suppliers: suppliersRes.success ? suppliersRes.data || [] : [],
+                            locations: locationsRes.success ? locationsRes.data || [] : [],
+                            customers: customers || [],
+                        };
+                    };
+
+                    const syncBackgroundShellData = async (seed: {
+                        employees: EmployeeProfile[];
+                    }) => {
+                        const inventory = await (currentStoreState.currentLocationId
+                            ? TigerDataService.fetchInventory(currentStoreState.currentLocationId)
+                            : Promise.resolve([]));
+
+                        const sales = await TigerDataService.fetchSalesHistory(
+                            currentStoreState.currentLocationId,
+                            undefined,
+                            undefined,
+                            currentStoreState.currentShift?.id
+                        );
+
+                        const cashMovements = await TigerDataService.fetchCashMovements();
+
+                        set({
+                            inventory,
+                            cashMovements: (cashMovements || []) as unknown as CashMovement[],
+                            salesHistory: [
+                                ...sales,
+                                ...currentStoreState.salesHistory.filter(s => s.is_synced === false && !sales.some(cloud => cloud.id === s.id))
+                            ],
+                            expenses: ((cashMovements || []) as unknown as CashMovement[]).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
+                                id: String(m.id),
+                                description: m.description,
+                                amount: m.amount,
+                                category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as Expense['category'],
+                                date: m.timestamp,
+                                is_deductible: false
+                            }))
+                        });
+
+                        TigerDataService.initializeStorage({
+                            employees: seed.employees,
+                            products: inventory,
+                            sales,
+                            cashMovements: (cashMovements || []) as unknown as CashMovement[],
+                            expenses: get().expenses
+                        });
+                    };
 
                     // 1. Sync Offline Sales
                     try {
                         const { useOfflineSales } = await import('../../lib/store/offlineSales');
                         const { pendingSales, removeOfflineSale, updateOfflineSaleStatus } = useOfflineSales.getState();
-                        const salesToSync = pendingSales.filter(s => s.syncStatus !== 'CONFLICT');
+                        const activeScope = getActivePersistenceScope();
+                        const salesToSync = pendingSales.filter(s => {
+                            if (s.syncStatus === 'CONFLICT') return false;
+                            if (!hasMatchingOwnership(s, activeScope)) {
+                                updateOfflineSaleStatus(s.id, 'CONFLICT', 'La venta pendiente pertenece a otra sesión o ubicación.');
+                                return false;
+                            }
+                            return true;
+                        });
 
                         if (salesToSync.length > 0) {
                             console.log(`📡 Syncing ${salesToSync.length} offline sales...`);
@@ -623,21 +789,7 @@ export const usePharmaStore = create<PharmaState>()(
                     // 3. Fetch Data (PHASE 1: CRITICAL DATA)
                     // Immediate data needed for UI skeletons (Auth, Locations, Suppliers)
                     const { TigerDataService } = await import('../../domain/services/TigerDataService');
-
-                    const [employeesRes, suppliersRes, locationsRes, customers] = await Promise.all([
-                        import('../../actions/sync-v2').then(async m => {
-                            const res = await m.fetchEmployeesSecure();
-                            if (!res.success && res.error === 'No autenticado') return m.getUsersForLoginSecure();
-                            return res;
-                        }).catch(() => ({ success: false, data: [] })),
-                        import('../../actions/sync-v2').then(m => m.fetchSuppliersSecure()).catch(() => ({ success: false, data: [] })),
-                        import('../../actions/sync-v2').then(m => m.fetchLocationsSecure()).catch(() => ({ success: false, data: [] })),
-                        TigerDataService.fetchCustomers().catch(() => [])
-                    ]);
-
-                    const employees = employeesRes.success ? (employeesRes.data || []) as unknown as EmployeeProfile[] : [];
-                    const suppliers = suppliersRes.success ? suppliersRes.data || [] : [];
-                    const locations = locationsRes.success ? locationsRes.data || [] : [];
+                    const { employees, suppliers, locations, customers } = await syncCriticalReferenceData();
 
                     // Update Location Store
                     if (locations.length > 0) useLocationStore.getState().setLocations(locations);
@@ -647,72 +799,26 @@ export const usePharmaStore = create<PharmaState>()(
                         employees,
                         suppliers,
                         customers: customers || [],
-                        locations,
                         isLoading: false // ⚡️ UNBLOCK UI HERE
                     });
+                    touchActivePersistenceScope();
 
                     // 4. Fetch Data (PHASE 2: HEAVY DATA - BACKGROUND)
-                    // Fire-and-forget for Inventory, Sales, and Movements
+                    // Fire-and-forget for shared shell data.
+                    // WMS bootstraps (shipments / purchaseOrders) are loaded by route-level hooks.
                     (async () => {
                         try {
-                            // SERIALIZED EXECUTION TO PREVENT POOL EXHAUSTION
+                            await syncBackgroundShellData({ employees });
 
-                            // 1. Inventory (Heavy)
-                            const inventory = await (currentStoreState.currentLocationId
-                                ? TigerDataService.fetchInventory(currentStoreState.currentLocationId)
-                                : Promise.resolve([]));
-
-                            // 2. Sales History (Heavy)
-                            const sales = await TigerDataService.fetchSalesHistory(
-                                currentStoreState.currentLocationId,
-                                undefined,
-                                undefined,
-                                currentStoreState.currentShift?.id
-                            );
-
-                            // 3. Others (Lighter)
-                            const cashMovements = await TigerDataService.fetchCashMovements();
-                            const shipments = await TigerDataService.fetchShipments(currentStoreState.currentLocationId);
-                            const purchaseOrders = await TigerDataService.fetchPurchaseOrders(currentStoreState.currentLocationId);
-
-                            // Background Update
-                            set({
-                                inventory,
-                                shipments: shipments || [],
-                                purchaseOrders: purchaseOrders || [],
-                                cashMovements: (cashMovements || []) as unknown as CashMovement[],
-                                salesHistory: [
-                                    ...sales,
-                                    ...currentStoreState.salesHistory.filter(s => s.is_synced === false && !sales.some(cloud => cloud.id === s.id))
-                                ],
-                                expenses: ((cashMovements || []) as unknown as CashMovement[]).filter(m => m.type === 'OUT' && ['SUPPLIES', 'SERVICES', 'SALARY_ADVANCE', 'OTHER'].includes(m.reason)).map(m => ({
-                                    id: String(m.id),
-                                    description: m.description,
-                                    amount: m.amount,
-                                    category: (m.reason === 'SUPPLIES' ? 'INSUMOS' : m.reason === 'SERVICES' ? 'SERVICIOS' : 'OTROS') as Expense['category'],
-                                    date: m.timestamp,
-                                    is_deductible: false
-                                }))
-                            });
-
-                            // Initialize Tiger Service Storage for Offline Simulation
-                            TigerDataService.initializeStorage({
-                                employees,
-                                products: inventory,
-                                sales,
-                                cashMovements: (cashMovements || []) as unknown as CashMovement[],
-                                expenses: get().expenses
-                            });
-
-                            set({ isInitialized: true, isLoadingLocations: false });
+                            set({ isInitialized: true });
                             console.log('✅ Background Sync Complete (Serialized)');
 
                             // Mirror data to SQLite for offline usage (Electron only)
                             import('../../lib/offline/OfflineInterceptor').then(({ mirrorStoreToSQLite }) => {
                                 mirrorStoreToSQLite({
                                     employees,
-                                    locations: get().locations,
-                                    inventory,
+                                    locations: useLocationStore.getState().locations,
+                                    inventory: get().inventory,
                                     customers: get().customers,
                                     suppliers: get().suppliers,
                                     salesHistory: get().salesHistory,
@@ -746,12 +852,12 @@ export const usePharmaStore = create<PharmaState>()(
                                 console.log('📦 Loading from SQLite offline cache...');
                                 set({
                                     employees: localData.users as any,
-                                    locations: localData.locations as any,
                                     inventory: localData.inventory as any,
                                     customers: localData.clients as any,
                                     isLoading: false,
                                     isInitialized: true,
                                 });
+                                useLocationStore.getState().setLocations(localData.locations as any);
                                 import('sonner').then(({ toast }) => toast.warning('Modo Offline', { description: 'Usando datos locales. Se sincronizará al conectar.' }));
                                 return;
                             }
@@ -767,14 +873,11 @@ export const usePharmaStore = create<PharmaState>()(
 
 
             // --- Inventory ---
-            isLoadingLocations: false,
             isFetchingTerminals: false,
-            locations: [], // Initialize locations
             inventory: [],
             setInventory: (inventory) => set({ inventory }),
             suppliers: [],
             supplierDocuments: [],
-            purchaseOrders: [],
             reorderConfigs: [], // Intelligent ordering configurations
             updateStock: (batchId, quantity) => set((state) => ({
                 inventory: state.inventory.map(item =>
@@ -821,70 +924,6 @@ export const usePharmaStore = create<PharmaState>()(
                     import('sonner').then(({ toast }) => toast.error('Error en traspaso: ' + result.error));
                 }
             },
-            addPurchaseOrder: (po) => set((state) => ({ purchaseOrders: [...state.purchaseOrders, po] })),
-            receivePurchaseOrder: async (poId, receivedItems, destinationLocationId) => {
-                const state = get();
-                const { receivePurchaseOrderSecure: receivePOAction } = await import('../../actions/supply-v2');
-
-                const userId = state.user?.id || 'SYSTEM';
-                const result = await receivePOAction({
-                    purchaseOrderId: poId,
-                    receivedItems: receivedItems.map(i => ({
-                        sku: i.sku,
-                        quantity: i.receivedQty,
-                        lotNumber: i.lotNumber,
-                        expiryDate: i.expiryDate
-                    }))
-                }, userId);
-
-                if (result.success) {
-                    import('sonner').then(({ toast }) => toast.success('Recepción registrada. Orden en revisión'));
-                    // await get().fetchInventory(state.currentLocationId, state.currentWarehouseId);
-
-                    // Update local PO list status optimistically or refetch
-                    set((s) => ({
-                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'REVIEW' as any } : p)
-                    }));
-
-                } else {
-                    import('sonner').then(({ toast }) => toast.error('Error al recibir orden: ' + result.error));
-                }
-            },
-            finalizePurchaseOrderReview: async (poId, reviewNotes) => {
-                const state = get();
-                const { finalizePurchaseOrderReviewSecure } = await import('../../actions/supply-v2');
-                const userId = state.user?.id || 'SYSTEM';
-
-                const result = await finalizePurchaseOrderReviewSecure({
-                    purchaseOrderId: poId,
-                    reviewNotes: reviewNotes || undefined,
-                }, userId);
-
-                if (result.success) {
-                    import('sonner').then(({ toast }) => toast.success('Revisión finalizada. Inventario actualizado'));
-                    set((s) => ({
-                        purchaseOrders: s.purchaseOrders.map(p => p.id === poId ? { ...p, status: 'RECEIVED' as any } : p)
-                    }));
-                    return;
-                }
-
-                import('sonner').then(({ toast }) => toast.error('Error finalizando revisión: ' + result.error));
-            },
-
-            cancelPurchaseOrder: (poId) => set((state) => ({
-                purchaseOrders: state.purchaseOrders.map(po =>
-                    po.id === poId ? { ...po, status: 'CANCELLED' as any } : po
-                )
-            })),
-            removePurchaseOrder: (poId) => set((state) => ({
-                purchaseOrders: state.purchaseOrders.filter(po => po.id !== poId)
-            })),
-            updatePurchaseOrder: (id, data) => set((state) => ({
-                purchaseOrders: state.purchaseOrders.map(po =>
-                    po.id === id ? { ...po, ...data } : po
-                )
-            })),
-
             // --- SRM Actions ---
             addSupplier: async (supplierData) => {
                 const data = supplierData as any;
@@ -1308,29 +1347,25 @@ export const usePharmaStore = create<PharmaState>()(
 
                     // ✅ Sale saved (either Cloud or Local)
 
-                    // 3. Update local inventory (deduct stock)
-                    const soldByBatch = buildSoldQuantityByBatch(state.cart);
-                    const newInventory = state.inventory.map(item => {
-                        const soldQty = soldByBatch.get(item.id) || 0;
-                        if (soldQty > 0) {
-                            return { ...item, stock_actual: item.stock_actual - soldQty };
-                        }
-                        return item;
-                    });
+                    // Online path is Query-first for POS inventory.
+                    // Keep the local stock patch only for offline/local fallback so the cashier
+                    // can continue operating deterministically without a server roundtrip.
+                    const nextState: Partial<PharmaState> = {};
 
                     // 4. Update customer points if applicable
                     if (customer) {
                         const pointsEarned = state.calculatePointsEarned(saleTransaction.total);
-                        state.updateCustomer(customer.id, {
+                        nextState.customers = state.customers.map(c => c.id === customer.id ? {
+                            ...c,
                             totalPoints: customer.totalPoints + pointsEarned,
                             lastVisit: Date.now(),
                             total_spent: (customer.total_spent || 0) + saleTransaction.total
-                        });
+                        } : c);
                     }
 
                     // 5. Update local state (clear cart and add to history)
                     set({
-                        inventory: newInventory,
+                        ...nextState,
                         cart: [],
                         currentCustomer: null,
                         salesHistory: [...state.salesHistory, saleTransaction]
@@ -1418,9 +1453,8 @@ export const usePharmaStore = create<PharmaState>()(
                         return newCustomer;
                     }
 
-                    // 4. Handle Offline / Fallback
-                    // If manually offline OR network request failed (result null or specific error)
-                    if (isOffline || !result || result.error?.includes('Network') || result.error?.includes('fetch')) {
+                    // 4. Handle explicit offline fallback only
+                    if (isOffline) {
                         console.log('⚠️ Falling back to Offline Customer Creation');
                         const tempId = `OFFLINE-CUST-${Date.now()}`;
                         const newCustomer: Customer = {
@@ -1457,55 +1491,50 @@ export const usePharmaStore = create<PharmaState>()(
                         }));
 
                         return newCustomer;
-                    } else {
-                        // Real validation error from server
-                        import('sonner').then(({ toast }) => toast.error(result.error || 'Error al registrar cliente'));
-                        return null;
                     }
+
+                    import('sonner').then(({ toast }) => toast.error(result?.error || 'Error al registrar cliente'));
+                    return null;
 
                 } catch (error: any) {
                     console.error('[Store] addCustomer error:', error);
-                    // Fallback on Exception (Network Error usually)
-                    const tempId = `OFFLINE-CUST-${Date.now()}`;
-                    const newCustomer: Customer = {
-                        ...data,
-                        id: tempId,
-                        totalPoints: 0,
-                        lastVisit: Date.now(),
-                        health_tags: [],
-                        name: data.fullName,
-                        age: 0,
-                        total_spent: 0,
-                        tags: [],
-                        status: 'ACTIVE'
-                    };
-
-                    const { useOutboxStore } = await import('../../lib/store/outboxStore');
-                    useOutboxStore.getState().addToOutbox(
-                        'CLIENT_CREATE',
-                        {
-                            ...data,
-                            registrationSource: data.registrationSource || 'POS'
-                        }
-                    );
-
-                    set((state) => ({
-                        customers: [...state.customers, newCustomer],
-                        currentCustomer: newCustomer
-                    }));
-
-                    import('sonner').then(({ toast }) => toast.warning('Cliente guardado localmente (Offline)', {
-                        description: 'Se sincronizará automáticamente.'
-                    }));
-                    return newCustomer;
+                    import('sonner').then(({ toast }) => toast.error(error?.message || 'Error al registrar cliente'));
+                    return null;
                 }
             },
-            updateCustomer: (id, data) => set((state) => ({
-                customers: state.customers.map(c => c.id === id ? { ...c, ...data } : c)
-            })),
-            deleteCustomer: (id) => set((state) => ({
-                customers: state.customers.map(c => c.id === id ? { ...c, status: 'BANNED' as const } : c)
-            })),
+            updateCustomer: async (id, data) => {
+                const { updateCustomerSecure } = await import('../../actions/customers-v2');
+                const result = await updateCustomerSecure({
+                    customerId: id,
+                    fullName: data.fullName,
+                    phone: data.phone,
+                    email: data.email,
+                    address: (data as any).address,
+                    tags: data.tags,
+                    healthTags: (data as any).health_tags,
+                    notes: (data as any).notes,
+                });
+
+                if (!result.success) {
+                    import('sonner').then(({ toast }) => toast.error(result.error || 'Error al actualizar cliente'));
+                    return false;
+                }
+
+                await get().fetchCustomers();
+                return true;
+            },
+            deleteCustomer: async (id) => {
+                const { deleteCustomerSecure } = await import('../../actions/customers-v2');
+                const result = await deleteCustomerSecure(id, '');
+
+                if (!result.success) {
+                    import('sonner').then(({ toast }) => toast.error(result.error || 'Error al eliminar cliente'));
+                    return false;
+                }
+
+                await get().fetchCustomers();
+                return true;
+            },
             redeemPoints: (customerId, points) => {
                 const state = get();
                 const customer = state.customers.find(c => c.id === customerId);
@@ -1531,10 +1560,13 @@ export const usePharmaStore = create<PharmaState>()(
                     return false;
                 }
 
-                // Deduct points
-                state.updateCustomer(customerId, {
-                    totalPoints: customer.totalPoints - points
-                });
+                set((currentState) => ({
+                    customers: currentState.customers.map(c =>
+                        c.id === customerId
+                            ? { ...c, totalPoints: customer.totalPoints - points }
+                            : c
+                    )
+                }));
 
                 return true;
             },
@@ -1608,7 +1640,6 @@ export const usePharmaStore = create<PharmaState>()(
                         unitPrice: item.price,
                         discount: 0
                     })),
-                    locationId: state.currentLocationId,
                     validDays: 7
                 });
 
@@ -1685,21 +1716,6 @@ export const usePharmaStore = create<PharmaState>()(
             // --- Cash Management & Shifts ---
             currentShift: null,
             dailyShifts: [],
-            fetchLocations: async () => {
-                set({ isLoadingLocations: true });
-                try {
-                    const { getLocationsSecure } = await import('../../actions/locations-v2');
-                    const result = await getLocationsSecure();
-                    if (result.success && result.data) {
-                        set({ locations: result.data });
-                    }
-                } catch (error) {
-                    console.error('Failed to fetch locations', error);
-                } finally {
-                    set({ isLoadingLocations: false });
-                }
-            },
-
             terminals: [],
             fetchTerminals: async (locationId) => {
                 set({ isFetchingTerminals: true });
@@ -1861,8 +1877,8 @@ export const usePharmaStore = create<PharmaState>()(
                     return;
                 }
 
-                // 🔧 FIX: Usar sessionId pasado directamente, fallback a localStorage solo si no se pasa
-                const effectiveSessionId = sessionId || localStorage.getItem('pos_session_id') || `shift_${Date.now()}`;
+                // El runtime POS no debe depender del storage general para decidir la sesión operativa.
+                const effectiveSessionId = sessionId || `shift_${Date.now()}`;
                 const newShift: Shift = {
                     id: effectiveSessionId,
                     terminal_id: effectiveTerminalId,
@@ -2179,286 +2195,6 @@ export const usePharmaStore = create<PharmaState>()(
                 )
             })),
 
-            // --- WMS & Logistics ---
-            stockTransfers: [],
-            shipments: [],
-            warehouseIncidents: [],
-
-            createDispatch: (shipmentData) => {
-                const state = get();
-                const now = Date.now();
-
-                // Enrich items with Batch Data
-                const enrichedItems = shipmentData.items.map(item => {
-                    const batch = state.inventory.find(b => b.id === item.batchId);
-                    return {
-                        ...item,
-                        lot_number: batch?.lot_number,
-                        expiry_date: batch?.expiry_date,
-                        dci: batch?.dci,
-                        unit_price: batch?.price_per_unit || batch?.price
-                    };
-                });
-
-                const newShipment: Shipment = {
-                    ...shipmentData,
-                    items: enrichedItems,
-                    id: `SHP - ${now} `,
-                    status: 'IN_TRANSIT',
-                    created_at: now,
-                    updated_at: now,
-                    documentation: {
-                        evidence_photos: []
-                    }
-                };
-
-                // Deduct stock using registerStockMovement
-                shipmentData.items.forEach(item => {
-                    state.registerStockMovement(item.batchId, -item.quantity, 'TRANSFER_OUT');
-                });
-
-                set((currentState) => ({
-                    shipments: [...currentState.shipments, newShipment]
-                }));
-            },
-            cancelShipment: (shipmentId) => set((state) => {
-                const shipment = state.shipments.find(s => s.id === shipmentId);
-                if (!shipment || shipment.status !== 'IN_TRANSIT') return {};
-
-                const updatedInventory = [...state.inventory];
-
-                // Restore stock to origin
-                // NOTE: Direct manipulation to handle potential batch recreation if it was depleted.
-                shipment.items.forEach(item => {
-                    const originBatchIndex = updatedInventory.findIndex(i => i.sku === item.sku && i.location_id === shipment.origin_location_id);
-
-                    if (originBatchIndex >= 0) {
-                        updatedInventory[originBatchIndex] = {
-                            ...updatedInventory[originBatchIndex],
-                            stock_actual: updatedInventory[originBatchIndex].stock_actual + item.quantity
-                        };
-                    } else {
-                        // Create new batch if missing in origin (unlikely but possible)
-                        const productDef = updatedInventory.find(i => i.sku === item.sku);
-                        if (productDef) {
-                            updatedInventory.push({
-                                ...productDef,
-                                id: `RESTORE-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-                                location_id: shipment.origin_location_id,
-                                stock_actual: item.quantity
-                            });
-                        }
-                    }
-                });
-
-                const updatedShipments = state.shipments.map(s =>
-                    s.id === shipmentId ? { ...s, status: 'CANCELLED' as const } : s
-                );
-
-                import('sonner').then(({ toast }) => {
-                    toast.success('Envío cancelado y stock restaurado');
-                });
-
-                return { shipments: updatedShipments, inventory: updatedInventory };
-            }),
-            refreshShipments: async (locationId) => {
-                const effectiveId = locationId || get().currentLocationId;
-                try {
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const shipments = await TigerDataService.fetchShipments(effectiveId);
-                    set({ shipments: shipments || [] });
-                } catch (error) {
-                    Sentry.captureException(error, {
-                        tags: {
-                            module: 'useStore',
-                            action: 'refreshShipments',
-                        },
-                        extra: {
-                            locationId: effectiveId || null,
-                        }
-                    });
-                }
-            },
-            refreshPurchaseOrders: async (locationId) => {
-                const effectiveId = locationId || get().currentLocationId;
-                try {
-                    const { TigerDataService } = await import('../../domain/services/TigerDataService');
-                    const purchaseOrders = await TigerDataService.fetchPurchaseOrders(effectiveId);
-                    set({ purchaseOrders: purchaseOrders || [] });
-                } catch (error) {
-                    Sentry.captureException(error, {
-                        tags: {
-                            module: 'useStore',
-                            action: 'refreshPurchaseOrders',
-                        },
-                        extra: {
-                            locationId: effectiveId || null,
-                        }
-                    });
-                }
-            },
-
-
-
-            confirmReception: (shipmentId, evidenceData) => set((state) => {
-                const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);
-                if (shipmentIndex === -1) return {};
-
-                const shipment = state.shipments[shipmentIndex];
-                const now = Date.now();
-                const updatedInventory = [...state.inventory];
-
-                evidenceData.receivedItems.forEach(recItem => {
-                    // 1. Add to Destination (if GOOD)
-                    if (recItem.condition === 'GOOD') {
-                        // Try to find existing batch of same SKU + Lot + Expiry at destination
-                        const originalItem = shipment.items.find(i => i.batchId === recItem.batchId);
-
-                        // Find match by SKU and Location
-                        const destBatchIndex = updatedInventory.findIndex(b =>
-                            b.sku === originalItem?.sku &&
-                            b.location_id === shipment.destination_location_id &&
-                            b.lot_number === originalItem?.lot_number && // Match Lot
-                            b.expiry_date === originalItem?.expiry_date // Match Expiry
-                        );
-
-                        if (destBatchIndex !== -1) {
-                            // Update existing batch
-                            updatedInventory[destBatchIndex] = {
-                                ...updatedInventory[destBatchIndex],
-                                stock_actual: updatedInventory[destBatchIndex].stock_actual + recItem.quantity
-                            };
-                        } else if (originalItem) {
-                            // Create NEW batch with inherited data
-                            // We need a template for other fields (name, format, etc.)
-                            // We can find any batch of this SKU to copy static data, or use what we have
-                            const templateBatch = state.inventory.find(b => b.sku === originalItem.sku);
-
-                            if (templateBatch) {
-                                updatedInventory.push({
-                                    ...templateBatch, // Copy static data (Name, Format, ISP)
-                                    id: `BATCH - ${now} -${Math.random().toString(36).substr(2, 5)} `,
-                                    location_id: shipment.destination_location_id,
-                                    stock_actual: recItem.quantity,
-
-                                    // INHERITED DYNAMIC DATA
-                                    lot_number: originalItem.lot_number || 'S/L',
-                                    expiry_date: originalItem.expiry_date || (now + 31536000000), // Default 1 year if missing
-                                    price: originalItem.unit_price || templateBatch.price,
-
-                                    stock_min: 10, // Default
-                                    stock_max: 100 // Default
-                                });
-                            }
-                        }
-                    } else {
-                        // Handle DAMAGED (Log incident, move to quarantine, etc.)
-                        // Item received DAMAGED
-                    }
-                });
-
-                // Update Shipment Status
-                const updatedShipments = [...state.shipments];
-                updatedShipments[shipmentIndex] = {
-                    ...shipment,
-                    status: 'DELIVERED',
-                    updated_at: now,
-                    documentation: {
-                        ...shipment.documentation,
-                        evidence_photos: [...shipment.documentation.evidence_photos, ...evidenceData.photos],
-                        observations: evidenceData.notes
-                    }
-                };
-
-                return {
-                    shipments: updatedShipments,
-                    inventory: updatedInventory
-                };
-            }),
-            uploadLogisticsDocument: (shipmentId: string, type: 'INVOICE' | 'GUIDE' | 'PHOTO', url: string, observations?: string) => set((state) => {
-                const shipmentIndex = state.shipments.findIndex(s => s.id === shipmentId);
-                if (shipmentIndex === -1) return {};
-
-                const updatedShipments = [...state.shipments];
-                const doc = { ...updatedShipments[shipmentIndex].documentation };
-
-                if (type === 'INVOICE') doc.invoice_url = url;
-                if (type === 'GUIDE') doc.dispatch_guide_url = url;
-                if (type === 'PHOTO') doc.evidence_photos = [...doc.evidence_photos, url];
-                if (observations) doc.observations = observations;
-
-                updatedShipments[shipmentIndex] = {
-                    ...updatedShipments[shipmentIndex],
-                    documentation: doc,
-                    updated_at: Date.now()
-                };
-
-                return { shipments: updatedShipments };
-            }),
-
-            dispatchTransfer: (transferData) => set((state) => {
-                const now = Date.now();
-                // Legacy Support: Create Shipment from Transfer
-                const newShipment: Shipment = {
-                    id: `SHP - LEGACY - ${now} `,
-                    type: 'INTER_BRANCH',
-                    origin_location_id: transferData.origin_location_id,
-                    destination_location_id: transferData.destination_location_id,
-                    status: 'IN_TRANSIT',
-                    transport_data: {
-                        carrier: transferData.shipment_data.carrier_name,
-                        tracking_number: transferData.shipment_data.tracking_number,
-                        package_count: 1,
-                        driver_name: transferData.shipment_data.driver_name
-                    },
-                    documentation: {
-                        evidence_photos: transferData.evidence.photos
-                    },
-                    items: transferData.items.map(i => ({
-                        id: i.batchId,
-                        batchId: i.batchId,
-                        sku: i.sku,
-                        name: i.productName,
-                        quantity: i.quantity,
-                        condition: 'GOOD'
-                    })),
-                    valuation: 0,
-                    created_at: now,
-                    updated_at: now
-                };
-
-                const updatedInventory = [...state.inventory];
-                transferData.items.forEach(item => {
-                    const batchIndex = updatedInventory.findIndex(b => b.id === item.batchId);
-                    if (batchIndex !== -1) {
-                        updatedInventory[batchIndex] = {
-                            ...updatedInventory[batchIndex],
-                            stock_actual: updatedInventory[batchIndex].stock_actual - item.quantity
-                        };
-                    }
-                });
-
-                return {
-                    shipments: [...state.shipments, newShipment],
-                    stockTransfers: [...state.stockTransfers, { ...transferData, id: `TRF - ${now} `, status: 'IN_TRANSIT', timeline: { created_at: now } }],
-                    inventory: updatedInventory
-                };
-            }),
-
-            receiveTransfer: (transferId, incidents) => set((state) => {
-                const transferIndex = state.stockTransfers.findIndex(t => t.id === transferId);
-                if (transferIndex === -1) return {};
-
-                const updatedTransfers = [...state.stockTransfers];
-                updatedTransfers[transferIndex] = {
-                    ...updatedTransfers[transferIndex],
-                    status: 'RECEIVED',
-                    timeline: { ...updatedTransfers[transferIndex].timeline, received_at: Date.now() }
-                };
-
-                return { stockTransfers: updatedTransfers };
-            }),
-
             // --- Queue ---
             tickets: [],
             currentTicket: null,
@@ -2507,7 +2243,7 @@ export const usePharmaStore = create<PharmaState>()(
                 // Optimistic timestamp update
                 set({ lastQueueActionTimestamp: Date.now() });
 
-                const result = await getNextTicketSecure(branchId, state.user?.id || '', counterId);
+                const result = await getNextTicketSecure(branchId, counterId);
 
                 if (result.success && result.ticket) {
                     const dbTicket = result.ticket;
@@ -2540,7 +2276,7 @@ export const usePharmaStore = create<PharmaState>()(
                 const { completeAndGetNextSecure } = await import('../../actions/queue-v2');
                 const branchId = state.currentLocationId || 'SUC-CENTRO';
 
-                const result = await completeAndGetNextSecure(currentTicketId, branchId, state.user?.id || '', counterId);
+                const result = await completeAndGetNextSecure(currentTicketId, branchId, counterId);
 
                 if (result.success) {
                     let nextTicket: QueueTicket | null = null;
@@ -2762,7 +2498,7 @@ export const usePharmaStore = create<PharmaState>()(
         }),
         {
             name: 'pharma-storage', // unique name
-            storage: createJSONStorage(() => indexedDBWithLocalStorageFallback),
+            storage: createJSONStorage(() => createScopedIndexedDBWithLocalStorageFallback('pharma-storage')),
             onRehydrateStorage: (state) => {
                 return (state, error) => {
                     if (!error && state) {
@@ -2772,6 +2508,11 @@ export const usePharmaStore = create<PharmaState>()(
                             // We don't use set() here because we are in the rehydration callback directly on the state
                             state.currentLocationId = '';
                         }
+
+                        // Runtime POS sensible se rehidrata desde la sesión dedicada + confirmación server-side.
+                        state.currentShift = null;
+                        state.currentTerminalId = '';
+                        state.terminals = sanitizePersistedPosTerminals(state.terminals || []);
                     }
                 };
             },
@@ -2792,13 +2533,11 @@ export const usePharmaStore = create<PharmaState>()(
                 customers: state.customers,
                 suppliers: state.suppliers,
                 supplierDocuments: state.supplierDocuments,
-                purchaseOrders: state.purchaseOrders,
                 salesHistory: state.salesHistory,
                 cashMovements: state.cashMovements,
                 expenses: state.expenses,
-                currentShift: state.currentShift,
                 dailyShifts: state.dailyShifts,
-                terminals: state.terminals,
+                terminals: sanitizePersistedPosTerminals(state.terminals),
                 cart: state.cart,
                 currentCustomer: state.currentCustomer,
                 tickets: state.tickets,
@@ -2806,12 +2545,24 @@ export const usePharmaStore = create<PharmaState>()(
                 lastQueueActionTimestamp: state.lastQueueActionTimestamp,
                 // Configuraciones
                 printerConfig: state.printerConfig,
-                siiConfiguration: state.siiConfiguration,
+                siiConfiguration: state.siiConfiguration
+                    ? {
+                        id: state.siiConfiguration.id,
+                        rut_emisor: state.siiConfiguration.rut_emisor,
+                        razon_social: state.siiConfiguration.razon_social,
+                        giro: state.siiConfiguration.giro,
+                        acteco: state.siiConfiguration.acteco,
+                        ambiente: state.siiConfiguration.ambiente,
+                        hasCertificate: state.siiConfiguration.hasCertificate,
+                        certificateCommonName: state.siiConfiguration.certificateCommonName,
+                        certificateExpiresAt: state.siiConfiguration.certificateExpiresAt,
+                        lastUploadedAt: state.siiConfiguration.lastUploadedAt,
+                    }
+                    : null,
                 loyaltyConfig: state.loyaltyConfig,
                 // Contexto de ubicación
                 currentLocationId: state.currentLocationId,
-                currentWarehouseId: state.currentWarehouseId,
-                currentTerminalId: state.currentTerminalId
+                currentWarehouseId: state.currentWarehouseId
             }),
         }
     )

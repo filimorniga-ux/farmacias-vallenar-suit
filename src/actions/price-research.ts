@@ -14,8 +14,7 @@ import { pool, query, type PoolClient } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { calculateSmartPrice, type ProductResearchResult } from '@/lib/web-price-search';
 import { v4 as uuidv4 } from 'uuid';
-import { headers } from 'next/headers';
-import bcrypt from 'bcryptjs';
+import { validatePinForRoles, type PinQueryClient } from '@/lib/pin-rbac';
 
 // ============================================================================
 // CONSTANTS
@@ -45,23 +44,7 @@ interface ResearchSession {
 // ============================================================================
 
 /**
- * Obtiene sesión del usuario desde headers (middleware)
- */
-async function getSession(): Promise<{ userId: string; role: string; userName: string } | null> {
-    try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role');
-        const userName = headersList.get('x-user-name');
-        if (!userId || !role) return null;
-        return { userId, role, userName: userName || 'Desconocido' };
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Valida PIN contra la DB con bcrypt. Soporta PIN 1213 como dev fallback.
+ * Valida PIN contra la DB usando la misma capa RBAC del resto del sistema.
  * Retorna el usuario autenticado si es válido.
  */
 async function validatePinByRole(
@@ -70,53 +53,18 @@ async function validatePinByRole(
     roles: string[]
 ): Promise<{ valid: boolean; user?: { id: string; name: string; role: string } }> {
     try {
-        // 1. Dev PIN fallback (mantener para desarrollo)
-        if (pin === '1213') {
-            return { valid: true, user: { id: 'dev-admin', name: 'Dev Admin', role: 'ADMIN' } };
-        }
+        const pinQueryClient: PinQueryClient = {
+            query: (sql, params) =>
+                client.query(sql, params as unknown[] | undefined) as Promise<Awaited<ReturnType<PinQueryClient['query']>>>,
+        };
 
-        // 2. Check env PIN (legacy compat)
-        const envPin = process.env.ADMIN_ACTION_PIN;
-        if (envPin && pin === envPin) {
-            return { valid: true, user: { id: 'env-admin', name: 'System Admin', role: 'ADMIN' } };
-        }
+        const result = await validatePinForRoles(pinQueryClient, pin, roles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        // 3. Check DB users with matching roles
-        let checkRateLimit: (id: string) => { allowed: boolean };
-        let recordFailedAttempt: (id: string) => void;
-        let resetAttempts: (id: string) => void;
-        try {
-            const limiter = await import('@/lib/rate-limiter');
-            checkRateLimit = limiter.checkRateLimit;
-            recordFailedAttempt = limiter.recordFailedAttempt;
-            resetAttempts = limiter.resetAttempts;
-        } catch {
-            // rate-limiter not available, continue without
-            checkRateLimit = () => ({ allowed: true });
-            recordFailedAttempt = () => {};
-            resetAttempts = () => {};
-        }
-
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin, role
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [roles]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) {
-                    resetAttempts(user.id);
-                    return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-            }
+        if (result.valid) {
+            return { valid: true, user: result.authorizedBy };
         }
 
         return { valid: false };
@@ -154,7 +102,7 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
         // This matches the pattern in get-products-v2.ts and inventory-v2.ts
         let sql = `
             SELECT
-                p.id, p.name, p.sku, p.barcode,
+                p.id, p.name, p.sku, NULLIF(to_jsonb(p)->>'barcode', '') as barcode,
                 COALESCE(MAX(ib.sale_price), MAX(ib.price_sell_box), p.price, 0) as sale_price,
                 COALESCE(p.cost_price, MAX(ib.unit_cost), MAX(ib.cost_net), 0) as cost_price
             FROM products p
@@ -172,10 +120,10 @@ export async function startPriceResearchSecure(params: StartResearchParams): Pro
 
         if (params.categoryId) {
             sqlParams.push(params.categoryId);
-            sql += ` AND p.category_id = $${sqlParams.length}`;
+            sql += ` AND NULLIF(to_jsonb(p)->>'category_id', '') = $${sqlParams.length}`;
         }
 
-        sql += ` GROUP BY p.id, p.name, p.sku, p.barcode, p.price, p.cost_price`;
+        sql += ` GROUP BY p.id, p.name, p.sku, NULLIF(to_jsonb(p)->>'barcode', ''), p.price, p.cost_price`;
         sql += ` ORDER BY p.name`;
 
         const limit = params.limit || 500;

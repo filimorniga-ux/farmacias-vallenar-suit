@@ -1,7 +1,18 @@
 'use server';
 
 import { query } from '@/lib/db';
+import { getSessionSecure } from '@/actions/auth-v2';
 
+const INTERNAL_PRICE_ROLES = new Set([
+    'WAREHOUSE',
+    'WAREHOUSE_CHIEF',
+    'MANAGER',
+    'QF',
+    'ADMIN',
+    'GERENTE_GENERAL',
+]);
+
+export type UnifiedProductContract = 'PUBLIC' | 'INTERNAL';
 
 export type OfferingType = 'BRANCH' | 'PROVIDER';
 
@@ -60,10 +71,50 @@ export interface SearchFilters {
     actionId?: number;
 }
 
-export async function searchUnifiedProducts(searchTerm: string, filters?: SearchFilters): Promise<UnifiedProduct[]> {
+function normalizeRole(role?: string | null) {
+    return String(role || '').trim().toUpperCase();
+}
+
+async function resolveUnifiedProductContract(requestedContract: UnifiedProductContract): Promise<UnifiedProductContract> {
+    if (requestedContract === 'PUBLIC') {
+        return 'PUBLIC';
+    }
+
+    try {
+        const session = await getSessionSecure();
+        return INTERNAL_PRICE_ROLES.has(normalizeRole(session?.role)) ? 'INTERNAL' : 'PUBLIC';
+    } catch {
+        return 'PUBLIC';
+    }
+}
+
+function sanitizeUnifiedProductsForPublic(results: UnifiedProduct[]): UnifiedProduct[] {
+    return results.map((product) => {
+        const publicOfferings = product.offerings.filter((offering) => offering.type === 'BRANCH');
+        const activePrices = publicOfferings.filter((offering) => offering.price > 0).map((offering) => offering.price);
+        const bestPrice = activePrices.length > 0 ? Math.min(...activePrices) : 0;
+        const highestPrice = activePrices.length > 0 ? Math.max(...activePrices) : 0;
+
+        return {
+            ...product,
+            offerings: publicOfferings,
+            bestPrice,
+            highestPrice,
+            maxMargin: 0,
+            alerts: [],
+        };
+    });
+}
+
+export async function searchUnifiedProducts(
+    searchTerm: string,
+    filters?: SearchFilters,
+    requestedContract: UnifiedProductContract = 'INTERNAL',
+): Promise<UnifiedProduct[]> {
     if ((!searchTerm || searchTerm.trim().length < 2) && (!filters || Object.keys(filters).length === 0)) return [];
 
     try {
+        const contract = await resolveUnifiedProductContract(requestedContract);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const params: any[] = [];
         const whereClauses: string[] = [];
@@ -131,8 +182,8 @@ export async function searchUnifiedProducts(searchTerm: string, filters?: Search
                 ii.raw_active_principle,
                 ii.raw_misc,
                 p.name as canonical_name,
-                p.barcode as canonical_barcode,
-                p.is_bioequivalent,
+                NULLIF(to_jsonb(p)->>'barcode', '') as canonical_barcode,
+                COALESCE(NULLIF(to_jsonb(p)->>'is_bioequivalent', '')::boolean, false) as is_bioequivalent,
                 p.dci,
                 p.units_per_box,
                 c.name as category_name,
@@ -292,7 +343,7 @@ export async function searchUnifiedProducts(searchTerm: string, filters?: Search
         });
 
         // Sort results by relevance (optional, maybe best margin?)
-        return results;
+        return contract === 'PUBLIC' ? sanitizeUnifiedProductsForPublic(results) : results;
 
     } catch (error) {
         console.error("Error in Unified Search:", error);

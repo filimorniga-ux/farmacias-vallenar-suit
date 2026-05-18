@@ -1,12 +1,14 @@
 'use server';
 
 import { pool } from '@/lib/db';
+import { logger } from '@/lib/logger';
+import { getValidatedSession } from '@/lib/server-session';
+import { normalizeRole } from '@/lib/pin-rbac';
 import fs from 'fs';
 import path from 'path';
 
 type Diagnosis = {
     envVarExists: boolean;
-    envVarLength: number;
     nodeEnv: string | undefined;
     connectionStatus: 'PENDING' | 'SUCCESS' | 'FAILED';
     error: string | null;
@@ -18,26 +20,32 @@ type Diagnosis = {
     };
     dataError?: string;
     fileSystem?: {
-        cwd: string;
-        csvFound: string;
-        rootDir: string[];
-        publicDir: string[] | 'MISSING';
+        csvFound: boolean;
+        publicDirPresent: boolean;
     };
     fsError?: string;
 };
 
 export async function diagnoseDbConnection() {
-    console.log('🕵️‍♂️ [DIAGNOSTIC] Starting DB Check...');
-
     const diagnosis: Diagnosis = {
         envVarExists: !!process.env.DATABASE_URL,
-        envVarLength: process.env.DATABASE_URL?.length || 0,
         nodeEnv: process.env.NODE_ENV,
         connectionStatus: 'PENDING',
         error: null as string | null,
         timestamp: null as string | null,
         sslConfig: 'Unknown'
     };
+
+    const session = await getValidatedSession();
+    const role = normalizeRole(session?.role);
+
+    if (!session || !['ADMIN', 'GERENTE_GENERAL'].includes(role)) {
+        return {
+            ...diagnosis,
+            connectionStatus: 'FAILED' as const,
+            error: 'Acceso denegado',
+        };
+    }
 
     try {
         // 1. Check Env Var format (basic sanity check)
@@ -47,11 +55,8 @@ export async function diagnoseDbConnection() {
         }
 
         // 2. Attempt Connection
-        const start = Date.now();
-        console.log('🕵️‍♂️ [DIAGNOSTIC] Connecting to Pool...');
         const client = await pool.connect();
         diagnosis.connectionStatus = 'SUCCESS';
-        console.log(`✅ [DIAGNOSTIC] Connected in ${Date.now() - start}ms`);
 
         // 3. Run Query
         const res = await client.query('SELECT NOW() as now, version() as version');
@@ -66,7 +71,7 @@ export async function diagnoseDbConnection() {
                 batches: countBatches.rows[0].count
             };
         } catch (e: unknown) {
-            diagnosis.dataError = e instanceof Error ? e.message : 'Unknown data count error';
+            diagnosis.dataError = 'No fue posible contar datos';
         }
 
         client.release();
@@ -82,20 +87,17 @@ export async function diagnoseDbConnection() {
             const foundPath = candidates.find(c => fs.existsSync(c));
 
             diagnosis.fileSystem = {
-                cwd: process.cwd(),
-                csvFound: foundPath || 'NOT FOUND',
-                // List first 10 files in logical directories to debug Vercel structure
-                rootDir: fs.readdirSync(process.cwd()).slice(0, 5),
-                publicDir: fs.existsSync(path.join(process.cwd(), 'public')) ? fs.readdirSync(path.join(process.cwd(), 'public')).slice(0, 5) : 'MISSING',
+                csvFound: Boolean(foundPath),
+                publicDirPresent: fs.existsSync(path.join(process.cwd(), 'public')),
             };
         } catch (fsErr: unknown) {
-            diagnosis.fsError = fsErr instanceof Error ? fsErr.message : 'Unknown filesystem error';
+            diagnosis.fsError = 'No fue posible verificar archivos locales';
         }
 
     } catch (err: unknown) {
-        console.error('❌ [DIAGNOSTIC] FAILURE:', err);
+        logger.error({ error: err }, '[DiagnoseDb] Diagnostic failed');
         diagnosis.connectionStatus = 'FAILED';
-        diagnosis.error = err instanceof Error ? err.message : JSON.stringify(err);
+        diagnosis.error = 'No fue posible conectar a la base de datos';
     }
 
     return diagnosis;

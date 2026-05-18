@@ -1,10 +1,55 @@
 import { NextResponse } from 'next/server';
+
+import { OPERATIONS_API_ROLES, requireApiRoles } from '@/lib/api-auth';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 import { pool } from '@/lib/db';
+import { logger } from '@/lib/logger';
+
+const VALID_ACTIONS = new Set(['ANALYZE_DUPLICATES']);
+const MAX_DEDUPLICATE_BODY_BYTES = 8 * 1024;
+
+function getDeclaredContentLength(request: Request) {
+    const raw = request.headers.get('content-length');
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
 export async function POST(request: Request) {
     try {
-        const body = await request.json();
-        const action = body.action || 'ANALYZE';
+        const auth = await requireApiRoles(OPERATIONS_API_ROLES);
+        if (!auth.ok) {
+            return auth.response;
+        }
+
+        const declaredContentLength = getDeclaredContentLength(request);
+        if (declaredContentLength !== null && declaredContentLength > MAX_DEDUPLICATE_BODY_BYTES) {
+            return NextResponse.json(
+                {
+                    error: 'Payload de análisis demasiado grande',
+                    code: 'DEDUPLICATE_BODY_TOO_LARGE',
+                },
+                { status: 413, headers: API_NO_STORE_HEADERS },
+            );
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const action = typeof body.action === 'string' ? body.action : 'ANALYZE_DUPLICATES';
+
+        if (action === 'MERGE_DUPLICATES') {
+            return NextResponse.json(
+                {
+                    error: 'Fusión automática de duplicados deshabilitada. Revise los duplicados en modo solo lectura.',
+                    code: 'DEDUPLICATE_MERGE_LEGACY_DISABLED',
+                },
+                { status: 410, headers: API_NO_STORE_HEADERS },
+            );
+        }
+
+        if (!VALID_ACTIONS.has(action)) {
+            return NextResponse.json({ error: 'Acción no válida' }, { status: 400, headers: API_NO_STORE_HEADERS });
+        }
 
         const client = await pool.connect();
         try {
@@ -26,62 +71,19 @@ export async function POST(request: Request) {
                     success: true,
                     duplicates: stats,
                     message: `Se encontraron ${duplicateGroups.length} grupos de duplicados.`
-                });
+                }, { headers: API_NO_STORE_HEADERS });
             }
-
-            if (action === 'MERGE_DUPLICATES') {
-                await client.query('BEGIN');
-                let mergedCount = 0;
-
-                for (const group of duplicateGroups) {
-                    const sku = group.sku;
-
-                    const { rows: products } = await client.query(
-                        'SELECT * FROM products WHERE sku = $1 ORDER BY created_at DESC',
-                        [sku]
-                    );
-
-                    const master = products[0];
-                    const duplicates = products.slice(1);
-
-                    const totalStockToAdd = duplicates.reduce((sum, p) => sum + (p.stock_actual || 0), 0);
-
-                    await client.query(
-                        'UPDATE products SET stock_actual = stock_actual + $1 WHERE id = $2',
-                        [totalStockToAdd, master.id]
-                    );
-
-                    const duplicateIds = duplicates.map(d => d.id);
-                    await client.query(
-                        'DELETE FROM products WHERE id = ANY($1)',
-                        [duplicateIds]
-                    );
-
-                    mergedCount++;
-                }
-
-                await client.query('COMMIT');
-                return NextResponse.json({
-                    success: true,
-                    mergedCount,
-                    message: `Se fusionaron ${mergedCount} productos correctamente.`
-                });
-            }
-
-            return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
-
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
         } finally {
             client.release();
         }
 
+        return NextResponse.json({ error: 'Acción no válida' }, { status: 400, headers: API_NO_STORE_HEADERS });
+
     } catch (error) {
-        console.error('Deduplicate error:', error);
+        logger.error({ error }, '[InventoryDeduplicateRoute] Deduplicate failed');
         return NextResponse.json(
-            { error: 'Error al procesar duplicados', details: (error as Error).message },
-            { status: 500 }
+            { error: 'Error al procesar duplicados', code: 'DEDUPLICATE_FAILED' },
+            { status: 500, headers: API_NO_STORE_HEADERS },
         );
     }
 }

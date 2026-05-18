@@ -2,10 +2,15 @@ import React, { useState } from 'react';
 import { Package, Truck, ArrowRight, CheckCircle, Search, Filter, Calendar, Clock, ArrowDown, ArrowUp, X, MapPin, FileText, Camera, RotateCcw, ShoppingCart, Ban, Activity, FileSpreadsheet } from 'lucide-react';
 import { usePharmaStore } from '../store/useStore';
 import { useLocationStore } from '../store/useLocationStore';
+import { useQueryClient } from '@tanstack/react-query';
 import { Shipment, PurchaseOrder } from '../../domain/types';
 // V2: Funciones seguras
 import { getRecentMovementsSecure } from '../../actions/inventory-v2';
 import { exportStockMovementsSecure, exportPurchaseOrdersSecure } from '../../actions/inventory-export-v2';
+import { cancelPurchaseOrderSecure, receivePurchaseOrderSecure } from '@/actions/supply-v2';
+import { purchaseOrdersQueryKey, usePurchaseOrdersQuery } from '@/presentation/hooks/usePurchaseOrdersQuery';
+import { shipmentsQueryKey, useShipmentsQuery } from '@/presentation/hooks/useShipmentsQuery';
+import { cancelShipmentSecure } from '@/actions/wms-v2';
 import UnifiedReception from '../components/warehouse/UnifiedReception';
 import DocumentViewerModal from '../components/warehouse/DocumentViewerModal';
 import ScanReceptionModal from '../components/warehouse/ScanReceptionModal';
@@ -15,19 +20,28 @@ import MobileActionScroll from '../components/ui/MobileActionScroll';
 import { toast } from 'sonner';
 
 export const WarehouseOps = () => {
-    const { user, shipments, purchaseOrders, cancelShipment, refreshShipments, cancelPurchaseOrder, receivePurchaseOrder, inventory, createDispatch, addPurchaseOrder } = usePharmaStore();
+    const queryClient = useQueryClient();
+    const user = usePharmaStore((state) => state.user);
     const { currentLocation } = useLocationStore();
     const currentLocationId = currentLocation?.id || '';
 
     const [activeTab, setActiveTab] = useState<'INBOUND' | 'OUTBOUND' | 'TRANSIT' | 'REVERSE' | 'SUPPLIER_ORDERS' | 'MOVEMENTS'>('INBOUND');
     const [searchTerm, setSearchTerm] = useState('');
 
-    // Fetch shipments when location or tab changes
-    React.useEffect(() => {
-        if (currentLocationId && activeTab !== 'MOVEMENTS') {
-            refreshShipments(currentLocationId);
-        }
-    }, [currentLocationId, activeTab]);
+    const {
+        data: shipments = [],
+        isLoading: isLoadingShipments,
+        refetch: refetchShipments,
+    } = useShipmentsQuery(currentLocationId || undefined, {
+        enabled: !!currentLocationId && activeTab !== 'MOVEMENTS' && activeTab !== 'SUPPLIER_ORDERS',
+    });
+    const {
+        data: purchaseOrders = [],
+        isLoading: isLoadingPurchaseOrders,
+        refetch: refetchPurchaseOrders,
+    } = usePurchaseOrdersQuery(currentLocationId || undefined, {
+        enabled: !!currentLocationId && activeTab === 'SUPPLIER_ORDERS',
+    });
 
     // Modal States
     const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
@@ -51,6 +65,7 @@ export const WarehouseOps = () => {
     const [loadingMovements, setLoadingMovements] = useState(false);
 
     const isWarehouse = currentLocation?.type === 'WAREHOUSE' || currentLocation?.type === 'HQ';
+    const isLoadingTabData = activeTab === 'SUPPLIER_ORDERS' ? isLoadingPurchaseOrders : isLoadingShipments;
 
     // Fetch movements when tab changes to MOVEMENTS or location changes
     React.useEffect(() => {
@@ -82,7 +97,11 @@ export const WarehouseOps = () => {
         }
 
         const refreshPromise = async () => {
-            await refreshShipments(currentLocationId);
+            if (activeTab === 'SUPPLIER_ORDERS') {
+                await refetchPurchaseOrders();
+            } else if (activeTab !== 'MOVEMENTS') {
+                await refetchShipments();
+            }
             if (activeTab === 'MOVEMENTS') {
                 const res = await getRecentMovementsSecure(currentLocationId);
                 if (res.success && res.data) setMovements(res.data);
@@ -186,21 +205,62 @@ export const WarehouseOps = () => {
         setIsBlindReceptionOpen(true);
     };
 
-    const handleBlindReception = (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => {
-        receivePurchaseOrder(order.id, receivedItems, currentLocationId);
+    const handleBlindReception = async (order: PurchaseOrder, receivedItems: { sku: string; receivedQty: number }[]) => {
+        if (!user?.id) {
+            toast.error('Sesión inválida');
+            return;
+        }
+
+        const result = await receivePurchaseOrderSecure({
+            purchaseOrderId: order.id,
+            receivedItems: receivedItems.map((item) => ({
+                sku: item.sku,
+                quantity: item.receivedQty,
+            })),
+        }, user.id);
+
+        if (!result.success) {
+            toast.error(result.error || 'No se pudo registrar la recepción');
+            return;
+        }
+
+        await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(currentLocationId || undefined) });
+        await queryClient.invalidateQueries({ queryKey: ['inventory'] });
+        toast.success('Recepción registrada. Orden en revisión');
         setIsBlindReceptionOpen(false);
         setSelectedPO(null);
     };
 
-    const handleCancelShipment = (id: string) => {
+    const handleCancelShipment = async (id: string) => {
         if (confirm('¿Estás seguro de cancelar este envío? El stock volverá al origen.')) {
-            cancelShipment(id);
+            const result = await cancelShipmentSecure({ shipmentId: id });
+            if (!result.success) {
+                toast.error(result.error || 'No se pudo cancelar el envío');
+                return;
+            }
+
+            await Promise.all([
+                queryClient.invalidateQueries({ queryKey: shipmentsQueryKey(currentLocationId || undefined) }),
+                queryClient.invalidateQueries({ queryKey: ['inventory'] }),
+            ]);
+            toast.success('Envío cancelado y stock restaurado');
         }
     };
 
-    const handleCancelPO = (id: string) => {
+    const handleCancelPO = async (id: string) => {
         if (confirm('¿Cancelar este pedido a proveedor?')) {
-            cancelPurchaseOrder(id);
+            if (!user?.id) {
+                toast.error('Sesión inválida');
+                return;
+            }
+
+            const result = await cancelPurchaseOrderSecure(id, user.id, 'Cancelado desde operaciones de bodega');
+            if (!result.success) {
+                toast.error(result.error || 'No se pudo cancelar el pedido');
+                return;
+            }
+
+            await queryClient.invalidateQueries({ queryKey: purchaseOrdersQueryKey(currentLocationId || undefined) });
             toast.success('Pedido cancelado');
         }
     };
@@ -465,7 +525,7 @@ export const WarehouseOps = () => {
                         className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 flex items-center gap-2 font-bold text-sm transition-all"
                         title="Refrescar datos"
                     >
-                        <RotateCcw className={`w-4 h-4 ${loadingMovements ? 'animate-spin' : ''}`} />
+                        <RotateCcw className={`w-4 h-4 ${(loadingMovements || isLoadingTabData) ? 'animate-spin' : ''}`} />
                         Refrescar
                     </button>
                     <button

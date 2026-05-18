@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Users, Activity, History, Search, Filter } from 'lucide-react';
+import { Users, Activity, History, Search } from 'lucide-react';
 import { EmployeeProfile } from '@/domain/types';
 import { EmployeeModal } from './EmployeeModal';
 import { updateUserSecure } from '@/actions/users-v2';
@@ -72,14 +72,31 @@ export default function HumanResourcesDashboard({
         e.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+    const handleTabChange = (value: string) => {
+        setActiveTab(value as 'directory' | 'monitor' | 'history');
+    };
+
     return (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             {/* Tabs Header */}
-            <div className="border-b border-slate-200">
-                <nav className="flex -mb-px" aria-label="Tabs">
+            <div className="border-b border-slate-200 p-3 sm:hidden">
+                <label htmlFor="hr-mobile-tab" className="sr-only">Vista de Recursos Humanos</label>
+                <select
+                    id="hr-mobile-tab"
+                    value={activeTab}
+                    onChange={(event) => handleTabChange(event.target.value)}
+                    className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                >
+                    <option value="directory">Directorio y credenciales</option>
+                    <option value="monitor">Monitor en vivo</option>
+                    <option value="history">Historial y reportes</option>
+                </select>
+            </div>
+            <div className="hidden border-b border-slate-200 sm:block">
+                <nav className="-mb-px flex overflow-x-auto touch-pan-x overscroll-contain" aria-label="Tabs">
                     <button
                         onClick={() => setActiveTab('directory')}
-                        className={`w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 ${activeTab === 'directory'
+                        className={`min-h-11 min-w-[13rem] flex-1 py-4 px-3 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'directory'
                             ? 'border-blue-500 text-blue-600'
                             : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                             }`}
@@ -89,7 +106,7 @@ export default function HumanResourcesDashboard({
                     </button>
                     <button
                         onClick={() => setActiveTab('monitor')}
-                        className={`w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 ${activeTab === 'monitor'
+                        className={`min-h-11 min-w-[11rem] flex-1 py-4 px-3 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'monitor'
                             ? 'border-blue-500 text-blue-600'
                             : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                             }`}
@@ -99,7 +116,7 @@ export default function HumanResourcesDashboard({
                     </button>
                     <button
                         onClick={() => setActiveTab('history')}
-                        className={`w-1/4 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 ${activeTab === 'history'
+                        className={`min-h-11 min-w-[12rem] flex-1 py-4 px-3 text-center border-b-2 font-medium text-sm flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'history'
                             ? 'border-blue-500 text-blue-600'
                             : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
                             }`}
@@ -111,7 +128,7 @@ export default function HumanResourcesDashboard({
             </div>
 
             {/* Content Area */}
-            <div className="p-6">
+            <div className="p-4 md:p-6">
                 {/* Search Bar (Shared for Directory and Monitor) */}
                 {activeTab !== 'history' && (
                     <div className="mb-6">
@@ -121,10 +138,11 @@ export default function HumanResourcesDashboard({
                             </div>
                             <input
                                 type="text"
-                                className="block w-full pl-10 pr-3 py-2 border border-slate-300 rounded-md leading-5 bg-white placeholder-slate-500 focus:outline-none focus:placeholder-slate-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                                className="block h-11 w-full pl-10 pr-3 border border-slate-300 rounded-md leading-5 bg-white placeholder-slate-500 focus:outline-none focus:placeholder-slate-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                                 placeholder="Buscar empleado por nombre o RUT..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
+                                aria-label="Buscar empleado por nombre o RUT"
                             />
                         </div>
                     </div>
@@ -165,8 +183,8 @@ export default function HumanResourcesDashboard({
 
 function DirectoryView({ employees, onEdit }: { employees: any[], onEdit: (emp: any) => void }) {
     return (
-        <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
+        <div className="overflow-x-auto touch-pan-x overscroll-contain">
+            <table className="min-w-[760px] divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                     <tr>
                         <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
@@ -218,7 +236,7 @@ function DirectoryView({ employees, onEdit }: { employees: any[], onEdit: (emp: 
                             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 <button
                                     onClick={() => onEdit(employee)}
-                                    className="text-blue-600 hover:text-blue-900 border border-slate-200 px-3 py-1 rounded hover:bg-slate-50"
+                                    className="min-h-11 text-blue-600 hover:text-blue-900 border border-slate-200 px-4 py-2 rounded hover:bg-slate-50"
                                 >
                                     Editar
                                 </button>
@@ -283,12 +301,12 @@ function HistoryView({ initialData }: { initialData: any[] }) {
     return (
         <div>
             <div className="flex justify-end gap-2 mb-4">
-                <button className="px-3 py-1.5 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 flex items-center gap-1">
+                <button className="min-h-11 px-4 py-2 bg-slate-800 text-white text-sm rounded hover:bg-slate-700 flex items-center gap-1">
                     Exportar PDF/Excel
                 </button>
             </div>
-            <div className="overflow-hidden border rounded-lg">
-                <table className="min-w-full divide-y divide-slate-200">
+            <div className="overflow-x-auto touch-pan-x overscroll-contain border rounded-lg">
+                <table className="min-w-[760px] divide-y divide-slate-200">
                     <thead className="bg-slate-50">
                         <tr>
                             <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase">Fecha / Hora</th>

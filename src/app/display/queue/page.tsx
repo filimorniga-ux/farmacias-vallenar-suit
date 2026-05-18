@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Settings, MapPin, Volume2, VolumeX, Maximize, Monitor, LogOut, Users, Check } from 'lucide-react';
 import { getPublicLocationsSecure } from '@/actions/public-network-v2';
 import { getQueueStatusSecure } from '@/actions/queue-v2';
+import { unlockQueueDisplaySecure, validateQueueDisplayExitPinSecure } from '@/actions/kiosk-auth-v2';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import { findAvailablePublicKioskLocation } from '@/presentation/lib/publicKioskLocation';
 
 // ============================================================================
 // TYPES
@@ -29,18 +31,22 @@ interface Ticket {
     module_number?: string;
 }
 
+const QUEUE_DISPLAY_TOKEN_KEY = 'queue_display_token';
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export default function QueueDisplayPage() {
     const router = useRouter();
+    const shouldReduceMotion = useReducedMotion();
     // SETUP STATE
     const [step, setStep] = useState<'SETUP' | 'DISPLAY'>('SETUP');
     const [locations, setLocations] = useState<Location[]>([]);
     const [locationId, setLocationId] = useState<string>('');
     const [locationName, setLocationName] = useState<string>('');
     const [setupPin, setSetupPin] = useState('');
+    const [displayToken, setDisplayToken] = useState('');
 
     // DISPLAY STATE
     const [activeTickets, setActiveTickets] = useState<Ticket[]>([]);
@@ -49,12 +55,21 @@ export default function QueueDisplayPage() {
     const [waitingCount, setWaitingCount] = useState(0);
     const [isMuted, setIsMuted] = useState(false);
     const [waitingList, setWaitingList] = useState<Ticket[]>([]);
-    const [debugData, setDebugData] = useState<any[]>([]);
 
     // State for tracking last announcement to support recalls
     const lastAnnouncementRef = useRef<{ id: string; time: string } | null>(null);
 
     const audioContextRef = useRef<AudioContext | null>(null);
+
+    const clearStoredDisplayLocation = useCallback(() => {
+        localStorage.removeItem(QUEUE_DISPLAY_TOKEN_KEY);
+        localStorage.removeItem('queue_display_location_id');
+        localStorage.removeItem('queue_display_location_name');
+        setDisplayToken('');
+        setLocationId('');
+        setLocationName('');
+        setStep('SETUP');
+    }, []);
 
     // ========================================================================
     // INIT & SETUP
@@ -94,49 +109,93 @@ export default function QueueDisplayPage() {
 
     useEffect(() => {
         // Load persistency
+        const savedToken = localStorage.getItem(QUEUE_DISPLAY_TOKEN_KEY);
         const savedLocId = localStorage.getItem('queue_display_location_id');
         const savedLocName = localStorage.getItem('queue_display_location_name');
-
-        if (savedLocId) {
-            setLocationId(savedLocId);
-            setLocationName(savedLocName || 'Sucursal');
-            setStep('DISPLAY');
-        }
 
         // Fetch locations for setup
         getPublicLocationsSecure().then(res => {
             if (res.success && res.data) {
                 setLocations(res.data);
+                const availableLocation = findAvailablePublicKioskLocation(res.data, savedLocId);
+
+                if (availableLocation) {
+                    setLocationId(availableLocation.id);
+                    setLocationName(availableLocation.name || savedLocName || 'Sucursal');
+
+                    if (savedToken) {
+                        setDisplayToken(savedToken);
+                        setStep('DISPLAY');
+                    }
+                } else if (savedLocId || savedToken) {
+                    clearStoredDisplayLocation();
+                }
             }
         });
-    }, []);
+    }, [clearStoredDisplayLocation]);
 
     const handleSelectLocation = (loc: Location) => {
         setLocationId(loc.id);
         setLocationName(loc.name);
         localStorage.setItem('queue_display_location_id', loc.id);
         localStorage.setItem('queue_display_location_name', loc.name);
+        setSetupPin('');
+    };
+
+    const handleActivateDisplay = async () => {
+        if (!locationId || setupPin.length < 4) {
+            toast.error('Seleccione sucursal e ingrese PIN de administración');
+            return;
+        }
+
+        const result = await unlockQueueDisplaySecure({
+            locationId,
+            pin: setupPin,
+        });
+
+        if (!result.success || !result.token) {
+            toast.error(result.error || 'PIN incorrecto');
+            setSetupPin('');
+            return;
+        }
+
+        localStorage.setItem(QUEUE_DISPLAY_TOKEN_KEY, result.token);
+        setDisplayToken(result.token);
         setStep('DISPLAY');
         setSetupPin('');
 
-        // Auto-Fullscreen on setup (User Interaction)
         if (!document.fullscreenElement) {
             document.documentElement.requestFullscreen().catch((e) => console.log('Fullscreen denied:', e));
         }
     };
 
-    const handleReset = () => {
-        if (setupPin === '1213') {
-            localStorage.removeItem('queue_display_location_id');
-            localStorage.removeItem('queue_display_location_name');
-            setStep('SETUP');
-            setSetupPin('');
-            setCurrentTicket(null);
-            setHistory([]);
-        } else {
-            toast.error('PIN Incorrecto');
-            setSetupPin('');
+    const handleReset = async () => {
+        if (!displayToken || setupPin.length < 4) {
+            toast.error('Ingrese PIN de administración');
+            return;
         }
+
+        const result = await validateQueueDisplayExitPinSecure({
+            pin: setupPin,
+            kioskToken: displayToken,
+        });
+
+        if (!result.success) {
+            toast.error(result.error || 'PIN incorrecto');
+            setSetupPin('');
+            return;
+        }
+
+        localStorage.removeItem(QUEUE_DISPLAY_TOKEN_KEY);
+        localStorage.removeItem('queue_display_location_id');
+        localStorage.removeItem('queue_display_location_name');
+        setDisplayToken('');
+        setStep('SETUP');
+        setSetupPin('');
+        setCurrentTicket(null);
+        setHistory([]);
+        setWaitingList([]);
+        setWaitingCount(0);
     };
 
     // ========================================================================
@@ -247,14 +306,17 @@ export default function QueueDisplayPage() {
 
     // POLL EFFECT
     useEffect(() => {
-        if (step !== 'DISPLAY' || !locationId) return;
+        if (step !== 'DISPLAY' || !locationId || !displayToken) return;
 
         let isMounted = true;
         const POLL_INTERVAL = 2000;
 
         const fetchStatus = async () => {
             try {
-                const res = await getQueueStatusSecure(locationId);
+                const res = await getQueueStatusSecure(locationId, {
+                    publicDisplay: true,
+                    kioskToken: displayToken,
+                });
 
                 if (isMounted && res.success && res.data) {
                     const { calledTickets, waitingCount, lastCompletedTickets, waitingTickets } = res.data;
@@ -277,9 +339,6 @@ export default function QueueDisplayPage() {
                     setWaitingList(nextList);
                     setWaitingCount(waitingCount);
 
-                    // @ts-ignore
-                    setDebugData(res.data.debug_allRows || []);
-
                     // AUDIO TRIGGER LOGIC
                     // We check if:
                     // 1. We have a latest active ticket
@@ -301,6 +360,13 @@ export default function QueueDisplayPage() {
                             };
                         }
                     }
+                } else if (isMounted && !res.success) {
+                    if ((res.error || '').toLowerCase().includes('token') || (res.error || '').toLowerCase().includes('pantalla')) {
+                        localStorage.removeItem(QUEUE_DISPLAY_TOKEN_KEY);
+                        setDisplayToken('');
+                        setStep('SETUP');
+                        toast.error('La sesión de la pantalla expiró. Reactívela.');
+                    }
                 }
             } catch (err) {
                 console.error("Poll error:", err);
@@ -310,7 +376,7 @@ export default function QueueDisplayPage() {
         fetchStatus();
         const interval = setInterval(fetchStatus, POLL_INTERVAL);
         return () => { isMounted = false; clearInterval(interval); };
-    }, [step, locationId, playAnnouncement]);
+    }, [displayToken, step, locationId, playAnnouncement]);
 
 
 
@@ -351,20 +417,36 @@ export default function QueueDisplayPage() {
         }
     };
 
+    const recentTicketPulse = (calledAt: string) => {
+        if (shouldReduceMotion) return "none";
+        return (new Date().getTime() - new Date(calledAt).getTime() < 5000)
+            ? ["0px 0px 0px 0px rgba(37, 99, 235, 0.4)", "0px 0px 0px 20px rgba(37, 99, 235, 0)"]
+            : "none";
+    };
+
+    const recentTicketPulseSmall = (calledAt: string, isHighlighted: boolean) => {
+        if (shouldReduceMotion || !isHighlighted) return "none";
+        return (new Date().getTime() - new Date(calledAt).getTime() < 5000)
+            ? ["0px 0px 0px 0px rgba(37, 99, 235, 0.4)", "0px 0px 0px 10px rgba(37, 99, 235, 0)"]
+            : "none";
+    };
+
+    const pulseTransition = shouldReduceMotion ? undefined : { repeat: Infinity, duration: 1.5 };
+
     // ========================================================================
     // RENDER
     // ========================================================================
 
     if (step === 'SETUP') {
         return (
-            <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
+            <div className="min-h-dvh bg-slate-50 flex items-center justify-center p-4 pt-safe pb-safe relative overflow-x-hidden">
                 {/* Background Ambience */}
                 <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none">
-                    <div className="absolute top-[10%] left-[20%] w-[500px] h-[500px] bg-sky-200/40 rounded-full blur-[128px]" />
-                    <div className="absolute bottom-[10%] right-[20%] w-[500px] h-[500px] bg-teal-100/30 rounded-full blur-[128px]" />
+                    <div className="absolute top-[10%] left-[15%] w-[70vw] max-w-[500px] h-[70vw] max-h-[500px] bg-sky-200/40 rounded-full blur-[128px]" />
+                    <div className="absolute bottom-[10%] right-[15%] w-[70vw] max-w-[500px] h-[70vw] max-h-[500px] bg-teal-100/30 rounded-full blur-[128px]" />
                 </div>
 
-                <div className="bg-white/80 backdrop-blur-xl rounded-[2.5rem] p-10 max-w-lg w-full shadow-2xl shadow-sky-900/5 border border-sky-100 relative z-10">
+                <div className="bg-white/80 backdrop-blur-xl rounded-[2rem] sm:rounded-[2.5rem] p-6 sm:p-10 max-w-lg w-full shadow-2xl shadow-sky-900/5 border border-sky-100 relative z-10">
                     <div className="flex items-center gap-4 mb-8">
                         <div className="bg-sky-100 p-4 rounded-2xl border border-sky-200 shadow-sm">
                             <Monitor className="text-sky-600" size={32} />
@@ -374,12 +456,13 @@ export default function QueueDisplayPage() {
                             <p className="text-slate-500 text-sm">Seleccione la sucursal para esta pantalla</p>
                         </div>
                     </div>
-                    <div className="grid gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="grid gap-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar touch-pan-y overscroll-contain">
                         {locations.map(loc => (
                             <button
+                                type="button"
                                 key={loc.id}
                                 onClick={() => handleSelectLocation(loc)}
-                                className="p-5 text-left border border-slate-100 rounded-2xl bg-white hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700 font-bold transition-all flex items-center gap-4 shadow-sm group"
+                                className={`min-h-11 p-5 text-left border rounded-2xl bg-white font-bold transition-[background-color,border-color,color] flex items-center gap-4 shadow-sm group ${locationId === loc.id ? 'border-sky-400 bg-sky-50 text-sky-700' : 'border-slate-100 hover:bg-sky-50 hover:border-sky-300 hover:text-sky-700'}`}
                             >
                                 <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center group-hover:bg-sky-100 transition-colors">
                                     <MapPin size={20} className="text-slate-400 group-hover:text-sky-500" />
@@ -389,10 +472,36 @@ export default function QueueDisplayPage() {
                         ))}
                     </div>
 
+                    <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Activación protegida</p>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                            <input
+                                aria-label="PIN de administración para activar el monitor"
+                                type="password"
+                                inputMode="numeric"
+                                autoComplete="one-time-code"
+                                maxLength={4}
+                                placeholder="PIN"
+                                className="w-full min-w-0 bg-white border border-slate-200 rounded-xl px-4 py-3 text-center text-slate-800 text-xl tracking-[0.4em] focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                                value={setupPin}
+                                onChange={(e) => setSetupPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleActivateDisplay}
+                                disabled={!locationId || setupPin.length < 4}
+                                className="min-h-11 w-full sm:w-auto px-4 py-3 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-700 disabled:opacity-50"
+                            >
+                                Activar
+                            </button>
+                        </div>
+                    </div>
+
                     <div className="mt-6 pt-6 border-t border-slate-100 flex justify-center">
                         <button
+                            type="button"
                             onClick={() => router.push('/')}
-                            className="px-4 py-2 text-slate-400 hover:text-slate-600 text-sm font-medium flex items-center gap-2 transition-colors rounded-lg hover:bg-slate-50"
+                            className="min-h-11 px-4 py-2 text-slate-400 hover:text-slate-600 text-sm font-medium flex items-center gap-2 transition-colors rounded-lg hover:bg-slate-50"
                         >
                             <LogOut size={16} /> Volver al Menú Principal
                         </button>
@@ -403,22 +512,26 @@ export default function QueueDisplayPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-100 text-slate-800 overflow-hidden relative font-sans selection:bg-blue-200">
+        <div className="min-h-dvh bg-slate-100 text-slate-800 overflow-x-hidden relative font-sans selection:bg-blue-200">
             {/* TOOLBAR (VISIBLE & STYLED) */}
-            <div className="absolute top-0 right-0 z-50 flex items-center gap-2 bg-white px-4 py-3 rounded-bl-3xl border-b border-l border-slate-200 shadow-lg shadow-slate-200/50">
+            <div className="fixed left-2 right-2 top-[max(env(safe-area-inset-top),0.5rem)] z-50 flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg shadow-slate-200/50 backdrop-blur lg:absolute lg:left-auto lg:right-0 lg:top-0 lg:rounded-bl-3xl lg:rounded-br-none lg:rounded-tl-none lg:rounded-tr-none lg:border-l lg:border-r-0 lg:border-t-0 lg:px-4 lg:py-3">
                 {/* Audio Controls */}
                 <div className="flex items-center gap-1 border-r border-slate-200 pr-3 mr-1">
                     <button
+                        type="button"
+                        aria-label="Probar sonido del monitor de turnos"
                         onClick={testAudio}
-                        className="flex items-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors"
+                        className="min-h-11 min-w-11 flex items-center justify-center gap-2 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
                         title="Probar sonido"
                     >
                         <Volume2 size={16} />
                         Test
                     </button>
                     <button
+                        type="button"
+                        aria-label={isMuted ? "Activar sonido del monitor" : "Silenciar monitor de turnos"}
                         onClick={() => setIsMuted(!isMuted)}
-                        className={`p-2 rounded-lg transition-colors ${isMuted ? 'bg-red-50 text-red-500 hover:bg-red-100' : 'hover:bg-slate-100 text-slate-600'}`}
+                        className={`min-h-11 min-w-11 p-2 rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 ${isMuted ? 'bg-red-50 text-red-500 hover:bg-red-100' : 'hover:bg-slate-100 text-slate-600'}`}
                         title={isMuted ? "Activar Sonido" : "Silenciar"}
                     >
                         {isMuted ? <VolumeX size={18} /> : <Check size={18} className="text-green-500" />} {/* Show Check if audio on? No, just keep simple */}
@@ -427,8 +540,10 @@ export default function QueueDisplayPage() {
 
                 {/* Screen Controls */}
                 <button
+                    type="button"
+                    aria-label="Alternar pantalla completa"
                     onClick={toggleFullscreen}
-                    className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+                    className="min-h-11 min-w-11 p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500"
                     title="Pantalla Completa"
                 >
                     <Maximize size={18} />
@@ -437,15 +552,20 @@ export default function QueueDisplayPage() {
                 {/* Admin / Reset */}
                 <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
                     <input
+                        aria-label="PIN de administración para salir del monitor"
                         type="password"
+                        inputMode="numeric"
+                        maxLength={4}
                         placeholder="PIN"
-                        className="w-16 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-center focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all"
+                        className="min-h-11 w-16 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-center focus:ring-2 focus:ring-blue-500 focus:outline-none transition-[border-color,box-shadow]"
                         value={setupPin}
-                        onChange={e => setSetupPin(e.target.value)}
+                        onChange={e => setSetupPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
                     />
                     <button
+                        type="button"
+                        aria-label="Reiniciar o salir del monitor de turnos"
                         onClick={handleReset}
-                        className="p-2 bg-slate-50 hover:bg-red-50 hover:text-red-600 rounded-lg text-slate-400 transition-colors"
+                        className="min-h-11 min-w-11 p-2 bg-slate-50 hover:bg-red-50 hover:text-red-600 rounded-lg text-slate-400 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                         title="Reiniciar / Salir"
                     >
                         <LogOut size={16} />
@@ -454,40 +574,23 @@ export default function QueueDisplayPage() {
             </div>
 
             {/* MAIN LAYOUT */}
-            <div className="h-screen grid grid-cols-12 gap-0">
+            <div className="grid min-h-dvh grid-cols-1 gap-0 pt-[calc(5.75rem+env(safe-area-inset-top))] lg:h-screen lg:grid-cols-12 lg:pt-0">
 
                 {/* LEFT: CURRENT TICKET (BIG) */}
-                <div className="col-span-8 flex flex-col relative bg-white relative z-10 shadow-2xl">
+                <div className="relative z-10 flex min-h-[calc(100dvh_-_5.75rem_-_env(safe-area-inset-top))] flex-col bg-white shadow-2xl lg:col-span-8 lg:min-h-0">
 
                     {/* Header */}
-                    <div className="absolute top-0 left-0 p-8 flex items-center gap-5 z-20">
-                        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
-                            <MapPin size={28} />
+                    <div className="relative z-20 flex items-center gap-3 p-4 sm:gap-5 sm:p-6 lg:absolute lg:left-0 lg:top-0 lg:p-8">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-200 sm:h-16 sm:w-16">
+                            <MapPin size={24} />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mb-1">Estamos atendiendo en</p>
-                            <span className="text-3xl font-black text-slate-800 tracking-tight leading-none block">{locationName}</span>
+                            <span className="block truncate text-2xl font-black leading-none tracking-tight text-slate-800 sm:text-3xl">{locationName}</span>
                         </div>
                     </div>
 
-                    <div className="flex-1 flex flex-col items-center justify-center p-12 relative overflow-hidden bg-white">
-
-                        {/* DEBUG OVERLAY - Moved outside AnimatePresence to avoid key conflicts */}
-                        <div className="absolute top-0 left-0 bg-black/90 text-white p-4 text-[10px] font-mono z-50 pointer-events-none max-h-96 overflow-auto">
-                            <p className="font-bold text-yellow-400">DEBUG MODE</p>
-                            <p>LocID: {locationId?.substring(0, 8)}...</p>
-                            <p>Active: {activeTickets.length}</p>
-                            <p>Waiting: {waitingCount}</p>
-
-                            <div className="mt-2 border-t border-gray-700 pt-1">
-                                <p className="font-bold">Backend Rows:</p>
-                                {debugData.map((r: any, i: number) => (
-                                    <div key={r.id || i}>
-                                        [{r.status}] {r.code} <span className="opacity-50 text-[8px]">{(r.id || 'N/A').substring(0, 4)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+                    <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden bg-white p-4 sm:p-8 lg:p-12">
 
                         <AnimatePresence mode="popLayout">
                             {activeTickets.length > 0 ? (
@@ -496,46 +599,43 @@ export default function QueueDisplayPage() {
                                     <motion.div
                                         key={activeTickets[0].id} // Key handles enter/exit
                                         layout
-                                        initial={{ scale: 0.9, opacity: 0, y: 30 }}
+                                        initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0, y: 30 }}
                                         animate={{
                                             scale: 1,
                                             opacity: 1,
                                             y: 0,
-                                            // Pulse effect when recently called (within last 5 seconds)
-                                            boxShadow: (new Date().getTime() - new Date(activeTickets[0].called_at).getTime() < 5000)
-                                                ? ["0px 0px 0px 0px rgba(37, 99, 235, 0.4)", "0px 0px 0px 20px rgba(37, 99, 235, 0)"]
-                                                : "none"
+                                            boxShadow: recentTicketPulse(activeTickets[0].called_at)
                                         }}
                                         transition={{
                                             layout: { type: "spring", bounce: 0.4 },
-                                            boxShadow: { repeat: Infinity, duration: 1.5 }
+                                            boxShadow: pulseTransition
                                         }}
                                         className="text-center relative z-10 flex flex-col items-center w-full"
                                     >
                                         <motion.div
-                                            animate={{ scale: [1, 1.05, 1] }}
-                                            transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                                            className="bg-blue-600 text-white px-8 py-2 rounded-full font-bold uppercase tracking-[0.3em] mb-12 shadow-sm"
+                                            animate={shouldReduceMotion ? undefined : { scale: [1, 1.05, 1] }}
+                                            transition={shouldReduceMotion ? undefined : { repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                                            className="mb-8 rounded-full bg-blue-600 px-5 py-2 text-sm font-bold uppercase tracking-[0.18em] text-white shadow-sm sm:mb-12 sm:px-8 sm:tracking-[0.3em]"
                                         >
                                             Atención Cliente
                                         </motion.div>
 
-                                        <div className="relative mb-14">
-                                            <div className="text-[18rem] leading-[0.85] font-black tracking-tighter tabular-nums text-slate-900">
+                                        <div className="relative mb-8 sm:mb-14">
+                                            <div className="text-[clamp(4.5rem,31vw,18rem)] leading-[0.85] font-black tracking-tighter tabular-nums text-slate-900">
                                                 {activeTickets[0].code}
                                             </div>
                                         </div>
 
-                                        <div className="inline-flex items-stretch overflow-hidden bg-white rounded-xl border-2 border-slate-100 shadow-xl">
-                                            <div className="bg-slate-50 px-10 py-6 flex items-center justify-center border-r-2 border-slate-100">
-                                                <p className="text-4xl text-slate-400 font-bold uppercase tracking-tight">{getModuleLabel(activeTickets[0])}</p>
+                                        <div className="inline-flex max-w-full flex-col items-stretch overflow-hidden rounded-xl border-2 border-slate-100 bg-white shadow-xl sm:flex-row">
+                                            <div className="flex items-center justify-center border-b-2 border-slate-100 bg-slate-50 px-6 py-4 sm:border-b-0 sm:border-r-2 sm:px-10 sm:py-6">
+                                                <p className="text-[clamp(1.25rem,6vw,2.25rem)] text-slate-400 font-bold uppercase tracking-tight">{getModuleLabel(activeTickets[0])}</p>
                                             </div>
-                                            <div className="bg-white px-12 py-6 flex items-center justify-center">
+                                            <div className="bg-white px-10 py-5 flex items-center justify-center sm:px-12 sm:py-6">
                                                 <motion.p
                                                     key={activeTickets[0].called_at} // Re-trigger animation on recall
-                                                    initial={{ scale: 0.5, opacity: 0 }}
-                                                    animate={{ scale: 1, opacity: 1 }}
-                                                    className="text-8xl font-black text-blue-600"
+                                                    initial={shouldReduceMotion ? false : { scale: 0.5, opacity: 0 }}
+                                                    animate={shouldReduceMotion ? undefined : { scale: 1, opacity: 1 }}
+                                                    className="text-[clamp(4rem,17vw,6rem)] font-black text-blue-600"
                                                 >
                                                     {getModuleDisplay(activeTickets[0])}
                                                 </motion.p>
@@ -545,30 +645,28 @@ export default function QueueDisplayPage() {
                                 ) : (
                                     // MULTIPLE ACTIVE TICKETS (GRID)
                                     <div className="w-full h-full flex items-center justify-center">
-                                        <div className="grid grid-cols-2 gap-8 w-full max-w-5xl">
+                                        <div className="grid grid-cols-1 gap-4 w-full max-w-5xl sm:grid-cols-2 lg:gap-8">
                                             {activeTickets.map((ticket, i) => {
-                                                const isRecent = new Date().getTime() - new Date(ticket.called_at).getTime() < 5000;
                                                 return (
                                                     <motion.div
                                                         key={ticket.id}
                                                         layout
-                                                        initial={{ scale: 0.8, opacity: 0 }}
+                                                        initial={shouldReduceMotion ? false : { scale: 0.8, opacity: 0 }}
                                                         animate={{
                                                             scale: 1,
                                                             opacity: 1,
                                                             borderColor: i === 0 ? "rgb(37 99 235)" : "rgb(241 245 249)", // Highlight newest
-                                                            boxShadow: i === 0 && isRecent
-                                                                ? ["0px 0px 0px 0px rgba(37, 99, 235, 0.4)", "0px 0px 0px 10px rgba(37, 99, 235, 0)"]
-                                                                : "none"
+                                                            boxShadow: recentTicketPulseSmall(ticket.called_at, i === 0)
                                                         }}
                                                         transition={{
-                                                            boxShadow: { repeat: Infinity, duration: 1.5 }
+                                                            boxShadow: pulseTransition
                                                         }}
-                                                        className={`bg-white border-4 rounded-3xl p-8 flex items-center justify-between shadow-sm relative overflow-hidden ${i === 0 ? 'z-10' : 'z-0'}`}
+                                                        className={`bg-white border-4 rounded-3xl p-5 sm:p-8 flex items-center justify-between shadow-sm relative overflow-hidden ${i === 0 ? 'z-10' : 'z-0'}`}
                                                     >
                                                         {i === 0 && (
                                                             <motion.div
-                                                                initial={{ x: 100 }} animate={{ x: 0 }}
+                                                                initial={shouldReduceMotion ? false : { x: 100 }}
+                                                                animate={shouldReduceMotion ? undefined : { x: 0 }}
                                                                 className="absolute top-0 right-0 bg-blue-600 text-white text-[12px] font-bold px-4 py-1 rounded-bl-xl uppercase tracking-wider"
                                                             >
                                                                 Llamando...
@@ -576,11 +674,11 @@ export default function QueueDisplayPage() {
                                                         )}
                                                         <div>
                                                             <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">Ticket</p>
-                                                            <p className="text-8xl font-black text-slate-800 tracking-tighter leading-none">{ticket.code}</p>
+                                                            <p className="text-[clamp(3.5rem,18vw,6rem)] font-black text-slate-800 tracking-tighter leading-none">{ticket.code}</p>
                                                         </div>
                                                         <div className="text-right">
                                                             <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">{getModuleLabel(ticket)}</p>
-                                                            <p className="text-6xl font-black text-blue-600">{getModuleDisplay(ticket)}</p>
+                                                            <p className="text-[clamp(2.5rem,12vw,3.75rem)] font-black text-blue-600">{getModuleDisplay(ticket)}</p>
                                                         </div>
                                                     </motion.div>
                                                 )
@@ -592,23 +690,23 @@ export default function QueueDisplayPage() {
                                 // NO ACTIVE TICKETS (WAITING SCREEN)
                                 <motion.div
                                     key="waiting"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
+                                    initial={shouldReduceMotion ? false : { opacity: 0 }}
+                                    animate={shouldReduceMotion ? undefined : { opacity: 1 }}
+                                    exit={shouldReduceMotion ? undefined : { opacity: 0 }}
                                     className="flex flex-col items-center"
                                 >
-                                    <div className="w-48 h-48 bg-slate-50 rounded-full flex items-center justify-center mb-8 border-4 border-slate-100 text-slate-300">
-                                        <Monitor size={80} />
+                                    <div className="w-32 h-32 sm:w-48 sm:h-48 bg-slate-50 rounded-full flex items-center justify-center mb-6 sm:mb-8 border-4 border-slate-100 text-slate-300">
+                                        <Monitor size={64} />
                                     </div>
-                                    <h2 className="text-5xl font-black text-slate-800 tracking-tight mb-2">Farmacias <span className="text-blue-500">Vallenar</span></h2>
-                                    <p className="text-slate-400 text-xl font-medium">Por favor espere su turno...</p>
+                                    <h2 className="text-center text-[clamp(2rem,10vw,3rem)] font-black text-slate-800 tracking-tight mb-2">Farmacias <span className="text-blue-500">Vallenar</span></h2>
+                                    <p className="text-center text-slate-400 text-lg sm:text-xl font-medium">Por favor espere su turno...</p>
                                 </motion.div>
                             )}
                         </AnimatePresence>
                     </div>
 
                     {/* Footer Stats - SOLID STRIP */}
-                    <div className="absolute bottom-0 left-0 w-full h-24 bg-slate-50 border-t border-slate-200 flex justify-between items-center px-10">
+                    <div className="relative bottom-0 left-0 flex min-h-24 w-full items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-10 lg:absolute">
                         <div className="flex items-center gap-4">
                             <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 text-blue-600">
                                 <Users size={24} />
@@ -628,20 +726,23 @@ export default function QueueDisplayPage() {
                 </div>
 
                 {/* RIGHT: HISTORY & NEXT - SOLID CONTRAST */}
-                <div className="col-span-4 bg-slate-100 flex flex-col border-l border-slate-300 shadow-inner">
+                <div className="flex min-h-[45dvh] flex-col border-t border-slate-300 bg-slate-100 shadow-inner lg:col-span-4 lg:min-h-0 lg:border-l lg:border-t-0">
 
                     {/* TOP: HISTORY */}
                     <div className="flex-1 flex flex-col">
                         <div className="p-6 bg-blue-700 text-white shadow-md z-10 flex items-center justify-between">
                             <h2 className="text-xl font-bold flex items-center gap-3">
-                                <div className="w-3 h-3 rounded-full bg-white animate-pulse" />
+                                <div className={`w-3 h-3 rounded-full bg-white ${shouldReduceMotion ? '' : 'animate-pulse'}`} />
                                 Últimos Llamados
                             </h2>
                             <button
+                                type="button"
+                                aria-label="Probar sonido desde historial del monitor"
                                 onClick={testAudio}
-                                className="text-xs bg-blue-800 hover:bg-blue-600 px-2 py-1 rounded border border-blue-500 transition-colors"
+                                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded border border-blue-500 bg-blue-800 px-2 py-1 text-xs transition-colors hover:bg-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
                             >
-                                🔊 Test
+                                <Volume2 size={16} />
+                                <span>Test</span>
                             </button>
                         </div>
 
@@ -650,9 +751,9 @@ export default function QueueDisplayPage() {
                                 {history.map((ticket, i) => (
                                     <motion.div
                                         key={ticket.id}
-                                        initial={{ x: 50, opacity: 0 }}
-                                        animate={{ x: 0, opacity: 1 }}
-                                        transition={{ delay: i * 0.1 }}
+                                        initial={shouldReduceMotion ? false : { x: 50, opacity: 0 }}
+                                        animate={shouldReduceMotion ? undefined : { x: 0, opacity: 1 }}
+                                        transition={shouldReduceMotion ? undefined : { delay: i * 0.1 }}
                                         className="bg-white rounded-xl p-5 flex justify-between items-center shadow-sm border border-slate-100"
                                     >
                                         <div>

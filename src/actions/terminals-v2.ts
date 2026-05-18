@@ -18,6 +18,18 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import {
+    getActorOrFail,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
+import {
+    ensureTerminalInPosScope,
+    requirePosActor,
+    resolveEffectivePosLocation,
+} from './pos-scope';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DBRow = any;
@@ -64,6 +76,51 @@ const ERROR_MESSAGES = {
     SERIALIZATION_ERROR: 'Conflicto de concurrencia. Por favor reintente.',
     DEADLOCK: 'Se detectó un bloqueo. Reintentando...'
 } as const;
+
+const TERMINAL_ADMIN_ROLES = ROLE_GROUPS.ADMIN;
+
+async function resolveValidatedTerminalActor(input: {
+    requestedUserId?: string;
+    action: string;
+    requiredRoles?: readonly string[];
+    forbiddenMessage?: string;
+}) {
+    try {
+        let actor = await getActorOrFail();
+
+        if (input.requiredRoles) {
+            actor = requireRole(actor, input.requiredRoles);
+        }
+
+        if (input.requestedUserId && input.requestedUserId !== actor.userId) {
+            logger.warn(
+                {
+                    requestedUserId: input.requestedUserId,
+                    actorUserId: actor.userId,
+                    action: input.action,
+                },
+                'Ignoring payload userId in terminal mutation; using validated session user'
+            );
+        }
+
+        return {
+            success: true as const,
+            actorUserId: actor.userId,
+            actor,
+        };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return {
+                success: false as const,
+                error: error.code === 'AUTH_FORBIDDEN'
+                    ? (input.forbiddenMessage || 'Acceso denegado')
+                    : 'Sesión no válida. Vuelve a iniciar sesión.',
+            };
+        }
+
+        throw error;
+    }
+}
 
 // =====================================================
 // HELPER: Insertar Auditoría
@@ -156,11 +213,20 @@ export async function openTerminalAtomic(
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        requestedUserId: userId,
+        action: 'openTerminalAtomic',
+    });
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, userId, initialCash }, '🔐 [Atomic v2.1] Starting transaction: Open Terminal');
+        logger.info({ terminalId, userId: actorUserId, initialCash }, '🔐 [Atomic v2.1] Starting transaction: Open Terminal');
 
         // --- INICIO DE TRANSACCIÓN ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -169,7 +235,7 @@ export async function openTerminalAtomic(
         const existingSession = await client.query(`
             SELECT id FROM cash_register_sessions 
             WHERE terminal_id = $1 AND user_id = $2 AND closed_at IS NULL
-        `, [terminalId, userId]);
+        `, [terminalId, actorUserId]);
 
         if (existingSession.rows.length > 0) {
             await client.query('COMMIT');
@@ -192,7 +258,7 @@ export async function openTerminalAtomic(
         const terminal = termCheck.rows[0];
 
         // 4. Verificar disponibilidad
-        if (terminal.status === 'OPEN' && terminal.current_cashier_id !== userId) {
+        if (terminal.status === 'OPEN' && terminal.current_cashier_id !== actorUserId) {
             throw new Error(ERROR_MESSAGES.TERMINAL_OCCUPIED);
         }
 
@@ -204,7 +270,7 @@ export async function openTerminalAtomic(
                 notes = 'Auto-cerrada por nueva apertura en otro terminal'
             WHERE user_id = $1 AND closed_at IS NULL
             RETURNING id
-        `, [userId]);
+        `, [actorUserId]);
 
         if (ghostCleanup.rowCount && ghostCleanup.rowCount > 0) {
             logger.info({ closedSessions: ghostCleanup.rowCount }, '🧹 [Atomic v2.1] Cleaned ghost sessions');
@@ -226,16 +292,15 @@ export async function openTerminalAtomic(
                 $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
                 'OPENING', $6, 'Apertura de Caja', NOW()
             )
-        `, [moveId, terminal.location_id, terminalId, newSessionId, userId, initialCash]);
+        `, [moveId, terminal.location_id, terminalId, newSessionId, actorUserId, initialCash]);
 
         // B. Actualizar estado del terminal
         await client.query(`
             UPDATE terminals 
             SET status = 'OPEN', 
-                current_cashier_id = $2::uuid, 
-                updated_at = NOW()
+                current_cashier_id = $2::uuid
             WHERE id = $1::uuid
-        `, [terminalId, userId]);
+        `, [terminalId, actorUserId]);
 
         // C. Crear sesión de caja
         await client.query(`
@@ -244,11 +309,11 @@ export async function openTerminalAtomic(
             ) VALUES (
                 $1::uuid, $2::uuid, $3::uuid, $4, 'OPEN', NOW()
             )
-        `, [newSessionId, terminalId, userId, initialCash]);
+        `, [newSessionId, terminalId, actorUserId, initialCash]);
 
         // D. Registrar auditoría
         await insertAuditLog(client, {
-            userId,
+            userId: actorUserId,
             terminalId,
             sessionId: newSessionId,
             locationId: terminal.location_id,
@@ -292,7 +357,7 @@ export async function openTerminalAtomic(
             return { success: false, error: ERROR_MESSAGES.DEADLOCK };
         }
 
-        logger.error({ err: error, terminalId, userId }, '❌ [Atomic v2.1] Transaction ROLLED BACK');
+        logger.error({ err: error, terminalId, userId: actorUserId }, '❌ [Atomic v2.1] Transaction ROLLED BACK');
         return { success: false, error: err.message || 'Error de base de datos' };
 
     } finally {
@@ -308,13 +373,12 @@ export async function openTerminalAtomic(
  * Abre un terminal validando el PIN del supervisor en el servidor.
  * 
  * SECURITY FIX: Esta función reemplaza la validación de PIN en el cliente.
- * El PIN se valida con bcrypt en el servidor, nunca se expone en logs
- * ni se compara en texto plano.
+ * El PIN se valida server-side y la autorización queda separada del actor real.
  * 
  * @param terminalId - UUID del terminal
  * @param userId - ID del usuario/cajero
  * @param initialCash - Monto inicial de apertura
- * @param supervisorPin - PIN del supervisor (se valida con bcrypt)
+ * @param supervisorPin - PIN del supervisor
  * @returns Resultado con sessionId y authorizedById o error
  */
 export async function openTerminalWithPinValidation(
@@ -341,59 +405,43 @@ export async function openTerminalWithPinValidation(
         return { success: false, error: 'PIN de autorización requerido' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        requestedUserId: userId,
+        action: 'openTerminalWithPinValidation',
+    });
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const { pool } = await import('@/lib/db');
-    const bcrypt = await import('bcryptjs');
     const client = await pool.connect();
 
     try {
         const dbHost = process.env.DATABASE_URL?.split('@')[1]?.split(':')[0] || 'unknown';
-        logger.info({ terminalId, userId, initialCash, dbHost }, '🔐 [Atomic v2.2] Starting secure transaction: Open Terminal with PIN validation');
+        logger.info({ terminalId, userId: actorUserId, initialCash, dbHost }, '🔐 [Atomic v2.2] Starting secure transaction: Open Terminal with PIN validation');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
-        console.log(`[DB-TRACE] BEGIN transaction on ${dbHost} for terminal ${terminalId}`);
 
-        // 2. VALIDACIÓN DE PIN EN EL SERVIDOR (bcrypt)
-        // Buscar supervisores activos (MANAGER, ADMIN, GERENTE_GENERAL)
-        const supervisorQuery = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users 
-            WHERE role IN ('MANAGER', 'ADMIN', 'GERENTE_GENERAL')
-            AND is_active = true
-        `);
+        const authResult = await validatePinForRoles(client, supervisorPin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        let authorizedBy: { id: string; name: string } | null = null;
-
-        for (const supervisor of supervisorQuery.rows) {
-            // Primero intentar con bcrypt hash (sistema nuevo)
-            if (supervisor.access_pin_hash) {
-                const isValid = await bcrypt.compare(supervisorPin, supervisor.access_pin_hash);
-                if (isValid) {
-                    authorizedBy = { id: supervisor.id, name: supervisor.name };
-                    break;
-                }
-            }
-            // Fallback: PIN legacy en texto plano (para usuarios no migrados)
-            // NOTA: Este fallback debe eliminarse después de migrar todos los usuarios
-            else if (supervisor.access_pin && supervisor.access_pin === supervisorPin) {
-                authorizedBy = { id: supervisor.id, name: supervisor.name };
-                logger.warn({ supervisorId: supervisor.id }, '⚠️ Using legacy plaintext PIN - user should be migrated');
-                break;
-            }
-        }
-
-        if (!authorizedBy) {
+        if (!authResult.valid) {
             await client.query('ROLLBACK');
-            logger.warn({ userId, terminalId }, '🚫 PIN validation failed - no matching supervisor');
-            return { success: false, error: 'PIN de autorización inválido' };
+            logger.warn({ userId: actorUserId, terminalId }, '🚫 PIN validation failed - no matching supervisor');
+            return { success: false, error: authResult.error || 'PIN de autorización inválido' };
         }
 
+        const authorizedBy = authResult.authorizedBy;
         logger.info({ authorizedById: authorizedBy.id }, '✅ Supervisor PIN validated successfully');
 
         // 3. Check Idempotency (si ya tiene sesión activa, retornarla)
         const existingSession = await client.query(`
             SELECT id FROM cash_register_sessions 
             WHERE terminal_id = $1 AND user_id = $2 AND closed_at IS NULL
-        `, [terminalId, userId]);
+        `, [terminalId, actorUserId]);
 
         if (existingSession.rows.length > 0) {
             await client.query('COMMIT');
@@ -420,7 +468,7 @@ export async function openTerminalWithPinValidation(
         const terminal = termCheck.rows[0];
 
         // 5. Verificar disponibilidad
-        if (terminal.status === 'OPEN' && terminal.current_cashier_id !== userId) {
+        if (terminal.status === 'OPEN' && terminal.current_cashier_id !== actorUserId) {
             throw new Error(ERROR_MESSAGES.TERMINAL_OCCUPIED);
         }
 
@@ -431,7 +479,7 @@ export async function openTerminalWithPinValidation(
                 status = 'CLOSED_AUTO', 
                 notes = 'Auto-cerrada por nueva apertura en otro terminal'
             WHERE user_id = $1 AND closed_at IS NULL
-        `, [userId]);
+        `, [actorUserId]);
 
         // 7. Generar UUIDs
         const { v4: uuidv4 } = await import('uuid');
@@ -447,7 +495,7 @@ export async function openTerminalWithPinValidation(
             ) VALUES (
                 $1::uuid, $2::uuid, $3::uuid, $4, 'OPEN', NOW(), $5::uuid
             )
-        `, [newSessionId, terminalId, userId, initialCash, authorizedBy.id]);
+        `, [newSessionId, terminalId, actorUserId, initialCash, authorizedBy.id]);
 
         // B. Insertar movimiento de caja (apertura) DESPUÉS de crear la sesión
         await client.query(`
@@ -458,20 +506,19 @@ export async function openTerminalWithPinValidation(
                 $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid,
                 'OPENING', $6, 'Apertura de Caja', NOW()
             )
-        `, [moveId, terminal.location_id, terminalId, newSessionId, userId, initialCash]);
+        `, [moveId, terminal.location_id, terminalId, newSessionId, actorUserId, initialCash]);
 
         // C. Actualizar estado del terminal
         await client.query(`
             UPDATE terminals 
             SET status = 'OPEN', 
-                current_cashier_id = $2::uuid, 
-                updated_at = NOW()
+                current_cashier_id = $2::uuid
             WHERE id = $1::uuid
-        `, [terminalId, userId]);
+        `, [terminalId, actorUserId]);
 
         // D. Registrar auditoría
         await insertAuditLog(client, {
-            userId,
+            userId: actorUserId,
             terminalId,
             sessionId: newSessionId,
             locationId: terminal.location_id,
@@ -495,7 +542,7 @@ export async function openTerminalWithPinValidation(
         // 🤖 AUTO-CHECK-IN: Si el cajero abre turno, debe estar 'presente'
         const { ensureCheckInSecure } = await import('@/actions/attendance-v2');
         // Validar asistencia para el CAJERO (userId), no necesariamente el manager
-        const autoCheckInTriggered = await ensureCheckInSecure(userId, terminal.location_id);
+        const autoCheckInTriggered = await ensureCheckInSecure(actorUserId, terminal.location_id);
 
         return {
             success: true,
@@ -519,7 +566,7 @@ export async function openTerminalWithPinValidation(
             return { success: false, error: ERROR_MESSAGES.SERIALIZATION_ERROR };
         }
 
-        logger.error({ err: error, terminalId, userId }, '❌ [Atomic v2.2] Transaction ROLLED BACK');
+        logger.error({ err: error, terminalId, userId: actorUserId }, '❌ [Atomic v2.2] Transaction ROLLED BACK');
         return { success: false, error: err.message || 'Error de base de datos' };
 
     } finally {
@@ -558,12 +605,21 @@ export async function closeTerminalAtomic(
         return { success: false, error: 'Datos de cierre inválidos' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        requestedUserId: userId,
+        action: 'closeTerminalAtomic',
+    });
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, userId, finalCash }, '🔐 [Atomic v2.1] Starting transaction: Close Terminal');
+        logger.info({ terminalId, userId: actorUserId, finalCash }, '🔐 [Atomic v2.1] Starting transaction: Close Terminal');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
@@ -587,7 +643,7 @@ export async function closeTerminalAtomic(
             FROM cash_register_sessions 
             WHERE terminal_id = $1 AND user_id = $2 AND status = 'OPEN' AND closed_at IS NULL
             FOR UPDATE NOWAIT
-        `, [terminalId, userId]);
+        `, [terminalId, actorUserId]);
 
         let sessionId: string | null = null;
         let openingAmount: number = 0;
@@ -625,7 +681,7 @@ export async function closeTerminalAtomic(
             terminal.location_id,
             terminalId,
             sessionId,
-            userId,
+            actorUserId,
             finalCash,
             `Cierre de Caja: ${comments}`
         ]);
@@ -642,21 +698,20 @@ export async function closeTerminalAtomic(
                     $1::uuid, $2::uuid, $3::uuid, $4, 
                     'PENDING_RECEIPT', $5::uuid, NOW()
                 )
-            `, [remittanceId, terminal.location_id, terminalId, withdrawalAmount, userId]);
+            `, [remittanceId, terminal.location_id, terminalId, withdrawalAmount, actorUserId]);
         }
 
         // 6. Cerrar terminal
         await client.query(`
             UPDATE terminals 
             SET status = 'CLOSED', 
-                current_cashier_id = NULL, 
-                updated_at = NOW()
+                current_cashier_id = NULL
             WHERE id = $1
         `, [terminalId]);
 
         // 7. Registrar auditoría
         await insertAuditLog(client, {
-            userId,
+            userId: actorUserId,
             terminalId,
             sessionId: sessionId || undefined,
             locationId: terminal.location_id,
@@ -731,11 +786,22 @@ export async function forceCloseTerminalSecure(
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        requestedUserId: adminUserId,
+        action: 'forceCloseTerminalSecure',
+        requiredRoles: TERMINAL_ADMIN_ROLES,
+        forbiddenMessage: 'Acceso denegado: requiere rol de administrador',
+    });
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, adminUserId }, '🔐 [Atomic v2.1] Starting FORCE CLOSE transaction');
+        logger.info({ terminalId, adminUserId: actorUserId }, '🔐 [Atomic v2.1] Starting FORCE CLOSE transaction');
 
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
@@ -809,14 +875,13 @@ export async function forceCloseTerminalSecure(
         await client.query(`
             UPDATE terminals 
             SET status = 'CLOSED', 
-            current_cashier_id = NULL,
-            updated_at = NOW()
+            current_cashier_id = NULL
         WHERE id = $1
     `, [terminalId]);
 
         // 5. AUDITORÍA CRÍTICA (obligatoria para force close)
         await insertAuditLog(client, {
-            userId: adminUserId,
+            userId: actorUserId,
             terminalId,
             sessionId: oldSession?.id,
             locationId: terminal.location_id,
@@ -832,7 +897,7 @@ export async function forceCloseTerminalSecure(
             } : undefined,
             newValues: {
                 status: 'CLOSED_FORCE',
-                closed_by: adminUserId,
+                closed_by: actorUserId,
                 reason: justification
             },
             justification: `CIERRE FORZADO: ${justification}`
@@ -922,6 +987,19 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
     error?: string;
 }> {
     try {
+        const auth = await requirePosActor(undefined, 'getTerminalsByLocationSecure');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const scoped = resolveEffectivePosLocation(auth.actor, locationId);
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         let sql = `
             SELECT 
                 t.id, t.name, t.location_id,
@@ -957,9 +1035,9 @@ export async function getTerminalsByLocationSecure(locationId?: string): Promise
         `;
         const params: (string | number | boolean | Date)[] = [];
 
-        if (locationId) {
+        if (scoped.locationId) {
             sql += ` AND t.location_id = $1`;
-            params.push(locationId);
+            params.push(scoped.locationId);
         }
 
         sql += ` ORDER BY l.name, t.name`;
@@ -1002,20 +1080,19 @@ export async function updateTerminalSecure(
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        action: 'updateTerminalSecure',
+        requiredRoles: TERMINAL_ADMIN_ROLES,
+        forbiddenMessage: 'Acceso denegado: requiere rol de administrador',
+    });
+    if (!actor.success) {
+        return {
+            success: false,
+            error: actor.error.includes('Sesión no válida') ? 'No autenticado' : actor.error,
+        };
+    }
+
     try {
-        const { headers } = await import('next/headers');
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
-
-        if (!userId) {
-            return { success: false, error: 'No autenticado' };
-        }
-
-        const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-        if (!ADMIN_ROLES.includes(userRole || '')) {
-            return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
-        }
 
         // Obtener datos actuales para auditoría
         const current = await query('SELECT name, type, printer_config FROM terminals WHERE id = $1', [terminalId]);
@@ -1048,7 +1125,6 @@ export async function updateTerminalSecure(
             return { success: false, error: 'No hay cambios para aplicar' };
         }
 
-        updates.push(`updated_at = NOW()`);
         values.push(terminalId);
 
         await query(
@@ -1060,9 +1136,9 @@ export async function updateTerminalSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, new_values, timestamp)
             VALUES ($1, 'TERMINAL_UPDATE', 'TERMINAL', $2, $3, $4, NOW())
-        `, [userId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
+        `, [actor.actorUserId, terminalId, JSON.stringify(current.rows[0]), JSON.stringify(data)]);
 
-        logger.info({ terminalId, userId }, '✅ Terminal actualizado');
+        logger.info({ terminalId, userId: actor.actorUserId }, '✅ Terminal actualizado');
         revalidatePath('/settings');
         revalidatePath('/settings/organization');
 
@@ -1089,20 +1165,19 @@ export async function deleteTerminalSecure(
         return { success: false, error: 'ID de terminal inválido' };
     }
 
+    const actor = await resolveValidatedTerminalActor({
+        action: 'deleteTerminalSecure',
+        requiredRoles: TERMINAL_ADMIN_ROLES,
+        forbiddenMessage: 'Acceso denegado: requiere rol de administrador',
+    });
+    if (!actor.success) {
+        return {
+            success: false,
+            error: actor.error.includes('Sesión no válida') ? 'No autenticado' : actor.error,
+        };
+    }
+
     try {
-        const { headers } = await import('next/headers');
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const userRole = headersList.get('x-user-role');
-
-        if (!userId) {
-            return { success: false, error: 'No autenticado' };
-        }
-
-        const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-        if (!ADMIN_ROLES.includes(userRole || '')) {
-            return { success: false, error: 'Acceso denegado: requiere rol de administrador' };
-        }
 
         // Verificar estado del terminal
         const terminal = await query(
@@ -1120,7 +1195,7 @@ export async function deleteTerminalSecure(
 
         // Soft delete
         await query(
-            `UPDATE terminals SET status = 'DELETED', updated_at = NOW() WHERE id = $1`,
+            `UPDATE terminals SET status = 'DELETED' WHERE id = $1`,
             [terminalId]
         );
 
@@ -1128,9 +1203,9 @@ export async function deleteTerminalSecure(
         await query(`
             INSERT INTO audit_log (user_id, action_code, entity_type, entity_id, old_values, timestamp)
             VALUES ($1, 'TERMINAL_DELETE', 'TERMINAL', $2, $3, NOW())
-        `, [userId, terminalId, JSON.stringify(terminal.rows[0])]);
+        `, [actor.actorUserId, terminalId, JSON.stringify(terminal.rows[0])]);
 
-        logger.info({ terminalId, userId }, '🗑️ Terminal eliminado (soft delete)');
+        logger.info({ terminalId, userId: actor.actorUserId }, '🗑️ Terminal eliminado (soft delete)');
         revalidatePath('/settings');
         revalidatePath('/settings/organization');
 
@@ -1184,6 +1259,19 @@ export async function getActiveSession(terminalId: string): Promise<{
     }
 
     try {
+        const auth = await requirePosActor(undefined, 'getActiveSession');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const terminalScope = await ensureTerminalInPosScope(terminalId, auth.actor);
+        if (!terminalScope.success) {
+            return { success: false, error: terminalScope.error };
+        }
+
         const result = await query(`
             SELECT 
                 s.id as session_id,

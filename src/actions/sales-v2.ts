@@ -20,6 +20,12 @@ import { query } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // =====================================================
 // SCHEMAS DE VALIDACIÓN
@@ -119,9 +125,6 @@ const ERROR_MESSAGES = {
     CANNOT_EDIT_VOIDED: 'No se puede editar una venta anulada o devuelta',
 } as const;
 
-// Roles autorizados para anulaciones y devoluciones
-const VOID_AUTHORIZED_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'] as const;
-
 // =====================================================
 // HELPERS
 // =====================================================
@@ -132,43 +135,53 @@ function toMoneyInt(value: unknown): number {
     return Math.round(parsed);
 }
 
+async function resolveValidatedSalesActor(requestedUserId?: string, action = 'sales-operation') {
+    try {
+        const session = await getActorOrFail();
+
+        if (requestedUserId && requestedUserId !== session.userId) {
+            logger.warn(
+                { requestedUserId, actorUserId: session.userId, action },
+                'Ignoring payload userId in sales operation; using validated session user'
+            );
+        }
+
+        return {
+            success: true as const,
+            actorUserId: session.userId,
+            session,
+        };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: error.message };
+        }
+
+        throw error;
+    }
+}
+
 /**
- * Valida PIN de supervisor usando bcrypt
+ * Valida PIN de supervisor usando el helper compartido
  */
 async function validateSupervisorPin(
     client: any,
     pin: string,
-    requiredRoles: readonly string[] = VOID_AUTHORIZED_ROLES
+    requiredRoles: readonly string[] = ROLE_GROUPS.MANAGER
 ): Promise<{ valid: boolean; authorizedBy?: { id: string; name: string; role: string } }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        for (const user of usersRes.rows) {
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    return {
-                        valid: true,
-                        authorizedBy: { id: user.id, name: user.name, role: user.role }
-                    };
-                }
-            } else if (user.access_pin && user.access_pin === pin) {
-                logger.warn({ userId: user.id }, '⚠️ Sales: Using legacy plaintext PIN');
-                return {
-                    valid: true,
-                    authorizedBy: { id: user.id, name: user.name, role: user.role }
-                };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
 
-        return { valid: false };
+        return {
+            valid: true,
+            authorizedBy: result.authorizedBy,
+        };
     } catch (error) {
         logger.error({ error }, 'Error validating supervisor PIN');
         return { valid: false };
@@ -278,31 +291,60 @@ export async function createSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
+    const actor = await resolveValidatedSalesActor(params.userId, 'createSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+
     const {
-        locationId, terminalId, sessionId, userId, items, paymentMethod,
+        locationId, terminalId, sessionId, userId: requestedUserId, items, paymentMethod,
         customerRut, customerName, dteFolio, dteType, pointsRedeemed = 0,
         pointsDiscount = 0, transferId, notes, queueTicketId
     } = params;
+    const actorUserId = actor.actorUserId;
+
+    if (requestedUserId && requestedUserId !== actorUserId) {
+        logger.warn(
+            { requestedUserId, actorUserId },
+            'Ignoring payload userId in createSaleSecure; using validated session user'
+        );
+    }
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
     const client = await pool.connect();
 
     try {
-        logger.info({ terminalId, sessionId, userId, itemCount: items.length }, '🛒 [Sales v2] Starting secure sale');
+        logger.info({ terminalId, sessionId, userId: actorUserId, itemCount: items.length }, '🛒 [Sales v2] Starting secure sale');
 
         // --- INICIO DE TRANSACCIÓN SERIALIZABLE ---
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Verificar sesión activa
         const sessionRes = await client.query(`
-            SELECT id, user_id, terminal_id 
-            FROM cash_register_sessions 
-            WHERE id = $1 AND terminal_id = $2 AND closed_at IS NULL
+            SELECT
+                s.id,
+                s.user_id,
+                s.terminal_id,
+                t.location_id::text AS location_id
+            FROM cash_register_sessions s
+            JOIN terminals t ON t.id = s.terminal_id
+            WHERE s.id = $1
+              AND s.terminal_id = $2
+              AND s.closed_at IS NULL
         `, [sessionId, terminalId]);
 
         if (sessionRes.rows.length === 0) {
             throw new Error('No hay sesión de caja activa para este terminal');
+        }
+
+        const activeSession = sessionRes.rows[0];
+        if (String(activeSession.user_id || '') !== actorUserId) {
+            throw new Error('La sesión activa pertenece a otro usuario');
+        }
+
+        if (String(activeSession.location_id || '') !== locationId) {
+            throw new Error('La sesión activa no corresponde a la ubicación seleccionada');
         }
 
         // 3. Verificar y bloquear stock de todos los ítems
@@ -528,23 +570,17 @@ export async function createSaleSecure(params: {
         await client.query(`
             INSERT INTO sales (
                 id, location_id, terminal_id, session_id, user_id,
-                customer_rut, customer_name, total, total_amount, subtotal,
-                discount_amount, points_discount, payment_method,
-                dte_folio, dte_type, transfer_id, notes, status, timestamp, 
-                queue_ticket_id
+                customer_rut, total, total_amount, payment_method,
+                dte_folio, status, timestamp
             ) VALUES (
                 $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10,
-                $11, $12, $13,
-                $14, $15, $16, $17, 'COMPLETED', NOW(),
-                $18
+                $6, $7, $8, $9,
+                $10, 'COMPLETED', NOW()
             )
         `, [
-            saleId, locationId, terminalId, sessionId, userId,
-            customerRut || null, customerName || null, totalAmount, totalAmount, subtotal,
-            totalDiscount, pointsDiscount, paymentMethod,
-            dteFolio || null, dteType || 'BOLETA', transferId || null, notes || null,
-            queueTicketId || null
+            saleId, locationId, terminalId, sessionId, actorUserId,
+            customerRut || null, totalAmount, totalAmount, paymentMethod,
+            dteFolio || null
         ]);
 
         // 6. Insertar ítems y actualizar stock
@@ -564,14 +600,12 @@ export async function createSaleSecure(params: {
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity, 
-                    unit_price, discount_amount, total_price, product_name,
-                    timestamp
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    unit_price, total_price
+                ) VALUES ($1, $2, $3, $4, $5, $6)
             `, [
                 saleItemId, saleId, batchIdToInsert, item.quantity,
-                item.price, item.discount || 0,
-                (item.price * item.quantity) - (item.discount || 0),
-                item.name || (isManualItem ? 'Ítem Manual' : 'Sin Nombre')
+                item.price,
+                (item.price * item.quantity) - (item.discount || 0)
             ]);
 
             // Decrementar stock SOLO si es un producto de inventario (no manual)
@@ -590,33 +624,55 @@ export async function createSaleSecure(params: {
             }
         }
 
-        // 7. Actualizar puntos de fidelidad si hay cliente
-        if (customerRut && pointsRedeemed > 0) {
-            await client.query(`
-                UPDATE customers 
-                SET loyalty_points = loyalty_points - $1,
-                    updated_at = NOW()
-                WHERE rut = $2
-            `, [pointsRedeemed, customerRut]);
-        }
+        // 7. Actualizar puntos de fidelidad solo si el esquema del entorno los soporta.
+        if (customerRut && (pointsRedeemed > 0 || totalAmount > 0)) {
+            const loyaltyColumnsRes = await client.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE column_name = 'loyalty_points') as loyalty_points,
+                    COUNT(*) FILTER (WHERE column_name = 'total_purchases') as total_purchases,
+                    COUNT(*) FILTER (WHERE column_name = 'updated_at') as updated_at
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'customers'
+                  AND column_name IN ('loyalty_points', 'total_purchases', 'updated_at')
+            `);
+            const loyaltyColumns = loyaltyColumnsRes?.rows?.[0] || {};
+            const canUpdateLoyalty =
+                Number(loyaltyColumns.loyalty_points || 0) > 0
+                && Number(loyaltyColumns.total_purchases || 0) > 0
+                && Number(loyaltyColumns.updated_at || 0) > 0;
 
-        // 8. Generar puntos por la compra (1 punto por cada $1000)
-        if (customerRut && totalAmount > 0) {
-            const pointsEarned = Math.floor(totalAmount / 1000);
-            if (pointsEarned > 0) {
-                await client.query(`
-                    UPDATE customers 
-                    SET loyalty_points = loyalty_points + $1,
-                        total_purchases = total_purchases + $2,
-                        updated_at = NOW()
-                    WHERE rut = $3
-                `, [pointsEarned, totalAmount, customerRut]);
+            if (canUpdateLoyalty) {
+                if (pointsRedeemed > 0) {
+                    await client.query(`
+                        UPDATE customers
+                        SET loyalty_points = loyalty_points - $1,
+                            updated_at = NOW()
+                        WHERE rut = $2
+                    `, [pointsRedeemed, customerRut]);
+                }
+
+                const pointsEarned = Math.floor(totalAmount / 1000);
+                if (pointsEarned > 0) {
+                    await client.query(`
+                        UPDATE customers
+                        SET loyalty_points = loyalty_points + $1,
+                            total_purchases = total_purchases + $2,
+                            updated_at = NOW()
+                        WHERE rut = $3
+                    `, [pointsEarned, totalAmount, customerRut]);
+                }
+            } else {
+                logger.warn(
+                    { customerRut },
+                    '[Sales v2] Customer loyalty columns missing in this environment; skipping loyalty update.'
+                );
             }
         }
 
-        // 9. Registrar auditoría
+        // 8. Registrar auditoría
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             sessionId,
             terminalId,
             locationId,
@@ -627,8 +683,14 @@ export async function createSaleSecure(params: {
                 payment_method: paymentMethod,
                 item_count: items.length,
                 customer_rut: customerRut,
+                customer_name: customerName,
                 dte_folio: dteFolio,
-                points_redeemed: pointsRedeemed
+                dte_type: dteType,
+                points_redeemed: pointsRedeemed,
+                discount_amount: totalDiscount,
+                notes,
+                queue_ticket_id: queueTicketId,
+                transfer_id: transferId,
             }
         });
 
@@ -706,7 +768,7 @@ export async function createSaleSecure(params: {
  * Anula una venta existente con autorización de supervisor
  * 
  * @description
- * - Requiere PIN de supervisor (bcrypt)
+ * - Requiere PIN de supervisor
  * - Revierte stock de todos los ítems
  * - Registra justificación obligatoria
  * - Auditoría completa
@@ -725,10 +787,16 @@ export async function voidSaleSecure(params: {
     }
 
     const {
-        saleId, userId, reason, supervisorPin,
+        saleId, userId: requestedUserId, reason, supervisorPin,
         // @ts-ignore
         queueTicketId // Ignored here as voidSale doesn't use it, but keeping for symmetry if needed later
     } = params;
+
+    const actor = await resolveValidatedSalesActor(requestedUserId, 'voidSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
@@ -784,17 +852,13 @@ export async function voidSaleSecure(params: {
         // 6. Marcar venta como anulada
         await client.query(`
             UPDATE sales 
-            SET status = 'VOIDED',
-                voided_at = NOW(),
-                voided_by = $1::uuid,
-                void_reason = $2,
-                void_authorized_by = $3::uuid
-            WHERE id = $4
-        `, [userId, reason, authResult.authorizedBy?.id, saleId]);
+            SET status = 'VOIDED'
+            WHERE id = $1
+        `, [saleId]);
 
         // 7. Auditoría
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             authorizedById: authResult.authorizedBy?.id,
             sessionId: sale.session_id,
             terminalId: sale.terminal_id,
@@ -849,7 +913,13 @@ export async function refundSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { saleId, userId, items, reason, supervisorPin, refundMethod } = validation.data;
+    const { saleId, userId: requestedUserId, items, reason, supervisorPin, refundMethod } = validation.data;
+
+    const actor = await resolveValidatedSalesActor(requestedUserId, 'refundSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const { v4: uuidv4 } = await import('uuid');
@@ -908,8 +978,10 @@ export async function refundSaleSecure(params: {
         for (const refundItem of items) {
             // Obtener ítem original
             const itemRes = await client.query(`
-                SELECT si.*
+                SELECT si.*, COALESCE(p.name, ib.name, 'Producto') as product_name
                 FROM sale_items si
+                LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+                LEFT JOIN products p ON ib.product_id::text = p.id::text
                 WHERE si.id = $1 AND si.sale_id = $2
                 FOR UPDATE NOWAIT
             `, [refundItem.saleItemId, saleId]);
@@ -982,7 +1054,7 @@ export async function refundSaleSecure(params: {
             `, [
                 refundId,
                 saleId,
-                userId,
+                actorUserId,
                 authResult.authorizedBy?.id || null,
                 sale.session_id,
                 sale.terminal_id,
@@ -1040,7 +1112,7 @@ export async function refundSaleSecure(params: {
 
         // 7. Auditoría
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             authorizedById: authResult.authorizedBy?.id,
             sessionId: sale.session_id,
             terminalId: sale.terminal_id,
@@ -1111,11 +1183,17 @@ export async function getSalesHistorySecure(params: {
     const { startDate, endDate, searchTerm = '', paymentMethod, sessionId, limit = 50, offset = 0 } = filters;
     const { locationId, supervisorPin } = security;
 
-    const { getSessionSecure, validateSupervisorPin } = await import('./auth-v2');
+    let sessionActor: Awaited<ReturnType<typeof getActorOrFail>> | null = null;
+    try {
+        sessionActor = await getActorOrFail();
+    } catch (error) {
+        if (!(error instanceof PinRbacError)) {
+            throw error;
+        }
+    }
 
-    const session = await getSessionSecure();
-    const userId = session?.userId;
-    const userRole = session?.role;
+    const userId = sessionActor?.userId;
+    const userRole = sessionActor?.role;
 
     let authorizedUserId = userId;
     let isAuthorized = false;
@@ -1123,9 +1201,16 @@ export async function getSalesHistorySecure(params: {
     // 2. Validar autorización
     // A. Vía PIN (Elevación o Rol Manager/Admin)
     if (supervisorPin) {
-        // Usamos la función importada de auth-v2 que maneja su propia conexión/query
-        const auth = await validateSupervisorPin(supervisorPin);
-        if (auth.success && auth.authorizedBy) {
+        const auth = await validatePinForRoles(
+            { query: (sql: string, params?: unknown[]) => query(sql, params as never[] | undefined) },
+            supervisorPin,
+            ROLE_GROUPS.MANAGER,
+            {
+                allowLegacyPlaintext: true,
+                useRateLimiter: true,
+            }
+        );
+        if (auth.valid) {
             isAuthorized = true;
             authorizedUserId = auth.authorizedBy.id; // Auditoría a nombre del supervisor
         }
@@ -1204,8 +1289,13 @@ export async function getSalesHistorySecure(params: {
             whereClause += ` AND (
                 s.id::text ILIKE $${paramIndex} OR
                 s.dte_folio::text ILIKE $${paramIndex} OR
-                s.customer_name ILIKE $${paramIndex} OR
                 s.customer_rut ILIKE $${paramIndex} OR
+                EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                ) OR
                 
                 -- Búsqueda por productos en la venta
                 EXISTS (
@@ -1241,11 +1331,11 @@ export async function getSalesHistorySecure(params: {
         const dataRes = await query(`
             SELECT 
                 s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
-                s.dte_folio, s.dte_type, s.customer_name, s.user_id as seller_id,
+                s.dte_folio, NULL::text as dte_type, c.name as customer_name, s.user_id as seller_id,
                 u.name as seller_name,
                 -- Campos de edición
-                s.edited_at, s.edit_reason,
-                eu.name as edit_authorized_name,
+                NULL::timestamp as edited_at, NULL::text as edit_reason,
+                NULL::text as edit_authorized_name,
                 -- Items simplificados para lista
                 (
                     SELECT json_agg(json_build_object(
@@ -1275,7 +1365,7 @@ export async function getSalesHistorySecure(params: {
                 ) as refund_total
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
-            LEFT JOIN users eu ON s.edit_authorized_by::text = eu.id::text
+            LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
             ${whereClause}
             ORDER BY s.timestamp DESC
             LIMIT $${limitIndex} OFFSET $${offsetIndex}
@@ -1457,16 +1547,15 @@ export async function getSaleDetailsSecure(saleId: string) {
         const saleRes = await client.query(`
             SELECT 
                 s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
-                s.customer_rut, s.customer_name, s.dte_folio, s.notes,
-                s.queue_ticket_id,
-                s.edited_at, s.edit_reason, s.edit_authorized_by,
+                s.customer_rut, c.name as customer_name, s.dte_folio, NULL::text as notes,
+                NULL::text as queue_ticket_id,
+                NULL::timestamp as edited_at, NULL::text as edit_reason, NULL::text as edit_authorized_by,
                 u.name as seller_name,
-                eu.name as edit_authorized_name,
+                NULL::text as edit_authorized_name,
                 c.email as customer_email, c.phone as customer_phone
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
-            LEFT JOIN users eu ON s.edit_authorized_by::text = eu.id::text
-            LEFT JOIN customers c ON s.customer_rut = c.rut
+            LEFT JOIN customers c ON s.customer_rut::text = c.rut::text
             WHERE s.id = $1
         `, [saleId]);
 
@@ -1482,10 +1571,11 @@ export async function getSaleDetailsSecure(saleId: string) {
                 COALESCE(si.refunded_quantity, 0) as refunded_quantity,
                 si.unit_price,
                 si.total_price,
-                COALESCE(si.product_name, b.name, 'Ítem Desconocido') as name,
+                COALESCE(p.name, b.name, 'Ítem Desconocido') as name,
                 b.sku
             FROM sale_items si
             LEFT JOIN inventory_batches b ON si.batch_id = b.id
+            LEFT JOIN products p ON b.product_id::text = p.id::text
             WHERE si.sale_id = $1
         `, [saleId]);
 
@@ -1497,6 +1587,31 @@ export async function getSaleDetailsSecure(saleId: string) {
             LEFT JOIN users ru ON r.user_id::text = ru.id::text
             WHERE r.sale_id = $1 AND r.status = 'COMPLETED'
             ORDER BY r.created_at DESC
+        `, [saleId]);
+
+        // 2c. Bitácora inmutable de cambios/anulaciones/devoluciones.
+        // La tabla runtime de sales no tiene columnas de edición/anulación; audit_log es la fuente canónica.
+        const auditRes = await client.query(`
+            SELECT
+                al.id,
+                al.created_at,
+                al.action_code,
+                al.justification,
+                al.old_values,
+                al.new_values,
+                u.name as user_name,
+                au.name as authorized_by_name
+            FROM audit_log al
+            LEFT JOIN users u ON al.user_id::text = u.id::text
+            LEFT JOIN users au ON au.id::text = COALESCE(al.authorized_by::text, al.new_values->>'authorized_by')
+            WHERE al.entity_type = 'SALE'
+              AND al.action_code IN ('SALE_EDIT', 'SALE_VOID', 'SALE_REFUND')
+              AND (
+                  al.entity_id = $1
+                  OR al.new_values->>'original_sale_id' = $1
+              )
+            ORDER BY al.created_at DESC
+            LIMIT 20
         `, [saleId]);
 
         // 3. Obtener ticket de fila
@@ -1512,6 +1627,7 @@ export async function getSaleDetailsSecure(saleId: string) {
             ...sale,
             items: itemsRes.rows,
             refunds: refundsRes.rows,
+            audit_history: auditRes.rows,
             queueTicket
         };
 
@@ -1559,7 +1675,13 @@ export async function editSaleSecure(params: {
         return { success: false, error: validation.error.issues[0]?.message || 'Datos inválidos' };
     }
 
-    const { saleId, userId, supervisorPin, reason, items } = validation.data;
+    const { saleId, userId: requestedUserId, supervisorPin, reason, items } = validation.data;
+
+    const actor = await resolveValidatedSalesActor(requestedUserId, 'editSaleSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
 
     const { pool } = await import('@/lib/db');
     const client = await pool.connect();
@@ -1598,9 +1720,11 @@ export async function editSaleSecure(params: {
 
         // 4. Obtener ítems originales (para auditoría y reversión de stock)
         const originalItemsRes = await client.query(`
-            SELECT id, batch_id, quantity, unit_price, product_name
-            FROM sale_items
-            WHERE sale_id = $1
+            SELECT si.id, si.batch_id, si.quantity, si.unit_price, COALESCE(p.name, ib.name, 'Producto') as product_name
+            FROM sale_items si
+            LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+            LEFT JOIN products p ON ib.product_id::text = p.id::text
+            WHERE si.sale_id = $1
         `, [saleId]);
 
         const originalItems = originalItemsRes.rows;
@@ -1661,10 +1785,10 @@ export async function editSaleSecure(params: {
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity,
-                    unit_price, total_price, product_name, timestamp
+                    unit_price, total_price
                 ) VALUES (
                     $1::uuid, $2::uuid, $3, $4,
-                    $5, $6, $7, NOW()
+                    $5, $6
                 )
             `, [
                 uuidv4(),
@@ -1673,7 +1797,6 @@ export async function editSaleSecure(params: {
                 item.quantity,
                 item.price,
                 lineTotal,
-                item.name || null,
             ]);
         }
 
@@ -1683,24 +1806,17 @@ export async function editSaleSecure(params: {
         await client.query(`
             UPDATE sales
             SET total_amount        = $1,
-                total               = $2,
-                edited_at           = NOW(),
-                edited_by           = $3,
-                edit_authorized_by  = $4,
-                edit_reason         = $5
-            WHERE id = $6
+                total               = $2
+            WHERE id = $3
         `, [
             newTotal,
             newTotal,
-            userId,
-            authResult.authorizedBy?.id || null,
-            reason,
             saleId,
         ]);
 
         // 9. Auditoría inmutable
         await insertSaleAudit(client, {
-            userId,
+            userId: actorUserId,
             authorizedById: authResult.authorizedBy?.id,
             sessionId: sale.session_id,
             terminalId: sale.terminal_id,

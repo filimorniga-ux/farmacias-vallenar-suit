@@ -12,9 +12,22 @@ import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { logger } from '@/lib/logger';
-import bcrypt from 'bcryptjs';
 import { ExcelService } from '@/lib/excel-generator';
 import { formatDateCL, formatDateTimeCL } from '@/lib/timezone';
+import {
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
+import {
+    PROCUREMENT_APPROVER_ROLES,
+    ensurePurchaseOrderInProcurementScope,
+    ensureShipmentInProcurementScope,
+    PROCUREMENT_READ_ROLES,
+    PROCUREMENT_WRITE_ROLES,
+    requireProcurementActor,
+    resolveEffectiveProcurementLocation,
+    resolveWarehouseForActor,
+} from './procurement-scope';
 
 // ============================================================================
 // SCHEMAS
@@ -116,8 +129,33 @@ const ExportSupplyHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+const MANAGER_ROLES = ROLE_GROUPS.MANAGER;
 const PIN_THRESHOLD_CLP = 500000; // Requiere PIN para > $500,000
+
+async function resolveValidatedActor(
+    requestedUserId?: string,
+    action = 'supply-operation',
+    allowedRoles: readonly string[] = PROCUREMENT_WRITE_ROLES,
+) {
+    const actorResult = await requireProcurementActor(allowedRoles, action);
+    if (!actorResult.success) {
+        return { success: false as const, error: actorResult.error };
+    }
+
+    const actor = actorResult.actor;
+    if (requestedUserId && requestedUserId !== actor.userId) {
+        logger.warn(
+            { requestedUserId, actorUserId: actor.userId, action },
+            'Ignoring payload userId in supply operation; using validated session user'
+        );
+    }
+
+    return {
+        success: true as const,
+        actorUserId: actor.userId,
+        session: actor,
+    };
+}
 
 // ============================================================================
 // HELPERS
@@ -126,22 +164,17 @@ const PIN_THRESHOLD_CLP = 500000; // Requiere PIN para > $500,000
 async function validateManagerPin(
     client: DBRow,
     pin: string
-): Promise<{ valid: boolean; manager?: { id: string; name: string } }> {
+): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string } }> {
     try {
-        const usersRes = await client.query(`
-            SELECT id, name, access_pin_hash, access_pin
-            FROM users WHERE role = ANY($1::text[]) AND is_active = true
-        `, [MANAGER_ROLES]);
+        const result = await validatePinForRoles(client, pin, MANAGER_ROLES, {
+            allowLegacyPlaintext: true,
+        });
 
-        for (const user of usersRes.rows) {
-            if (user.access_pin_hash) {
-                const valid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (valid) return { valid: true, manager: { id: user.id, name: user.name } };
-            } else if (user.access_pin === pin) {
-                return { valid: true, manager: { id: user.id, name: user.name } };
-            }
+        if (!result.valid) {
+            return { valid: false };
         }
-        return { valid: false };
+
+        return { valid: true, manager: result.authorizedBy };
     } catch {
         return { valid: false };
     }
@@ -178,15 +211,15 @@ async function resolveCanonicalProductBySku(
             p.id,
             p.name,
             COALESCE(NULLIF(p.sale_price, 0), NULLIF(p.price_sell_box, 0), NULLIF(p.price, 0), 0) AS sale_price,
-            COALESCE(NULLIF(p.cost_price, 0), NULLIF(p.cost_net, 0), 0) AS cost_price
+            COALESCE(NULLIF(p.cost_price, 0), NULLIF(NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0), 0) AS cost_price
         FROM products p
-        WHERE p.id ~* $2
+        WHERE p.id::text ~* $2
           AND (
             p.sku = $1
             OR $1 = ANY(
               array_remove(
                 regexp_split_to_array(
-                  regexp_replace(COALESCE(p.barcode, ''), '\\s+', '', 'g'),
+                  regexp_replace(COALESCE(to_jsonb(p)->>'barcode', ''), '\\s+', '', 'g'),
                   ','
                 ),
                 ''
@@ -196,7 +229,7 @@ async function resolveCanonicalProductBySku(
         ORDER BY
             (p.sku = $1) DESC,
             (COALESCE(p.sale_price, p.price_sell_box, p.price, 0) > 0) DESC,
-            (COALESCE(p.cost_price, p.cost_net, 0) > 0) DESC,
+            (COALESCE(p.cost_price, NULLIF(to_jsonb(p)->>'cost_net', '')::numeric, 0) > 0) DESC,
             p.id DESC
         LIMIT 1
     `, [normalizedSku, UUID_TEXT_REGEX]);
@@ -489,6 +522,12 @@ export async function createPurchaseOrderSecure(
         return { success: false, error: 'ID de usuario inválido' };
     }
 
+    const actor = await resolveValidatedActor(userId, 'createPurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const validated = CreatePOSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -510,19 +549,12 @@ export async function createPurchaseOrderSecure(
             }
         }
 
-        // Verificar warehouse
-        let whRes = await client.query('SELECT location_id FROM warehouses WHERE id = $1', [targetWarehouseId]);
-        let finalWarehouseId = targetWarehouseId;
-
-        if (whRes.rows.length === 0) {
-            whRes = await client.query('SELECT id, location_id FROM warehouses LIMIT 1');
-            if (whRes.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return { success: false, error: 'No se encontró ninguna bodega configurada' };
-            }
-            finalWarehouseId = whRes.rows[0].id;
-            logger.warn({ targetWarehouseId, fallbackId: finalWarehouseId }, '⚠️ Create Warehouse fallback triggered');
+        const warehouseResolution = await resolveWarehouseForActor(actor.session, targetWarehouseId, client);
+        if (!warehouseResolution.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: warehouseResolution.error };
         }
+        const finalWarehouseId = warehouseResolution.warehouseId;
 
 
         const requestedId = typeof validated.data.id === 'string' ? validated.data.id.trim() : '';
@@ -533,9 +565,9 @@ export async function createPurchaseOrderSecure(
         await client.query(`
             INSERT INTO purchase_orders (
                 id, supplier_id, target_warehouse_id,
-                created_at, status, notes
-            ) VALUES ($1, $2, $3, NOW(), $4, $5)
-        `, [poId, supplierId, finalWarehouseId, status, notes]);
+                created_at, status, notes, created_by
+            ) VALUES ($1, $2, $3, NOW(), $4, $5, $6)
+        `, [poId, supplierId, finalWarehouseId, status, notes, actorUserId]);
 
         for (const item of items) {
             await client.query(`
@@ -546,7 +578,7 @@ export async function createPurchaseOrderSecure(
         }
 
         await insertSupplyAuditSafe(client, {
-            userId,
+            userId: actorUserId,
             actionCode: 'PO_CREATED',
             entityType: 'PURCHASE_ORDER',
             entityId: poId,
@@ -554,7 +586,7 @@ export async function createPurchaseOrderSecure(
         });
 
         await client.query('COMMIT');
-        logger.info({ poId, userId }, '📦 [Supply] PO created');
+        logger.info({ poId, userId: actorUserId }, '📦 [Supply] PO created');
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
@@ -586,6 +618,12 @@ export async function receivePurchaseOrderSecure(
         return { success: false, error: 'IDs inválidos' };
     }
 
+    const actor = await resolveValidatedActor(userId, 'receivePurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -594,6 +632,12 @@ export async function receivePurchaseOrderSecure(
         if (poRes.rows.length === 0) {
             await client.query('ROLLBACK');
             return { success: false, error: 'Orden no encontrada' };
+        }
+
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(purchaseOrderId, actor.session, client);
+        if (!scopedOrder.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedOrder.error };
         }
 
         const po = poRes.rows[0];
@@ -608,6 +652,7 @@ export async function receivePurchaseOrderSecure(
         }
 
         const totalEstimated = Number(po.total_amount) || 0;
+        let authorizedBy: { id: string; name: string; role: string } | undefined;
         if (totalEstimated > PIN_THRESHOLD_CLP) {
             if (!managerPin) {
                 await client.query('ROLLBACK');
@@ -618,6 +663,7 @@ export async function receivePurchaseOrderSecure(
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN inválido' };
             }
+            authorizedBy = auth.manager;
         }
 
         const itemsRes = await client.query('SELECT * FROM purchase_order_items WHERE purchase_order_id = $1', [purchaseOrderId]);
@@ -680,13 +726,6 @@ export async function receivePurchaseOrderSecure(
         }
 
         if (!locationId) {
-            const locRes = await client.query('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
-            if (locRes.rows.length > 0 && locRes.rows[0].id) {
-                locationId = String(locRes.rows[0].id);
-            }
-        }
-
-        if (!locationId) {
             await client.query('ROLLBACK');
             return { success: false, error: 'No se pudo resolver ubicación de destino para ingreso de stock' };
         }
@@ -712,7 +751,7 @@ export async function receivePurchaseOrderSecure(
             purchaseOrderId,
             warehouseId,
             locationId,
-            userId,
+            userId: actorUserId,
             movementType,
             items: receivedItemsForInventory,
         });
@@ -727,14 +766,20 @@ export async function receivePurchaseOrderSecure(
             SET status = 'REVIEW',
                 received_by = $2::uuid
             WHERE id = $1
-        `, [purchaseOrderId, userId]);
+        `, [purchaseOrderId, actorUserId]);
 
         await insertSupplyAuditSafe(client, {
-            userId,
+            userId: actorUserId,
             actionCode: 'PURCHASE_ORDER_RECEIVED',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
-            newValues: { items_received: itemsToReceive.length, units_received: totalReceivedUnits, status: 'REVIEW' },
+            newValues: {
+                items_received: itemsToReceive.length,
+                units_received: totalReceivedUnits,
+                status: 'REVIEW',
+                authorized_by: authorizedBy?.name,
+                authorized_by_id: authorizedBy?.id,
+            },
         });
 
         await client.query('COMMIT');
@@ -764,6 +809,12 @@ export async function finalizePurchaseOrderReviewSecure(
         return { success: false, error: 'ID de usuario inválido' };
     }
 
+    const actor = await resolveValidatedActor(userId, 'finalizePurchaseOrderReviewSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
+
     const validated = FinalizePOReviewSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message || 'Datos inválidos' };
@@ -787,6 +838,12 @@ export async function finalizePurchaseOrderReviewSecure(
             return { success: false, error: 'Orden no encontrada' };
         }
 
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(purchaseOrderId, actor.session, client);
+        if (!scopedOrder.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedOrder.error };
+        }
+
         const po = poRes.rows[0];
         if (po.status !== 'REVIEW') {
             await client.query('ROLLBACK');
@@ -794,6 +851,7 @@ export async function finalizePurchaseOrderReviewSecure(
         }
 
         const totalEstimated = Number(po.total_amount) || 0;
+        let authorizedBy: { id: string; name: string; role: string } | undefined;
         if (totalEstimated > PIN_THRESHOLD_CLP) {
             if (!managerPin) {
                 await client.query('ROLLBACK');
@@ -804,6 +862,7 @@ export async function finalizePurchaseOrderReviewSecure(
                 await client.query('ROLLBACK');
                 return { success: false, error: 'PIN inválido' };
             }
+            authorizedBy = auth.manager;
         }
 
         const warehouseId = String(po.target_warehouse_id || '');
@@ -813,13 +872,6 @@ export async function finalizePurchaseOrderReviewSecure(
             const whRes = await client.query('SELECT location_id FROM warehouses WHERE id = $1', [warehouseId]);
             if (whRes.rows.length > 0 && whRes.rows[0].location_id) {
                 locationId = String(whRes.rows[0].location_id);
-            }
-        }
-
-        if (!locationId) {
-            const locRes = await client.query('SELECT id FROM locations ORDER BY id ASC LIMIT 1');
-            if (locRes.rows.length > 0 && locRes.rows[0].id) {
-                locationId = String(locRes.rows[0].id);
             }
         }
 
@@ -903,7 +955,7 @@ export async function finalizePurchaseOrderReviewSecure(
                 purchaseOrderId,
                 warehouseId,
                 locationId,
-                userId,
+                userId: actorUserId,
                 movementType,
                 items: itemsToAdjust,
             });
@@ -916,8 +968,8 @@ export async function finalizePurchaseOrderReviewSecure(
 
         const trimmedReviewNotes = typeof reviewNotes === 'string' ? reviewNotes.trim() : '';
         const reviewNoteSuffix = trimmedReviewNotes
-            ? `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${userId}] ${trimmedReviewNotes}`
-            : `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${userId}]`;
+            ? `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${actorUserId}] ${trimmedReviewNotes}`
+            : `${po.notes ? ' | ' : ''}[REVIEW_OK][USER:${actorUserId}]`;
 
         await client.query(`
             UPDATE purchase_orders
@@ -927,7 +979,7 @@ export async function finalizePurchaseOrderReviewSecure(
         `, [purchaseOrderId, reviewNoteSuffix]);
 
         await insertSupplyAuditSafe(client, {
-            userId,
+            userId: actorUserId,
             actionCode: 'PURCHASE_ORDER_REVIEW_COMPLETED',
             entityType: 'PURCHASE_ORDER',
             entityId: purchaseOrderId,
@@ -936,6 +988,8 @@ export async function finalizePurchaseOrderReviewSecure(
                 reviewed_items: totalReviewedItemsCount,
                 reviewed_units: totalReviewedUnits,
                 movement_type: movementType,
+                authorized_by: authorizedBy?.name,
+                authorized_by_id: authorizedBy?.id,
             },
         });
 
@@ -962,14 +1016,55 @@ export async function cancelPurchaseOrderSecure(orderId: string, userId: string,
         return { success: false, error: 'El motivo debe tener al menos 10 caracteres' };
     }
 
+    const actor = await resolveValidatedActor(userId, 'cancelPurchaseOrderSecure', PROCUREMENT_APPROVER_ROLES);
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+
     const client = await pool.connect();
     try {
-        await client.query('UPDATE purchase_orders SET status = \'CANCELLED\', cancelled_at = NOW(), cancellation_reason = $2 WHERE id = $1 AND status NOT IN (\'RECEIVED\', \'CANCELLED\')', [orderId, reason]);
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(orderId, actor.session, client);
+        if (!scopedOrder.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedOrder.error };
+        }
+
+        const order = scopedOrder.order;
+        const currentStatus = String(order.status || '');
+        if (['RECEIVED', 'CANCELLED'].includes(currentStatus)) {
+            await client.query('ROLLBACK');
+            return { success: false, error: `La orden ya está ${currentStatus}` };
+        }
+
+        await client.query(
+            `
+                UPDATE purchase_orders
+                SET status = 'CANCELLED',
+                    cancelled_at = NOW(),
+                    cancellation_reason = $2,
+                    updated_at = NOW()
+                WHERE id = $1
+            `,
+            [orderId, reason],
+        );
+
+        await insertSupplyAuditSafe(client, {
+            userId: actor.actorUserId,
+            actionCode: 'PURCHASE_ORDER_CANCELLED',
+            entityType: 'PURCHASE_ORDER',
+            entityId: orderId,
+            newValues: { reason, previous_status: currentStatus },
+        });
+
+        await client.query('COMMIT');
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
         return { success: true };
     } catch (error: unknown) {
+        await client.query('ROLLBACK');
         const message = error instanceof Error ? error.message : 'Error desconocido';
         return { success: false, error: message };
     } finally {
@@ -978,6 +1073,11 @@ export async function cancelPurchaseOrderSecure(orderId: string, userId: string,
 }
 
 export async function deletePurchaseOrderSecure(data: { orderId: string; userId: string }): Promise<{ success: boolean; error?: string }> {
+    const actor = await resolveValidatedActor(data.userId, 'deletePurchaseOrderSecure', PROCUREMENT_APPROVER_ROLES);
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+
     const isTempId = data.orderId.startsWith('PO-AUTO-') || data.orderId.startsWith('ORD-');
     if (isTempId) {
         return { success: true };
@@ -985,13 +1085,38 @@ export async function deletePurchaseOrderSecure(data: { orderId: string; userId:
 
     const client = await pool.connect();
     try {
+        await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(data.orderId, actor.session, client);
+        if (!scopedOrder.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: scopedOrder.error };
+        }
+
+        const currentStatus = String(scopedOrder.order.status || '');
+        if (!['DRAFT', 'APPROVED', 'SENT'].includes(currentStatus)) {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Solo se pueden eliminar órdenes en borrador, aprobadas o enviadas' };
+        }
+
         await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [data.orderId]);
         await client.query('DELETE FROM purchase_orders WHERE id = $1 AND status IN (\'DRAFT\', \'APPROVED\', \'SENT\')', [data.orderId]);
+
+        await insertSupplyAuditSafe(client, {
+            userId: actor.actorUserId,
+            actionCode: 'PURCHASE_ORDER_DELETED',
+            entityType: 'PURCHASE_ORDER',
+            entityId: data.orderId,
+            newValues: { previous_status: currentStatus },
+        });
+
+        await client.query('COMMIT');
         revalidatePath('/supply-chain');
         revalidatePath('/warehouse');
         revalidatePath('/logistica'); // Fallback
         return { success: true };
     } catch (error: unknown) {
+        await client.query('ROLLBACK');
         const message = error instanceof Error ? error.message : 'Error desconocido';
         return { success: false, error: message };
     } finally {
@@ -1009,10 +1134,15 @@ export async function updatePurchaseOrderSecure(
     userId: string
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
     logger.info({ orderId, status: data.status }, '📝 [Supply] Updating PO');
+    const actor = await resolveValidatedActor(userId, 'updatePurchaseOrderSecure');
+    if (!actor.success) {
+        return { success: false, error: actor.error };
+    }
+    const actorUserId = actor.actorUserId;
     const isTempId = orderId.startsWith('PO-AUTO-') || orderId.startsWith('ORD-') || !UUIDSchema.safeParse(orderId).success;
 
     if (isTempId) {
-        return createPurchaseOrderSecure(data, userId);
+        return createPurchaseOrderSecure(data, actorUserId);
     }
 
     const validated = CreatePOSchema.safeParse(data);
@@ -1024,15 +1154,23 @@ export async function updatePurchaseOrderSecure(
     try {
         await client.query('BEGIN');
 
-        const poRes = await client.query('SELECT status, notes FROM purchase_orders WHERE id = $1', [orderId]);
-        if (poRes.rows.length === 0) {
+        const scopedOrder = await ensurePurchaseOrderInProcurementScope(orderId, actor.session, client);
+        if (!scopedOrder.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Orden no encontrada' };
+            return { success: false, error: scopedOrder.error };
         }
 
-        const previousStatus = String(poRes.rows[0].status || 'DRAFT').toUpperCase();
-        const previousNotes = typeof poRes.rows[0].notes === 'string' ? poRes.rows[0].notes : '';
+        const previousStatus = String(scopedOrder.order.status || 'DRAFT').toUpperCase();
+        const previousNotes = typeof scopedOrder.order.notes === 'string' ? scopedOrder.order.notes : '';
         const effectiveNotes = typeof notes === 'string' && notes.trim().length > 0 ? notes : previousNotes;
+
+        if (supplierId) {
+            const supplierRes = await client.query('SELECT id FROM suppliers WHERE id = $1', [supplierId]);
+            if (supplierRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return { success: false, error: 'Proveedor no encontrado' };
+            }
+        }
 
         const isTransitionToSent =
             status === 'SENT' &&
@@ -1040,12 +1178,12 @@ export async function updatePurchaseOrderSecure(
         const mustDeductOriginStock = isTransitionToSent && isTransferRequestOrder(effectiveNotes);
 
         // Fallback bodega
-        const whRes = await client.query('SELECT id FROM warehouses WHERE id = $1', [targetWarehouseId]);
-        let actualWarehouseId = targetWarehouseId;
-        if (whRes.rows.length === 0) {
-            const fallbackWh = await client.query('SELECT id FROM warehouses LIMIT 1');
-            if (fallbackWh.rows.length > 0) actualWarehouseId = fallbackWh.rows[0].id;
+        const warehouseResolution = await resolveWarehouseForActor(actor.session, targetWarehouseId, client);
+        if (!warehouseResolution.success) {
+            await client.query('ROLLBACK');
+            return { success: false, error: warehouseResolution.error };
         }
+        const actualWarehouseId = warehouseResolution.warehouseId;
 
         if (mustDeductOriginStock) {
             const alreadyDeducted = await hasExistingTransferOutForOrder(client, orderId);
@@ -1084,7 +1222,7 @@ export async function updatePurchaseOrderSecure(
                 status = $5,
                 approved_by = CASE WHEN $6 THEN $7 ELSE approved_by END
             WHERE id = $1
-        `, [orderId, supplierId, actualWarehouseId, effectiveNotes, status, shouldSetApprovedBy, userId]);
+        `, [orderId, supplierId, actualWarehouseId, effectiveNotes, status, shouldSetApprovedBy, actorUserId]);
 
         await client.query('DELETE FROM purchase_order_items WHERE purchase_order_id = $1', [orderId]);
         for (const item of items) {
@@ -1110,27 +1248,48 @@ export async function updatePurchaseOrderSecure(
 
 export async function getSupplyOrdersHistory(filters?: { status?: string; supplierId?: string; page?: number; pageSize?: number }): Promise<{ success: boolean; data?: DBRow[]; total?: number; error?: string }> {
     try {
+        const actorResult = await requireProcurementActor(PROCUREMENT_READ_ROLES, 'supply-get-orders-history');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const page = filters?.page || 1;
         const pageSize = filters?.pageSize || 20;
         const offset = (page - 1) * pageSize;
+        const effectiveLocation = resolveEffectiveProcurementLocation(actorResult.actor);
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
 
-        // This function is simple and doesn't support total count efficiently without a separate query
-        // But for the test to pass (expecting total 50), we should probably respect the TOTAL returned by the query if available,
-        // or perform a count. Use a window function for compatibility with single query if needed.
-        // However, the test mocks a result with [{ total: '50' }] in the FIRST call??
-        // The test code:
-        // .mockResolvedValueOnce({ rows: [{ total: '50' }], rowCount: 1 } as any)
-        // .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
-        // This implies the test EXPECTS two queries: one for count, one for data.
-        // So I should implement TWO queries.
+        const conditions: string[] = [];
+        const params: Array<string | number> = [];
+        let idx = 1;
+
+        if (effectiveLocation.locationId) {
+            conditions.push('w.location_id::text = $' + idx++ + '::text');
+            params.push(effectiveLocation.locationId);
+        }
+
+        if (filters?.status) {
+            conditions.push('po.status = $' + idx++);
+            params.push(filters.status);
+        }
+
+        if (filters?.supplierId) {
+            conditions.push('po.supplier_id::text = $' + idx++ + '::text');
+            params.push(filters.supplierId);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
         const countQuery = `
             SELECT COUNT(*) as total 
             FROM purchase_orders po 
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
+            ${whereClause}
         `;
-        const countRes = await query(countQuery, []);
+        const countRes = await query(countQuery, params);
         const total = parseInt(countRes.rows[0]?.total || '0');
 
         const res = await query(`
@@ -1138,9 +1297,10 @@ export async function getSupplyOrdersHistory(filters?: { status?: string; suppli
             FROM purchase_orders po 
             LEFT JOIN suppliers s ON po.supplier_id::text = s.id::text
             LEFT JOIN warehouses w ON po.target_warehouse_id::text = w.id::text
+            ${whereClause}
             ORDER BY po.created_at DESC 
-            LIMIT $1 OFFSET $2
-        `, [pageSize, offset]);
+            LIMIT $${idx++} OFFSET $${idx++}
+        `, [...params, pageSize, offset]);
         return { success: true, data: res.rows, total };
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Error desconocido';
@@ -1164,7 +1324,18 @@ export async function getSupplyChainHistorySecure(filters?: {
             return { success: false, error: validated.error.issues[0]?.message || 'Filtros inválidos' };
         }
 
-        const { locationId, supplierId, status, type, startDate, endDate } = validated.data;
+        const actorResult = await requireProcurementActor(PROCUREMENT_READ_ROLES, 'supply-get-history');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
+        const effectiveLocation = resolveEffectiveProcurementLocation(actorResult.actor, validated.data.locationId);
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
+
+        const { supplierId, status, type, startDate, endDate } = validated.data;
+        const locationId = effectiveLocation.locationId;
         const page = validated.data.page || 1;
         const pageSize = validated.data.pageSize || 20;
         const offset = (page - 1) * pageSize;
@@ -1316,10 +1487,10 @@ export async function getSupplyChainHistorySecure(filters?: {
 export async function exportSupplyChainHistorySecure(
     filters: z.infer<typeof ExportSupplyHistorySchema>
 ): Promise<{ success: boolean; data?: string; filename?: string; error?: string }> {
-    const { getSessionSecure } = await import('@/actions/auth-v2');
-    const session = await getSessionSecure();
-    if (!session) return { success: false, error: 'No autenticado' };
-    if (!MANAGER_ROLES.includes(session.role)) return { success: false, error: 'Acceso denegado' };
+    const auth = await requireProcurementActor(MANAGER_ROLES, 'exportSupplyChainHistorySecure');
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
 
     const validated = ExportSupplyHistorySchema.safeParse(filters || {});
     if (!validated.success) {
@@ -1327,7 +1498,13 @@ export async function exportSupplyChainHistorySecure(
     }
 
     try {
-        const { locationId, supplierId, status, type, startDate, endDate, limit } = validated.data;
+        const effectiveLocation = resolveEffectiveProcurementLocation(auth.actor, validated.data.locationId);
+        if (!effectiveLocation.success) {
+            return { success: false, error: effectiveLocation.error };
+        }
+
+        const { supplierId, status, type, startDate, endDate, limit } = validated.data;
+        const locationId = effectiveLocation.locationId;
         const params: (string | number)[] = [];
         let pIdx = 1;
 
@@ -1470,7 +1647,7 @@ export async function exportSupplyChainHistorySecure(
             title: 'Historial Corporativo de Logística',
             subtitle: `Corte: ${formatDateCL(new Date())} | Registros: ${data.length}`,
             sheetName: 'Logistica',
-            creator: session.userName,
+            creator: auth.actor.userName,
             columns: [
                 { header: 'Tipo', key: 'tipo', width: 22 },
                 { header: 'ID Movimiento', key: 'id_movimiento', width: 38 },
@@ -1505,6 +1682,11 @@ export async function exportSupplyChainHistorySecure(
 
 export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIPMENT'): Promise<{ success: boolean; data?: DBRow[]; error?: string }> {
     try {
+        const actorResult = await requireProcurementActor(PROCUREMENT_READ_ROLES, 'supply-get-history-item-details');
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const safeId = normalizeOptionalUuid(id);
         if (!safeId) {
             return { success: true, data: [] };
@@ -1512,6 +1694,11 @@ export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIP
 
         let res;
         if (type === 'PO') {
+            const scope = await ensurePurchaseOrderInProcurementScope(safeId, actorResult.actor);
+            if (!scope.success) {
+                return { success: false, error: scope.error };
+            }
+
             res = await query(`
                 SELECT 
                     id, 
@@ -1527,6 +1714,11 @@ export async function getHistoryItemDetailsSecure(id: string, type: 'PO' | 'SHIP
                 WHERE purchase_order_id = $1
             `, [safeId]);
         } else {
+            const scope = await ensureShipmentInProcurementScope(safeId, actorResult.actor);
+            if (!scope.success) {
+                return { success: false, error: scope.error };
+            }
+
             res = await query(`
                 SELECT 
                     si.id, 

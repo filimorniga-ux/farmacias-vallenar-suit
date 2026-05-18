@@ -7,8 +7,6 @@ test.describe('Procurement V2 - Supply Chain', () => {
     test.beforeEach(async ({ page }) => {
         const loggedIn = await loginAsManager(page, {
             module: 'Administración',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch(() => false);
         test.skip(!loggedIn, 'Login/contexto no disponible para Supply Chain');
     });

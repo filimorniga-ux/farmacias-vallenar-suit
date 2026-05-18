@@ -21,13 +21,18 @@ CREATE TABLE IF NOT EXISTS users (
   -- Metadatos
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW(),
-  last_login TIMESTAMP
+  last_login TIMESTAMP,
+  session_token TEXT,
+  token_version INT DEFAULT 1,
+  last_active_at TIMESTAMP DEFAULT NOW(),
+  current_context_data JSONB DEFAULT '{}'::jsonb
 );
 
 -- Índices para búsqueda rápida
 CREATE INDEX IF NOT EXISTS idx_users_rut ON users(rut);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+CREATE INDEX IF NOT EXISTS idx_users_session_token ON users(session_token) WHERE session_token IS NOT NULL;
 
 -- Usuario Admin por defecto (Si no existe)
 INSERT INTO users (rut, name, role, access_pin, job_title, status)

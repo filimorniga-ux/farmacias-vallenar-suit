@@ -60,7 +60,7 @@ const SyncStatusIndicator: React.FC = () => {
         return (
             <>
                 <div
-                    className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white rounded-full text-xs font-bold shadow-sm transition-all duration-300 animate-in fade-in"
+                    className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full bg-red-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-all duration-300 animate-in fade-in sm:min-h-0 sm:min-w-0"
                     title={isElectron ? "Sin internet — Trabajando con datos locales (SQLite)" : "Sin conexión a internet"}
                     role="status"
                     aria-label="Modo Offline"
@@ -85,7 +85,7 @@ const SyncStatusIndicator: React.FC = () => {
             <>
                 <button
                     onClick={() => setIsConflictModalOpen(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-amber-500 text-black rounded-full text-xs font-bold shadow-sm hover:scale-105 transition-all duration-300 animate-in zoom-in-95 cursor-pointer"
+                    className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full bg-amber-500 px-3 py-1.5 text-xs font-bold text-black shadow-sm transition-all duration-300 animate-in zoom-in-95 hover:scale-105 sm:min-h-0 sm:min-w-0 cursor-pointer"
                     title={`${totalErrors} errores de sincronización. Clic para ver detalles.`}
                     role="alert"
                     aria-label="Error de Sincronización"
@@ -106,7 +106,7 @@ const SyncStatusIndicator: React.FC = () => {
     if (isSyncing) {
         return (
             <div
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-full text-xs font-bold shadow-sm transition-all duration-300"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full bg-blue-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-all duration-300 sm:min-h-0 sm:min-w-0"
                 title={`Sincronizando ${totalPending} operaciones con el servidor...`}
                 role="status"
                 aria-label="Sincronizando"
@@ -120,7 +120,7 @@ const SyncStatusIndicator: React.FC = () => {
     // --- PRIORITY 4: ONLINE / IDLE ---
     return (
         <div
-            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold border border-emerald-100/50 hover:bg-emerald-100 transition-colors duration-300"
+            className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full border border-emerald-100/50 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-600 transition-colors duration-300 hover:bg-emerald-100 sm:min-h-0 sm:min-w-0"
             title={isElectron ? "Conexión estable — Datos locales + servidor sincronizados" : "Conexión estable y sincronizada"}
             role="status"
             aria-label="En Línea"

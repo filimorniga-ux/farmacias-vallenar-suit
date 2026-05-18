@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Shield, Upload, FileText, CheckCircle, AlertTriangle, Key, Building2, Briefcase, Hash } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
-import { validateCertificate } from '../../../domain/logic/sii/crypto';
 
 const SiiSettings = () => {
     const { siiConfiguration, siiCafs, updateSiiConfiguration, addCaf, getAvailableFolios } = usePharmaStore();
@@ -20,6 +19,39 @@ const SiiSettings = () => {
         acteco: siiConfiguration?.acteco || 477310
     });
 
+    useEffect(() => {
+        const loadConfiguration = async () => {
+            try {
+                const res = await fetch('/api/sii/certificate');
+                const payload = await res.json();
+
+                if (!res.ok || !payload.success || !payload.data) {
+                    return;
+                }
+
+                updateSiiConfiguration(payload.data);
+                setCompanyData({
+                    rut: payload.data.rut_emisor || '',
+                    razonSocial: payload.data.razon_social || '',
+                    giro: payload.data.giro || '',
+                    acteco: payload.data.acteco || 477310,
+                });
+
+                if (payload.data.hasCertificate) {
+                    setValidationResult({
+                        valid: true,
+                        commonName: payload.data.certificateCommonName,
+                        expiryDate: payload.data.certificateExpiresAt ? new Date(payload.data.certificateExpiresAt) : undefined,
+                    });
+                }
+            } catch {
+                // Silent fallback: keep local safe state if server summary is unavailable.
+            }
+        };
+
+        loadConfiguration();
+    }, [updateSiiConfiguration]);
+
     const handleCertificateUpload = async () => {
         if (!certFile || !certPassword) {
             alert('Por favor seleccione un certificado e ingrese la contraseña');
@@ -28,35 +60,38 @@ const SiiSettings = () => {
 
         setIsValidating(true);
         try {
-            // Convert file to base64
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                const base64 = e.target?.result as string;
-                const pfxBase64 = base64.split(',')[1]; // Remove data:application/x-pkcs12;base64,
+            const formData = new FormData();
+            formData.set('certificate', certFile);
+            formData.set('certificatePassword', certPassword);
+            formData.set('rut_emisor', companyData.rut);
+            formData.set('razon_social', companyData.razonSocial);
+            formData.set('giro', companyData.giro);
+            formData.set('acteco', String(companyData.acteco));
+            formData.set('ambiente', siiConfiguration?.ambiente || 'CERTIFICACION');
 
-                // Validate certificate
-                const result = await validateCertificate(pfxBase64, certPassword);
-                setValidationResult(result);
+            const response = await fetch('/api/sii/certificate', {
+                method: 'POST',
+                body: formData,
+            });
+            const payload = await response.json();
 
-                if (result.valid) {
-                    // Save to store
-                    const config = {
-                        id: siiConfiguration?.id || `SII-${Date.now()}`,
-                        rut_emisor: companyData.rut,
-                        razon_social: companyData.razonSocial,
-                        giro: companyData.giro,
-                        acteco: companyData.acteco,
-                        certificado_pfx_base64: pfxBase64,
-                        certificado_password: certPassword, // In production, encrypt this!
-                        fecha_vencimiento_firma: result.expiryDate?.getTime() || Date.now(),
-                        ambiente: siiConfiguration?.ambiente || 'CERTIFICACION' as const,
-                    };
-                    updateSiiConfiguration(config);
-                }
-            };
-            reader.readAsDataURL(certFile);
+            if (!response.ok || !payload.success || !payload.data) {
+                throw new Error(payload.error || 'No se pudo guardar el certificado');
+            }
+
+            updateSiiConfiguration(payload.data);
+            setValidationResult({
+                valid: payload.data.hasCertificate,
+                commonName: payload.data.certificateCommonName,
+                expiryDate: payload.data.certificateExpiresAt ? new Date(payload.data.certificateExpiresAt) : undefined,
+            });
+            setCertPassword('');
+            setCertFile(null);
         } catch (error) {
-            setValidationResult({ valid: false, error: 'Error al procesar el certificado' });
+            setValidationResult({
+                valid: false,
+                error: error instanceof Error ? error.message : 'Error al procesar el certificado',
+            });
         } finally {
             setIsValidating(false);
         }
@@ -66,36 +101,54 @@ const SiiSettings = () => {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const xmlContent = event.target?.result as string;
+        const xmlContent = await file.text();
 
-            // TODO: Parse XML to extract rango_desde and rango_hasta
-            // For MVP, using mock values
-            const mockRangoDesde = 1;
-            const mockRangoHasta = tipoDte === 39 ? 1000 : 500;
+        // TODO: Parse XML to extract rango_desde and rango_hasta
+        // For MVP, using mock values
+        const mockRangoDesde = 1;
+        const mockRangoHasta = tipoDte === 39 ? 1000 : 500;
 
-            addCaf({
-                tipo_dte: tipoDte,
-                xml_content: xmlContent,
-                rango_desde: mockRangoDesde,
-                rango_hasta: mockRangoHasta,
-                folios_usados: 0,
-                fecha_carga: Date.now(),
-                active: true
-            });
+        addCaf({
+            tipo_dte: tipoDte,
+            xml_content: xmlContent,
+            rango_desde: mockRangoDesde,
+            rango_hasta: mockRangoHasta,
+            folios_usados: 0,
+            fecha_carga: Date.now(),
+            active: true
+        });
 
-            alert(`✅ CAF cargado exitosamente. Folios disponibles: ${mockRangoHasta - mockRangoDesde}`);
-        };
-        reader.readAsText(file);
+        alert(`✅ CAF cargado exitosamente. Folios disponibles: ${mockRangoHasta - mockRangoDesde}`);
     };
 
     const toggleAmbiente = () => {
         if (!siiConfiguration) return;
-        updateSiiConfiguration({
-            ...siiConfiguration,
-            ambiente: siiConfiguration.ambiente === 'CERTIFICACION' ? 'PRODUCCION' : 'CERTIFICACION'
-        });
+        const nextAmbiente = siiConfiguration.ambiente === 'CERTIFICACION' ? 'PRODUCCION' : 'CERTIFICACION';
+
+        const formData = new FormData();
+        formData.set('rut_emisor', companyData.rut);
+        formData.set('razon_social', companyData.razonSocial);
+        formData.set('giro', companyData.giro);
+        formData.set('acteco', String(companyData.acteco));
+        formData.set('ambiente', nextAmbiente);
+
+        fetch('/api/sii/certificate', {
+            method: 'POST',
+            body: formData,
+        })
+            .then(async (res) => {
+                const payload = await res.json();
+                if (!res.ok || !payload.success || !payload.data) {
+                    throw new Error(payload.error || 'No se pudo actualizar el ambiente SII');
+                }
+                updateSiiConfiguration(payload.data);
+            })
+            .catch((error) => {
+                setValidationResult({
+                    valid: false,
+                    error: error instanceof Error ? error.message : 'No se pudo actualizar el ambiente SII',
+                });
+            });
     };
 
     return (
@@ -175,6 +228,7 @@ const SiiSettings = () => {
                             <div className="text-sm text-green-600">
                                 <p><strong>Titular:</strong> {validationResult.commonName}</p>
                                 <p><strong>Vencimiento:</strong> {validationResult.expiryDate?.toLocaleDateString()}</p>
+                                <p><strong>Última carga:</strong> {siiConfiguration?.lastUploadedAt ? new Date(siiConfiguration.lastUploadedAt).toLocaleString() : 'No disponible'}</p>
                             </div>
                         </div>
                     ) : (

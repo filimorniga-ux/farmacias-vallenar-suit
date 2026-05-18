@@ -8,12 +8,16 @@ const InventorySettings: React.FC = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [deleteConfirmation, setDeleteConfirmation] = useState('');
+    const [adminPin, setAdminPin] = useState('');
+    const [pendingMaintenanceAction, setPendingMaintenanceAction] = useState<'TRUNCATE' | 'UNDO_IMPORT' | null>(null);
     const [duplicates, setDuplicates] = useState<any[]>([]);
 
     const executeAction = async (action: string, payload: any = {}) => {
         setIsProcessing(true);
         try {
-            const endpoint = action === 'TRUNCATE' ? '/api/inventory/truncate' : '/api/inventory/deduplicate';
+            const endpoint = action === 'TRUNCATE' || action === 'UNDO_IMPORT'
+                ? '/api/inventory/maintenance'
+                : '/api/inventory/deduplicate';
             const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -35,11 +39,10 @@ const InventorySettings: React.FC = () => {
                 toast.success(data.message);
                 setShowDeleteModal(false);
                 setDeleteConfirmation('');
+                setAdminPin('');
+                setPendingMaintenanceAction(null);
                 if (action === 'TRUNCATE') {
                     clearInventory(); // Clear local store immediately
-                }
-                if (action === 'MERGE_DUPLICATES') {
-                    setDuplicates([]); // Clear duplicates list
                 }
             }
 
@@ -58,7 +61,30 @@ const InventorySettings: React.FC = () => {
             toast.error('Debe escribir BORRAR para confirmar.');
             return;
         }
-        executeAction('TRUNCATE', { confirmation: 'BORRAR' });
+        if (!/^\d{4,8}$/.test(adminPin)) {
+            toast.error('Ingrese PIN administrador válido.');
+            return;
+        }
+        executeAction('TRUNCATE', { confirmation: 'BORRAR', adminPin });
+    };
+
+    const handleUndoImport = () => {
+        if (deleteConfirmation !== 'DESHACER') {
+            toast.error('Debe escribir DESHACER para confirmar.');
+            return;
+        }
+        if (!/^\d{4,8}$/.test(adminPin)) {
+            toast.error('Ingrese PIN administrador válido.');
+            return;
+        }
+        executeAction('UNDO_IMPORT', { confirmation: 'DESHACER', adminPin });
+    };
+
+    const closeMaintenanceModal = () => {
+        setShowDeleteModal(false);
+        setPendingMaintenanceAction(null);
+        setDeleteConfirmation('');
+        setAdminPin('');
     };
 
     return (
@@ -76,7 +102,11 @@ const InventorySettings: React.FC = () => {
                     </p>
 
                     <button
-                        onClick={() => setShowDeleteModal(true)}
+                        type="button"
+                        onClick={() => {
+                            setPendingMaintenanceAction('TRUNCATE');
+                            setShowDeleteModal(true);
+                        }}
                         className="w-full py-4 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition shadow-lg flex items-center justify-center gap-2"
                     >
                         <Trash2 size={20} />
@@ -96,9 +126,13 @@ const InventorySettings: React.FC = () => {
                             Elimina productos creados en los últimos 10 minutos. Útil si una carga masiva salió mal.
                         </p>
                         <button
-                            onClick={() => executeAction('UNDO_IMPORT')}
+                            type="button"
+                            onClick={() => {
+                                setPendingMaintenanceAction('UNDO_IMPORT');
+                                setShowDeleteModal(true);
+                            }}
                             disabled={isProcessing}
-                            className="px-6 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-100 transition w-full"
+                            className="min-h-11 px-6 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-100 transition w-full"
                         >
                             {isProcessing ? 'Procesando...' : 'Deshacer Importación Reciente'}
                         </button>
@@ -114,9 +148,10 @@ const InventorySettings: React.FC = () => {
                             Analiza la base de datos buscando productos con el mismo nombre.
                         </p>
                         <button
+                            type="button"
                             onClick={() => executeAction('ANALYZE_DUPLICATES')}
                             disabled={isProcessing}
-                            className="px-6 py-2 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-700 transition w-full"
+                            className="min-h-11 px-6 py-2 bg-cyan-600 text-white font-bold rounded-lg hover:bg-cyan-700 transition w-full"
                         >
                             {isProcessing ? 'Analizando...' : 'Analizar Duplicados'}
                         </button>
@@ -135,16 +170,6 @@ const InventorySettings: React.FC = () => {
                             </div>
                         )}
 
-                        {duplicates.length > 0 && (
-                            <button
-                                onClick={() => executeAction('MERGE_DUPLICATES')}
-                                disabled={isProcessing}
-                                className="mt-2 px-6 py-2 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-700 transition w-full flex items-center justify-center gap-2"
-                            >
-                                <AlertTriangle size={18} />
-                                {isProcessing ? 'Fusionando...' : 'Fusionar Duplicados (Fix)'}
-                            </button>
-                        )}
                     </div>
                 </div>
             </div>
@@ -157,42 +182,89 @@ const InventorySettings: React.FC = () => {
                             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-600">
                                 <AlertTriangle size={32} />
                             </div>
-                            <h3 className="text-2xl font-bold text-gray-900">¿Estás absolutamente seguro?</h3>
+                            <h3 className="text-2xl font-bold text-gray-900">
+                                {pendingMaintenanceAction === 'UNDO_IMPORT' ? 'Autorizar reversa de carga' : '¿Estás absolutamente seguro?'}
+                            </h3>
                             <p className="text-gray-500 mt-2">
-                                Esta acción eliminará <strong>TODOS</strong> los productos del inventario. No se puede deshacer.
+                                {pendingMaintenanceAction === 'UNDO_IMPORT' ? (
+                                    'Esta acción elimina los lotes creados en los últimos 10 minutos y recalcula stock.'
+                                ) : (
+                                    <>
+                                        Esta acción eliminará <strong>TODOS</strong> los productos del inventario. No se puede deshacer.
+                                    </>
+                                )}
                             </p>
                         </div>
 
-                        <div className="mb-6">
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
-                                Escribe "BORRAR" para confirmar
-                            </label>
-                            <input
-                                type="text"
-                                value={deleteConfirmation}
-                                onChange={(e) => setDeleteConfirmation(e.target.value)}
-                                className="w-full p-3 border-2 border-red-200 rounded-xl focus:border-red-600 focus:outline-none font-bold text-center uppercase tracking-widest"
-                                placeholder="BORRAR"
-                                autoFocus
-                            />
+                        <div className="mb-6 space-y-4">
+                            {pendingMaintenanceAction === 'TRUNCATE' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                        Escribe "BORRAR" para confirmar
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={deleteConfirmation}
+                                        onChange={(e) => setDeleteConfirmation(e.target.value)}
+                                        className="w-full min-h-11 p-3 border-2 border-red-200 rounded-xl focus:border-red-600 focus:outline-none font-bold text-center uppercase tracking-widest"
+                                        placeholder="BORRAR"
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
+                            {pendingMaintenanceAction === 'UNDO_IMPORT' && (
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                        Escribe "DESHACER" para confirmar
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={deleteConfirmation}
+                                        onChange={(e) => setDeleteConfirmation(e.target.value)}
+                                        className="w-full min-h-11 p-3 border-2 border-red-200 rounded-xl focus:border-red-600 focus:outline-none font-bold text-center uppercase tracking-widest"
+                                        placeholder="DESHACER"
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                                    PIN administrador
+                                </label>
+                                <input
+                                    aria-label="PIN administrador para mantenimiento de inventario"
+                                    type="password"
+                                    inputMode="numeric"
+                                    autoComplete="one-time-code"
+                                    maxLength={8}
+                                    value={adminPin}
+                                    onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                                    className="w-full min-h-11 p-3 border-2 border-red-200 rounded-xl focus:border-red-600 focus:outline-none font-bold text-center tracking-[0.35em]"
+                                    placeholder="PIN"
+                                />
+                            </div>
                         </div>
 
                         <div className="flex gap-3">
                             <button
-                                onClick={() => {
-                                    setShowDeleteModal(false);
-                                    setDeleteConfirmation('');
-                                }}
-                                className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition"
+                                type="button"
+                                onClick={closeMaintenanceModal}
+                                className="flex-1 min-h-11 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition"
                             >
                                 Cancelar
                             </button>
                             <button
-                                onClick={handleTruncate}
-                                disabled={deleteConfirmation !== 'BORRAR' || isProcessing}
-                                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200"
+                                type="button"
+                                onClick={pendingMaintenanceAction === 'UNDO_IMPORT' ? handleUndoImport : handleTruncate}
+                                disabled={
+                                    (pendingMaintenanceAction === 'TRUNCATE' && deleteConfirmation !== 'BORRAR') ||
+                                    (pendingMaintenanceAction === 'UNDO_IMPORT' && deleteConfirmation !== 'DESHACER') ||
+                                    adminPin.length < 4 ||
+                                    isProcessing
+                                }
+                                className="flex-1 min-h-11 py-3 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-red-200"
                             >
-                                {isProcessing ? 'Borrando...' : 'Confirmar Borrado'}
+                                {isProcessing ? 'Procesando...' : pendingMaintenanceAction === 'UNDO_IMPORT' ? 'Autorizar Reversa' : 'Confirmar Borrado'}
                             </button>
                         </div>
                     </div>

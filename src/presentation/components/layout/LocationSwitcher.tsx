@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryClientContext } from '@tanstack/react-query';
 import { useLocationStore } from '../../store/useLocationStore';
 import { usePharmaStore } from '../../store/useStore';
 import { MapPin, Building2, Warehouse, ChevronDown, Lock } from 'lucide-react';
@@ -28,6 +28,8 @@ const getLocationColor = (type: string) => {
     }
 };
 
+const fallbackQueryClient = new QueryClient();
+
 
 
 interface LocationSwitcherProps {
@@ -35,12 +37,16 @@ interface LocationSwitcherProps {
 }
 
 const LocationSwitcher: React.FC<LocationSwitcherProps> = ({ variant = 'default' }) => {
-    const { currentLocation, locations, switchLocation, canSwitchLocation } = useLocationStore();
-    const { user, setCurrentLocation } = usePharmaStore();
+    const currentLocation = useLocationStore((state) => state.currentLocation);
+    const locations = useLocationStore((state) => state.locations);
+    const switchLocation = useLocationStore((state) => state.switchLocation);
+    const canSwitchLocation = useLocationStore((state) => state.canSwitchLocation);
+    const user = usePharmaStore((state) => state.user);
+    const setCurrentLocation = usePharmaStore((state) => state.setCurrentLocation);
     const [isOpen, setIsOpen] = useState(false);
     const [isSwitching, setIsSwitching] = useState(false);
     const router = useRouter();
-    const queryClient = useQueryClient();
+    const queryClient = React.useContext(QueryClientContext) ?? fallbackQueryClient;
 
     const canSwitch = user ? canSwitchLocation(user.role) : false;
 
@@ -180,9 +186,11 @@ const LocationSwitcher: React.FC<LocationSwitcherProps> = ({ variant = 'default'
             </AnimatePresence>
 
             {/* Current Location Button */}
-            <div className="flex flex-col items-end mr-2 lg:hidden [@media(max-height:520px)]:hidden">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Ubicación Actual</span>
-            </div>
+            {variant !== 'compact' && (
+                <div className="flex flex-col items-end mr-2 lg:hidden [@media(max-height:520px)]:hidden">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Ubicación Actual</span>
+                </div>
+            )}
 
             <button
                 onClick={() => canSwitch && !isSwitching && setIsOpen(!isOpen)}

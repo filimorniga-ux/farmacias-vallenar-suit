@@ -6,47 +6,47 @@ import Link from 'next/link';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     LayoutDashboard, ShoppingCart, Users, Settings, LogOut, X, Menu,
-    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, RotateCcw, Landmark, FileSpreadsheet, Sparkles, MessageSquare, DollarSign
+    Package, BarChart3, Truck, UserCircle, Clock, Building2, MapPin, Landmark, FileSpreadsheet, Sparkles, MessageSquare, DollarSign
 } from 'lucide-react';
 import ContextBadge from '@/presentation/components/layout/ContextBadge';
 import { usePharmaStore } from '@/presentation/store/useStore';
 import LocationSwitcher from '@/presentation/components/layout/LocationSwitcher';
 import NotificationBell from '@/presentation/components/notifications/NotificationBell';
+import NotificationBellRuntime from '@/presentation/components/notifications/NotificationBellRuntime';
 // import MobileBottomNav from '@/presentation/components/layout/MobileBottomNav'; // Disable temporarily if it depends on react-router
 import AppIcon, { AppThemeColor } from '@/presentation/components/ui/AppIcon';
 import SyncStatusIndicator from '@/presentation/components/ui/SyncStatusIndicator';
 
+const PREFETCH_DISABLED_ROUTES = [
+    '/pos',
+    '/inventory',
+    '/warehouse',
+    '/reports',
+    '/procurement/smart-invoice',
+    '/supply-chain',
+    '/network',
+];
+
+const shouldPrefetchRoute = (path: string) =>
+    !PREFETCH_DISABLED_ROUTES.some((route) => path === route || path.startsWith(`${route}/`));
+
 const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
-    const { user, logout } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const logout = usePharmaStore((state) => state.logout);
     const pathname = usePathname();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const [isLandscape, setIsLandscape] = useState(false);
+    const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
     useEffect(() => {
-        const checkOrientation = () => {
-            // Check if width > height and width is small (mobile)
-            setIsLandscape(window.innerWidth > window.innerHeight && window.innerWidth < 1024);
+        const syncViewportState = () => {
+            setIsDesktopViewport(window.innerWidth >= 1024);
         };
 
-        checkOrientation();
-        window.addEventListener('resize', checkOrientation);
-        return () => window.removeEventListener('resize', checkOrientation);
+        syncViewportState();
+        window.addEventListener('resize', syncViewportState);
+        return () => window.removeEventListener('resize', syncViewportState);
     }, []);
-
-    if (isLandscape) {
-        return (
-            <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-white p-6 text-center">
-                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mb-6 animate-pulse">
-                    <RotateCcw size={40} className="text-cyan-400" />
-                </div>
-                <h2 className="text-2xl font-bold mb-3">Gire su dispositivo</h2>
-                <p className="text-slate-400 max-w-xs mx-auto">
-                    Para una mejor experiencia, utilice la aplicación en modo vertical.
-                </p>
-            </div>
-        );
-    }
 
     const menuItems = [
         { icon: LayoutDashboard, label: 'Resumen General', path: '/dashboard', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'indigo' as AppThemeColor },
@@ -57,14 +57,14 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
         { icon: BarChart3, label: 'Reportes & BI', path: '/reports', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], color: 'purple' as AppThemeColor },
         { icon: Truck, label: 'Abastecimiento (IA)', path: '/procurement/smart-invoice', roles: ['WAREHOUSE', 'WAREHOUSE_CHIEF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'orange' as AppThemeColor },
         { icon: Sparkles, label: 'Pedido Sugerido (IA)', path: '/supply-chain', roles: ['MANAGER', 'QF', 'ADMIN', 'WAREHOUSE', 'WAREHOUSE_CHIEF', 'GERENTE_GENERAL'], color: 'purple' as AppThemeColor },
-        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['MANAGER', 'QF', 'CASHIER', 'ADMIN', 'GERENTE_GENERAL'], color: 'teal' as AppThemeColor },
-        { icon: Users, label: 'Recursos Humanos', path: '/hr', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'rose' as AppThemeColor },
+        { icon: UserCircle, label: 'Clientes (CRM)', path: '/clients', roles: ['ADMIN', 'GERENTE_GENERAL'], color: 'teal' as AppThemeColor },
+        { icon: Users, label: 'Recursos Humanos', path: '/rrhh', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'rose' as AppThemeColor },
         { icon: Clock, label: 'Gestor Horario', path: '/rrhh/horarios', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'], color: 'rose' as AppThemeColor },
         { icon: MapPin, label: 'Gestión de Red', path: '/network', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'slate' as AppThemeColor },
         // Control Asistencia movido a Kiosko (/kiosk) - accesible desde RRHH o Configuración
         // { icon: Clock, label: 'Control Asistencia', path: '/access', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'sky' as AppThemeColor },
         { icon: Landmark, label: 'Tesorería', path: '/finance/treasury', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'QF'], color: 'emerald' as AppThemeColor },
-        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'amber' as AppThemeColor },
+        { icon: DollarSign, label: 'Monitor de Precios', path: '/admin/cost-monitor', roles: ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'], color: 'amber' as AppThemeColor },
         { icon: FileSpreadsheet, label: 'Cierre Mensual', path: '/finance/monthly-closing', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'indigo' as AppThemeColor },
         { icon: Settings, label: 'Configuración', path: '/settings', roles: ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'], color: 'gray' as AppThemeColor },
     ];
@@ -72,7 +72,9 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
     const filteredMenu = menuItems.filter(item => user && item.roles.includes(user.role));
 
     return (
-        <div className="flex h-screen bg-slate-50 overflow-hidden">
+        <div className="flex h-dvh bg-slate-50 overflow-hidden">
+            <NotificationBellRuntime />
+
             {/* Mobile Backdrop */}
             <AnimatePresence>
                 {isMobileMenuOpen && (
@@ -99,7 +101,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             <h1 className="text-xl font-extrabold tracking-tight text-slate-900">
                                 Farmacias <span className="text-cyan-600">Vallenar</span>
                             </h1>
-                            <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">Suit Enterprise v2.1</p>
+                            <p className="text-[10px] uppercase font-bold text-slate-400 mt-1 tracking-wider">Farmacias Vallenar Suite</p>
                         </div>
                     )}
                     {isCollapsed && (
@@ -108,7 +110,11 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                         </div>
                     )}
 
-                    <button onClick={() => setIsMobileMenuOpen(false)} className="lg:hidden text-slate-400 hover:text-slate-600">
+                    <button
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="lg:hidden min-h-11 min-w-11 rounded-xl text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                        aria-label="Cerrar menú principal"
+                    >
                         <X size={24} />
                     </button>
                 </div>
@@ -129,6 +135,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                             <Link
                                 key={item.path}
                                 href={item.path}
+                                prefetch={shouldPrefetchRoute(item.path) ? undefined : false}
                                 onClick={() => setIsMobileMenuOpen(false)}
                                 title={isCollapsed ? item.label : ''}
                                 className={`flex items-center gap-4 px-3 py-3 rounded-2xl transition-all duration-200 group ${isActive
@@ -174,7 +181,7 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <button
                         onClick={logout}
                         title={isCollapsed ? "Cerrar Sesión" : ""}
-                        className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 transition-colors text-xs font-bold uppercase tracking-wider ${isCollapsed ? 'px-0' : ''}`}
+                        className={`w-full min-h-11 flex items-center justify-center gap-2 py-3 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 hover:text-red-600 transition-colors text-xs font-bold uppercase tracking-wider ${isCollapsed ? 'px-0' : ''}`}
                     >
                         <LogOut size={16} /> {!isCollapsed && "Cerrar Sesión"}
                     </button>
@@ -184,23 +191,29 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
             {/* Main Content */}
             <main className="flex-1 flex flex-col h-full overflow-hidden relative bg-slate-50/50">
                 {/* Mobile Header */}
-                <header className="lg:hidden bg-white p-4 shadow-sm flex justify-between items-center z-40 border-b border-slate-100 sticky top-0">
-                    <div className="flex items-center gap-3">
+                <header className="lg:hidden bg-white px-3 py-2.5 pt-safe shadow-sm flex items-center gap-2 z-40 border-b border-slate-100 sticky top-0">
+                    <div className="flex min-w-0 items-center gap-2">
                         <button
                             onClick={() => setIsMobileMenuOpen(true)}
-                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg hidden md:block lg:hidden"
+                            className="flex min-h-11 min-w-11 items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100"
+                            aria-label="Abrir menú principal"
                         >
                             <Menu size={24} />
                         </button>
-                        <span className="font-bold text-slate-800">Farmacias Vallenar</span>
-                        <NotificationBell userRole={user?.role || 'ALL'} />
+                        <span className="hidden sm:inline min-w-0 truncate text-sm font-bold text-slate-800">Farmacias Vallenar</span>
                     </div>
-                    <div className="flex items-center gap-2 flex-1 justify-end min-w-0">
-                        <div className="overflow-x-auto scrollbar-hide flex items-center gap-2 max-w-full">
+                    <div className="ml-auto flex min-w-0 items-center gap-1.5 overflow-hidden">
+                        {!isDesktopViewport && (
+                            <NotificationBell
+                                userRole={user?.role || 'ALL'}
+                                className="min-h-11 min-w-11 shrink-0"
+                            />
+                        )}
+                        <div className="flex min-w-0 items-center gap-1.5 overflow-visible">
                             <SyncStatusIndicator />
                             <ContextBadge />
-                            <div className="flex-shrink-0">
-                                <LocationSwitcher />
+                            <div className="hidden flex-shrink-0 sm:block">
+                                <LocationSwitcher variant="compact" />
                             </div>
                         </div>
                     </div>
@@ -217,12 +230,12 @@ const NextSidebarLayout = ({ children }: { children: React.ReactNode }) => {
                     <div className="flex items-center gap-4">
                         <SyncStatusIndicator />
                         <ContextBadge />
-                        <NotificationBell userRole={user?.role || 'ALL'} />
+                        {isDesktopViewport && <NotificationBell userRole={user?.role || 'ALL'} />}
                         <LocationSwitcher />
                     </div>
                 </header>
 
-                <div className="flex-1 overflow-auto p-2">
+                <div className="flex-1 overflow-auto p-2 pb-safe">
                     <AnimatePresence mode="wait">
                         <motion.div
                             key={pathname}

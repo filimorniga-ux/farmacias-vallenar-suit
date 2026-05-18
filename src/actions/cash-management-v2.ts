@@ -27,6 +27,19 @@ import { revalidatePath } from 'next/cache';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { createNotificationSecure } from '@/actions/notifications-v2';
+import {
+    getActorOrFail,
+    PinRbacError,
+    ROLE_GROUPS,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
+import {
+    ensureTerminalInPosScope,
+    POS_ALLOWED_ROLES,
+    requirePosActor,
+    resolvePosContextScope,
+} from './pos-scope';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -90,9 +103,8 @@ const CashHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const CASHIER_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
+const CASHIER_ALLOWED_ROLES = ['CASHIER', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL'] as const;
+const CASH_READ_ALLOWED_ROLES = POS_ALLOWED_ROLES;
 
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
@@ -190,96 +202,92 @@ async function getCashRefundsForSession(
     return Number(res.rows[0]?.total || 0);
 }
 
-/**
- * Validate user PIN
- */
-async function validateUserPin(
+async function getCashManagementActor(options?: {
+    allowedRoles?: readonly string[];
+    unauthorizedMessage?: string;
+    forbiddenMessage?: string;
+}) {
+    try {
+        const actor = await getActorOrFail();
+
+        if (options?.allowedRoles && !options.allowedRoles.includes(actor.role as typeof options.allowedRoles[number])) {
+            return { ok: false as const, error: options.forbiddenMessage || 'Acceso denegado' };
+        }
+
+        return { ok: true as const, actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { ok: false as const, error: options?.unauthorizedMessage || 'No autenticado' };
+        }
+
+        throw error;
+    }
+}
+
+async function resolveCashReadScope(params: {
+    action: string;
+    terminalId?: string | null;
+    sessionId?: string | null;
+    locationId?: string | null;
+}) {
+    const auth = await requirePosActor(CASH_READ_ALLOWED_ROLES, params.action);
+    if (!auth.success) {
+        return {
+            success: false as const,
+            error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+        };
+    }
+
+    const { query } = await import('@/lib/db');
+    const scoped = await resolvePosContextScope(auth.actor, {
+        terminalId: params.terminalId,
+        sessionId: params.sessionId,
+        locationId: params.locationId,
+    }, { query });
+
+    if (!scoped.success) {
+        return { success: false as const, error: scoped.error };
+    }
+
+    return {
+        success: true as const,
+        actor: auth.actor,
+        locationId: scoped.locationId,
+    };
+}
+
+async function validateCashierPin(
     client: PoolClient,
     userId: string,
     pin: string
 ): Promise<{ valid: boolean; user?: { id: string; name: string; role: string }; error?: string }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+    const result = await validatePinForUser(client, userId, pin, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+        requiredMatchUserId: userId,
+    });
 
-        const rateCheck = checkRateLimit(userId);
-        if (!rateCheck.allowed) {
-            return { valid: false, error: rateCheck.reason || 'Usuario bloqueado temporalmente' };
-        }
-
-        const userRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE id = $1::uuid AND is_active = true
-        `, [userId]);
-
-        if (userRes.rows.length === 0) {
-            return { valid: false, error: 'Usuario no encontrado' };
-        }
-
-        const user = userRes.rows[0];
-
-        if (user.access_pin_hash) {
-            const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-            if (isValid) {
-                resetAttempts(userId);
-                return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-            }
-            recordFailedAttempt(userId);
-            return { valid: false, error: 'PIN incorrecto' };
-        } else if (user.access_pin && user.access_pin === pin) {
-            resetAttempts(userId);
-            return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-        }
-
-        recordFailedAttempt(userId);
-        return { valid: false, error: 'PIN incorrecto' };
-    } catch (error) {
-        logger.error({ error }, '[Cash] PIN validation error');
-        return { valid: false, error: 'Error validando PIN' };
+    if (!result.valid) {
+        return { valid: false, error: result.error || 'PIN incorrecto' };
     }
+
+    return { valid: true, user: result.authorizedBy };
 }
 
-/**
- * Validate manager PIN for large adjustments
- */
-async function validateManagerPin(
+async function validateManagerAuthorizationPin(
     client: PoolClient,
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string }; error?: string }> {
-    try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+    const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+        allowLegacyPlaintext: true,
+        useRateLimiter: true,
+    });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name, role: user.role } };
-                }
-                recordFailedAttempt(user.id);
-            } else if (user.access_pin && user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name, role: user.role } };
-            }
-        }
-
-        return { valid: false, error: 'PIN de manager inválido' };
-    } catch (error) {
-        logger.error({ error }, '[Cash] Manager PIN validation error');
-        return { valid: false, error: 'Error validando PIN' };
+    if (!result.valid) {
+        return { valid: false, error: result.error || 'PIN de manager inválido' };
     }
+
+    return { valid: true, manager: result.authorizedBy };
 }
 
 /**
@@ -333,13 +341,24 @@ async function insertCashAudit(
 export async function openCashDrawerSecure(
     data: z.infer<typeof OpenCashDrawerSchema>
 ): Promise<{ success: boolean; sessionId?: string; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = OpenCashDrawerSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, openingAmount, notes } = validated.data;
+    const { terminalId, userId: _legacyUserId, openingAmount, notes } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -402,7 +421,7 @@ export async function openCashDrawerSecure(
         // Update terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = $2::uuid, status = 'OPEN', updated_at = NOW()
+            SET current_cashier_id = $2::uuid, status = 'OPEN'
             WHERE id = $1::uuid
         `, [terminalId, userId]);
 
@@ -482,29 +501,41 @@ export async function closeCashDrawerSecure(
     };
     error?: string;
 }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = CloseCashDrawerSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, userPin, managerPin, declaredCash, notes } = validated.data;
+    const { terminalId, userId: _legacyUserId, userPin, managerPin, declaredCash, notes } = validated.data;
+    void _legacyUserId;
     const client = await pool.connect();
-    let closedBy = userId;
+    const actor = actorResult.actor;
+    let closedBy = actor.userId;
+    let authorizedById: string | undefined;
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Validation Logic: User PIN OR Manager PIN
         if (managerPin) {
-            const managerAuth = await validateManagerPin(client, managerPin);
+            const managerAuth = await validateManagerAuthorizationPin(client, managerPin);
             if (!managerAuth.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: managerAuth.error || 'PIN de gerente inválido' };
             }
-            closedBy = managerAuth.manager?.id || userId;
+            authorizedById = managerAuth.manager?.id;
         } else if (userPin) {
-            const pinResult = await validateUserPin(client, userId, userPin);
+            const pinResult = await validateCashierPin(client, actor.userId, userPin);
             if (!pinResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: pinResult.error };
@@ -595,13 +626,14 @@ export async function closeCashDrawerSecure(
         // Update terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = NULL, status = 'CLOSED', updated_at = NOW()
+            SET current_cashier_id = NULL, status = 'CLOSED'
             WHERE id = $1::uuid
         `, [terminalId]);
 
         // Audit
         await insertCashAudit(client, {
             userId: closedBy,
+            authorizedById,
             sessionId: session.id,
             terminalId,
             actionCode: 'CASH_DRAWER_CLOSED',
@@ -675,12 +707,23 @@ export async function closeCashDrawerSecure(
 export async function closeCashDrawerSystem(
     data: z.infer<typeof CloseSystemSchema>
 ): Promise<{ success: boolean; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     const validated = CloseSystemSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, userId, reason } = validated.data;
+    const { terminalId, userId: _legacyUserId, reason } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -741,7 +784,7 @@ export async function closeCashDrawerSystem(
         // Release terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = NULL, status = 'CLOSED', updated_at = NOW()
+            SET current_cashier_id = NULL, status = 'CLOSED'
             WHERE id = $1::uuid
         `, [terminalId]);
 
@@ -789,13 +832,24 @@ export async function closeCashDrawerSystem(
 export async function registerCashCountSecure(
     data: z.infer<typeof RegisterCashCountSchema>
 ): Promise<{ success: boolean; difference?: number; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = RegisterCashCountSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { sessionId, userId, countedAmount, notes } = validated.data;
+    const { sessionId, userId: _legacyUserId, countedAmount, notes } = validated.data;
+    void _legacyUserId;
+    const userId = actorResult.actor.userId;
     const client = await pool.connect();
 
     try {
@@ -891,13 +945,24 @@ export async function registerCashCountSecure(
 export async function adjustCashSecure(
     data: z.infer<typeof AdjustCashSchema>
 ): Promise<{ success: boolean; movementId?: string; error?: string }> {
+    const actorResult = await getCashManagementActor({
+        allowedRoles: CASHIER_ALLOWED_ROLES,
+        unauthorizedMessage: 'No autenticado',
+        forbiddenMessage: 'Acceso denegado',
+    });
+    if (!actorResult.ok) {
+        return { success: false, error: actorResult.error };
+    }
+
     // Validate input
     const validated = AdjustCashSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { sessionId, userId, adjustment, reason, authorizationPin } = validated.data;
+    const { sessionId, userId: _legacyUserId, adjustment, reason, authorizationPin } = validated.data;
+    void _legacyUserId;
+    const actor = actorResult.actor;
     const absAdjustment = Math.abs(adjustment);
 
     // Determine required authorization level
@@ -930,14 +995,14 @@ export async function adjustCashSecure(
         let authorizedBy: { id: string; name: string; role: string } | undefined;
 
         if (requiresManagerPin && authorizationPin) {
-            const authResult = await validateManagerPin(client, authorizationPin);
+            const authResult = await validateManagerAuthorizationPin(client, authorizationPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: authResult.error || 'PIN inválido' };
             }
             authorizedBy = authResult.manager;
         } else if (requiresCashierPin && authorizationPin) {
-            const authResult = await validateUserPin(client, userId, authorizationPin);
+            const authResult = await validateCashierPin(client, actor.userId, authorizationPin);
             if (!authResult.valid) {
                 await client.query('ROLLBACK');
                 return { success: false, error: authResult.error || 'PIN inválido' };
@@ -976,7 +1041,7 @@ export async function adjustCashSecure(
             session.location_id,
             session.terminal_id,
             sessionId,
-            userId,
+            actor.userId,
             movementType,
             absAdjustment,
             reason
@@ -984,7 +1049,7 @@ export async function adjustCashSecure(
 
         // Audit
         await insertCashAudit(client, {
-            userId,
+            userId: actor.userId,
             authorizedById: authorizedBy?.id,
             sessionId,
             terminalId: session.terminal_id,
@@ -1044,6 +1109,19 @@ export async function getCashDrawerStatus(
     }
 
     try {
+        const auth = await requirePosActor(CASH_READ_ALLOWED_ROLES, 'getCashDrawerStatus');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const terminalScope = await ensureTerminalInPosScope(terminalId, auth.actor);
+        if (!terminalScope.success) {
+            return { success: false, error: terminalScope.error };
+        }
+
         const { query } = await import('@/lib/db');
 
         // Get terminal and session
@@ -1152,7 +1230,18 @@ export async function getCashMovementHistory(
     const offset = (page - 1) * pageSize;
 
     try {
+        const scoped = await resolveCashReadScope({
+            action: 'getCashMovementHistory',
+            terminalId,
+            sessionId,
+            locationId,
+        });
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         const { query } = await import('@/lib/db');
+        const effectiveLocationId = scoped.locationId;
 
         // Parameter handling
         const params: (string | number | Date)[] = [];
@@ -1160,14 +1249,14 @@ export async function getCashMovementHistory(
 
         // Base filters for unified queries
         let moveFilters = '1=1';
-        let saleFilters = "s.status != 'VOIDED'"; // Base sales filter
+        let saleFilters = '1=1'; // Keep VOIDED sales visible for audit/history traceability.
         let refundFilters = "r.status = 'COMPLETED'";
 
-        if (locationId) {
+        if (effectiveLocationId) {
             moveFilters += ` AND cm.location_id = $${paramIndex}::uuid`;
             saleFilters += ` AND s.location_id = $${paramIndex}::uuid`;
             refundFilters += ` AND r.location_id = $${paramIndex}::uuid`;
-            params.push(locationId);
+            params.push(effectiveLocationId);
             paramIndex++;
         }
 
@@ -1258,7 +1347,13 @@ export async function getCashMovementHistory(
                 s.id::text ILIKE $${paramIndex} OR
                 s.dte_folio::text ILIKE $${paramIndex} OR
                 u.name ILIKE $${paramIndex} OR
-                s.customer_name ILIKE $${paramIndex}
+                s.customer_rut ILIKE $${paramIndex} OR
+                EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                )
             )`;
 
             refundFilters += ` AND (
@@ -1359,9 +1454,10 @@ export async function getCashMovementHistory(
                     END as status,
                     s.dte_status,
                     s.dte_folio::text,
-                    s.customer_name
+                    c.name as customer_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 WHERE ${saleFilters}
             )
             UNION ALL
@@ -1380,9 +1476,10 @@ export async function getCashMovementHistory(
                     r.status,
                     NULL::text as dte_status,
                     r.ticket_number::text as dte_folio,
-                    s.customer_name
+                    c.name as customer_name
                 FROM refunds r
                 JOIN sales s ON s.id = r.sale_id
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 LEFT JOIN users ru ON r.user_id::text = ru.id::text
                 LEFT JOIN users au ON r.authorized_by::text = au.id::text
                 WHERE ${refundFilters}
@@ -1444,9 +1541,10 @@ export async function getCashMovementHistory(
                     END as status,
                     s.dte_status,
                     s.dte_folio::text,
-                    s.customer_name
+                    c.name as customer_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 WHERE ${saleFilters}
             )
             ORDER BY timestamp DESC
@@ -1513,8 +1611,18 @@ export async function getShiftMetricsSecure(
     }
 
     try {
-        // NOTE: Authentication optional for read-only metrics
-        // Authorization is implicit via terminal access
+        const auth = await requirePosActor(CASH_READ_ALLOWED_ROLES, 'getShiftMetricsSecure');
+        if (!auth.success) {
+            return {
+                success: false,
+                error: auth.error.includes('Sesión no válida') ? 'No autenticado' : auth.error,
+            };
+        }
+
+        const terminalScope = await ensureTerminalInPosScope(terminalId, auth.actor);
+        if (!terminalScope.success) {
+            return { success: false, error: terminalScope.error };
+        }
 
         const { query } = await import('@/lib/db');
 
@@ -1700,10 +1808,21 @@ export async function exportCashMovementHistory(
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { terminalId, sessionId, startDate, endDate, paymentMethod, term } = validated.data;
+    const { terminalId, sessionId, locationId, startDate, endDate, paymentMethod, term } = validated.data;
 
     try {
+        const scoped = await resolveCashReadScope({
+            action: 'exportCashMovementHistory',
+            terminalId,
+            sessionId,
+            locationId,
+        });
+        if (!scoped.success) {
+            return { success: false, error: scoped.error };
+        }
+
         const { query } = await import('@/lib/db');
+        const effectiveLocationId = scoped.locationId;
 
         // Parameter handling
         const params: (string | number | Date)[] = [];
@@ -1712,6 +1831,13 @@ export async function exportCashMovementHistory(
         // Base filters for both queries
         let moveFilters = '1=1';
         let saleFilters = "s.status != 'VOIDED'";
+
+        if (effectiveLocationId) {
+            moveFilters += ` AND cm.location_id = $${paramIndex}::uuid`;
+            saleFilters += ` AND s.location_id = $${paramIndex}::uuid`;
+            params.push(effectiveLocationId);
+            paramIndex++;
+        }
 
         if (terminalId) {
             moveFilters += ` AND cm.terminal_id = $${paramIndex}::uuid`;
@@ -1761,7 +1887,18 @@ export async function exportCashMovementHistory(
         if (term) {
             const searchPattern = `%${term}%`;
             moveFilters += ` AND (cm.reason ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`;
-            saleFilters += ` AND (s.id::text ILIKE $${paramIndex} OR s.dte_folio::text ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex} OR s.customer_name ILIKE $${paramIndex})`;
+            saleFilters += ` AND (
+                s.id::text ILIKE $${paramIndex}
+                OR s.dte_folio::text ILIKE $${paramIndex}
+                OR u.name ILIKE $${paramIndex}
+                OR s.customer_rut ILIKE $${paramIndex}
+                OR EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                )
+            )`;
             params.push(searchPattern);
             paramIndex++;
         }
@@ -1791,18 +1928,21 @@ export async function exportCashMovementHistory(
                     -- Combine Venta # with item list including unit price
                     CONCAT(
                         'Venta #', COALESCE(s.dte_folio::text, 'S/N'), ': ',
-                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name, ' ($', ROUND(si.unit_price)::text, ')'), '\n'), 'Sin items')
+                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', COALESCE(p.name, ib.name, 'Producto'), ' ($', ROUND(si.unit_price)::text, ')'), '\n'), 'Sin items')
                     ) as reason,
                     s.timestamp,
                     u.name as user_name,
                     s.payment_method,
                     s.dte_folio::text,
-                    s.customer_name
+                    c.name as customer_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 LEFT JOIN sale_items si ON s.id = si.sale_id
+                LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+                LEFT JOIN products p ON ib.product_id::text = p.id::text
                 WHERE ${saleFilters}
-                GROUP BY s.id, u.name, s.total_amount, s.total, s.timestamp, s.payment_method, s.dte_folio, s.customer_name
+                GROUP BY s.id, u.name, s.total_amount, s.total, s.timestamp, s.payment_method, s.dte_folio, c.name
             )
             ORDER BY timestamp DESC
             LIMIT 5000

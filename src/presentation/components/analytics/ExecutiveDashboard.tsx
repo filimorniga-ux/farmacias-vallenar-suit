@@ -21,6 +21,9 @@ export default function ExecutiveDashboard() {
     if (!metrics) return <div className="p-10 text-center text-slate-500">No hay datos disponibles</div>;
 
     const fmtMoney = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP' }).format(n);
+    const grossProfitReady = metrics.grossProfit.confidence === 'production-safe'
+        && metrics.grossProfit.margin !== null
+        && metrics.grossProfit.value !== null;
     const fmtGrowth = (n: number) => {
         const color = n >= 0 ? 'text-emerald-500' : 'text-rose-500';
         const Icon = n >= 0 ? TrendingUp : TrendingDown;
@@ -53,12 +56,11 @@ export default function ExecutiveDashboard() {
                     bg="bg-blue-50"
                 />
                 <KPICard
-                    title="Margen Bruto (Est.)"
-                    value={`${metrics.grossProfit.margin.toFixed(1)}%`}
-                    sub={`Utilidad: ${fmtMoney(metrics.grossProfit.value)}`}
-                    // Margin doesn't define growth directly here but serves as a status
-                    growth={metrics.grossProfit.margin > 25 ? 1 : -1}
-                    growthLabel={metrics.grossProfit.margin > 25 ? 'Saludable' : 'Bajo'}
+                    title="Margen Bruto"
+                    value={grossProfitReady ? `${metrics.grossProfit.margin!.toFixed(1)}%` : 'No disponible'}
+                    sub={grossProfitReady ? `Utilidad: ${fmtMoney(metrics.grossProfit.value!)}` : metrics.grossProfit.reason}
+                    growth={grossProfitReady ? (metrics.grossProfit.margin! > 25 ? 1 : -1) : 0}
+                    growthLabel={grossProfitReady ? (metrics.grossProfit.margin! > 25 ? 'Saludable' : 'Bajo') : 'No final'}
                     icon={<BarChart3 className="text-violet-600" />}
                     bg="bg-violet-50"
                 />
@@ -91,10 +93,15 @@ export default function ExecutiveDashboard() {
 
                 {/* Recent Sales Feed */}
                 <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                        <ShoppingCart size={18} className="text-slate-400" />
-                        Últimas Ventas (Tiempo Real)
-                    </h3>
+                    <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                        <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                            <ShoppingCart size={18} className="text-slate-400" />
+                            Últimas ventas
+                        </h3>
+                        <span className="text-xs font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-full">
+                            Datos cargados al abrir
+                        </span>
+                    </div>
                     <div className="overflow-hidden">
                         <table className="w-full text-sm text-left">
                             <thead className="bg-slate-50 text-slate-500 font-medium">
@@ -129,7 +136,11 @@ export default function ExecutiveDashboard() {
 function KPICard({ title, value, sub, growth, growthLabel, icon, bg }: any) {
     const fmtGrowth = (n: number) => {
         if (growthLabel) {
-            const color = n > 0 ? 'text-emerald-600 bg-emerald-100' : 'text-rose-600 bg-rose-100';
+            const color = n > 0
+                ? 'text-emerald-600 bg-emerald-100'
+                : n < 0
+                    ? 'text-rose-600 bg-rose-100'
+                    : 'text-slate-600 bg-slate-100';
             return <div className={`px-2 py-0.5 rounded-full text-xs font-bold ${color}`}>{growthLabel}</div>;
         }
 

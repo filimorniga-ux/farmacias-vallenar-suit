@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogOut, X, Loader2, AlertTriangle, ArrowRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { validateKioskExitPin } from '../../../actions/attendance-v2';
 import { NumericKeypad } from './NumericKeypad';
 
 interface ExitKioskModalProps {
     isOpen: boolean;
     onClose: () => void;
+    kioskToken: string;
+    onConfirmed: () => void;
 }
 
-export const ExitKioskModal: React.FC<ExitKioskModalProps> = ({ isOpen, onClose }) => {
-    const navigate = useNavigate();
+export const ExitKioskModal: React.FC<ExitKioskModalProps> = ({ isOpen, onClose, kioskToken, onConfirmed }) => {
     const [pin, setPin] = useState('');
     const [error, setError] = useState('');
     const [isValidating, setIsValidating] = useState(false);
@@ -36,13 +36,13 @@ export const ExitKioskModal: React.FC<ExitKioskModalProps> = ({ isOpen, onClose 
     };
 
     const handleSubmit = async () => {
-        if (pin.length < 4 || isValidating) return;
+        if (pin.length < 4 || isValidating || !kioskToken) return;
 
         setIsValidating(true);
         try {
-            const result = await validateKioskExitPin(pin);
+            const result = await validateKioskExitPin(pin, kioskToken);
             if (result.valid) {
-                navigate('/');
+                onConfirmed();
             } else {
                 setError(result.error || 'PIN no autorizado');
                 setPin('');

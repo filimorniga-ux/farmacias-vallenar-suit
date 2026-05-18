@@ -1,14 +1,15 @@
 
 import { getClient } from '../lib/db';
 import OpenAI from 'openai';
-import dotenv from 'dotenv';
 
-dotenv.config();
+function getOpenAIClient(): OpenAI | null {
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    if (!apiKey) {
+        return null;
+    }
 
-const apiKey = process.env.OPENAI_API_KEY || 'dummy-key-for-init';
-const openai = new OpenAI({
-    apiKey: apiKey,
-});
+    return new OpenAI({ apiKey });
+}
 
 export interface MatchInput {
     title: string;
@@ -89,6 +90,20 @@ export const matchProduct = async (client: any, input: MatchInput): Promise<Matc
         const candidates = candidatesRes.rows;
 
         if (candidates.length > 0) {
+            const openai = getOpenAIClient();
+            if (!openai) {
+                return {
+                    matchType: 'AI_SKIPPED',
+                    targetProductId: null,
+                    confidence: 0,
+                    status: 'NEEDS_REVIEW',
+                    suggestion: {
+                        source: 'AI_UNAVAILABLE',
+                        reason: 'OPENAI_API_KEY not configured',
+                    },
+                };
+            }
+
             const prompt = `
                 Actúa como experto farmacéutico.
                 Tengo este producto sucio del inventario: "${input.title}" (Lab: "${input.lab || 'N/A'}", Branch: "${input.branch || 'N/A'}").

@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePharmaStore } from '@/presentation/store/useStore';
+import { useLocationStore } from '@/presentation/store/useLocationStore';
 // V2: Funciones seguras y tipos de treasury-v2
 import {
     transferFundsSecure,
@@ -42,7 +43,9 @@ const AUTHORIZATION_THRESHOLDS = {
 
 
 export default function TreasuryPage() {
-    const { user, locations, currentLocationId } = usePharmaStore();
+    const user = usePharmaStore((state) => state.user);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const locations = useLocationStore((state) => state.locations);
 
     const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
     const [transactions, setTransactions] = useState<TreasuryTransaction[]>([]);
@@ -72,8 +75,54 @@ export default function TreasuryPage() {
     // Tab State
     const [activeTab, setActiveTab] = useState<'SUMMARY' | 'HISTORY'>('SUMMARY');
 
-    // Load Data
-    const loadTreasuryData = async () => {
+    const fetchTransactions = async (accountId: string) => {
+        // V2: getTreasuryTransactionsSecure
+        const txRes = await getTreasuryTransactionsSecure(accountId);
+        if (txRes.success && txRes.data) {
+            setTransactions(txRes.data);
+        }
+    };
+
+    const reloadAccounts = async (preferredAccountId?: string | null) => {
+        if (!currentLocationId) {
+            setAccounts([]);
+            setSelectedAccount(null);
+            setTransactions([]);
+            return null;
+        }
+
+        const accRes = await getFinancialAccountsSecure(currentLocationId);
+        if (!accRes.success || !accRes.data) return null;
+
+        setAccounts(accRes.data);
+
+        const nextSelectedAccount =
+            accRes.data.find((account) => account.id === preferredAccountId) ??
+            accRes.data.find((account) => account.type === 'SAFE') ??
+            accRes.data[0] ??
+            null;
+
+        setSelectedAccount(nextSelectedAccount);
+        if (!nextSelectedAccount) {
+            setTransactions([]);
+        }
+
+        return nextSelectedAccount;
+    };
+
+    const reloadRemittances = async () => {
+        if (!currentLocationId) {
+            setRemittances([]);
+            return;
+        }
+
+        const remRes = await getPendingRemittancesSecure(currentLocationId);
+        if (remRes.success && remRes.data) {
+            setRemittances(remRes.data);
+        }
+    };
+
+    const loadInitialTreasuryData = async () => {
         if (!user) return;
         if (!currentLocationId) {
             setLoading(false);
@@ -82,23 +131,11 @@ export default function TreasuryPage() {
 
         setLoading(true);
         try {
-            // V2: getFinancialAccountsSecure
-            const accRes = await getFinancialAccountsSecure(currentLocationId);
-            if (accRes.success && accRes.data) {
-                setAccounts(accRes.data);
-
-                // Select Safe by default
-                const safe = accRes.data.find((a: FinancialAccount) => a.type === 'SAFE');
-                if (safe) {
-                    setSelectedAccount(safe);
-                    fetchTransactions(safe.id);
-                }
+            const nextSelectedAccount = await reloadAccounts(selectedAccount?.id ?? null);
+            if (nextSelectedAccount) {
+                await fetchTransactions(nextSelectedAccount.id);
             }
-
-            // V2: getPendingRemittancesSecure
-            const remRes = await getPendingRemittancesSecure(currentLocationId);
-            if (remRes.success && remRes.data) setRemittances(remRes.data);
-
+            await reloadRemittances();
         } catch (error) {
             console.error(error);
             toast.error('Error cargando tesorería');
@@ -107,14 +144,8 @@ export default function TreasuryPage() {
         }
     };
 
-    const fetchTransactions = async (accountId: string) => {
-        // V2: getTreasuryTransactionsSecure
-        const txRes = await getTreasuryTransactionsSecure(accountId);
-        if (txRes.success && txRes.data) setTransactions(txRes.data);
-    };
-
     useEffect(() => {
-        loadTreasuryData();
+        loadInitialTreasuryData();
     }, [currentLocationId]);
 
     // =====================================================
@@ -181,7 +212,10 @@ export default function TreasuryPage() {
                 setTransferAmount('');
                 setTransferNote('');
                 setTargetAccountId('');
-                loadTreasuryData();
+                const nextSelectedAccount = await reloadAccounts(selectedAccount?.id ?? null);
+                if (nextSelectedAccount) {
+                    await fetchTransactions(nextSelectedAccount.id);
+                }
             } else {
                 if (result.error?.includes('PIN') || result.error?.includes('inválido')) {
                     setPinError(result.error);
@@ -232,7 +266,11 @@ export default function TreasuryPage() {
                     description: `$${amount.toLocaleString('es-CL')} ingresados a Caja Fuerte`
                 });
                 setIsPinModalOpen(false);
-                loadTreasuryData();
+                const nextSelectedAccount = await reloadAccounts(selectedAccount?.id ?? null);
+                if (nextSelectedAccount) {
+                    await fetchTransactions(nextSelectedAccount.id);
+                }
+                await reloadRemittances();
             } else {
                 if (result.error?.includes('PIN') || result.error?.includes('inválido') || result.error?.includes('corresponde')) {
                     setPinError(result.error);
@@ -272,7 +310,7 @@ export default function TreasuryPage() {
     const currentLocationName = locations.find(l => l.id === currentLocationId)?.name || 'Sucursal desconocida';
 
     return (
-        <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
+        <div data-testid="treasury-page" className="p-4 md:p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
 
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -291,7 +329,7 @@ export default function TreasuryPage() {
                 </div>
                 <div>
                     <button
-                        onClick={() => loadTreasuryData()}
+                        onClick={() => loadInitialTreasuryData()}
                         className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-sm font-medium transition-colors"
                     >
                         Refrescar
@@ -313,6 +351,7 @@ export default function TreasuryPage() {
             {/* Tab Navigation */}
             <div className="flex gap-2 border-b border-gray-200 pb-1">
                 <button
+                    data-testid="treasury-summary-tab"
                     onClick={() => setActiveTab('SUMMARY')}
                     className={`flex items-center gap-2 px-4 py-2 font-bold text-sm rounded-t-lg border-b-2 transition-colors ${activeTab === 'SUMMARY'
                         ? 'border-slate-900 text-slate-900 bg-slate-50'
@@ -322,6 +361,7 @@ export default function TreasuryPage() {
                     <LayoutDashboard size={16} /> Resumen
                 </button>
                 <button
+                    data-testid="treasury-history-tab"
                     onClick={() => setActiveTab('HISTORY')}
                     className={`flex items-center gap-2 px-4 py-2 font-bold text-sm rounded-t-lg border-b-2 transition-colors ${activeTab === 'HISTORY'
                         ? 'border-slate-900 text-slate-900 bg-slate-50'
@@ -393,6 +433,7 @@ export default function TreasuryPage() {
 
                             <div className="mt-6 pt-4 border-t border-slate-800 flex gap-2">
                                 <button
+                                    data-testid="treasury-register-outflow"
                                     onClick={() => setIsTransferModalOpen(true)}
                                     className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
                                 >

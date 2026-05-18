@@ -5,8 +5,6 @@ test.describe('Security - Smoke', () => {
     test('POS muestra estados protegidos o bloqueados correctamente', async ({ page }) => {
         const loggedIn = await loginAsManager(page, {
             module: 'Punto de Venta',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch(() => false);
         test.skip(!loggedIn, 'Login/contexto no disponible para prueba de seguridad POS');
 
@@ -22,8 +20,6 @@ test.describe('Security - Smoke', () => {
     test('tesorería muestra indicios de autorización/PIN en acciones sensibles', async ({ page }) => {
         const loggedIn = await loginAsManager(page, {
             module: 'Administración',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch(() => false);
         test.skip(!loggedIn, 'Login/contexto no disponible para prueba de seguridad Tesorería');
 
@@ -45,8 +41,6 @@ test.describe('Security - Smoke', () => {
     test('sección de auditoría renderiza sin error fatal', async ({ page }) => {
         const loggedIn = await loginAsManager(page, {
             module: 'Administración',
-            user: 'Gerente General 1',
-            pin: '1213',
         }).then(() => true).catch(() => false);
         test.skip(!loggedIn, 'Login/contexto no disponible para prueba de seguridad Auditoría');
 

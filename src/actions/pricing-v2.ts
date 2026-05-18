@@ -3,6 +3,13 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import * as Sentry from '@sentry/nextjs';
+import {
+    PRICING_GLOBAL_ROLES,
+    PRICING_READ_ROLES,
+    PRICING_WRITE_ROLES,
+    requireScopedActor,
+    resolveEffectiveLocation,
+} from '@/actions/admin-scope';
 
 // ============================================================================
 // PRICING V2 — Monitoreo de Costos, Precios e Historial
@@ -68,6 +75,28 @@ const periodToInterval: Record<Period, string> = {
     '90d': '90 days',
     '180d': '180 days',
 };
+
+async function requirePricingReadActor(requestedLocationId?: string) {
+    const actorResult = await requireScopedActor(PRICING_READ_ROLES);
+    if (!actorResult.success) {
+        return actorResult;
+    }
+
+    const scope = resolveEffectiveLocation(actorResult.actor, requestedLocationId, PRICING_GLOBAL_ROLES);
+    if (!scope.success) {
+        return { success: false as const, error: scope.error };
+    }
+
+    return {
+        success: true as const,
+        actor: actorResult.actor,
+        locationId: scope.locationId,
+    };
+}
+
+async function requirePricingWriteActor() {
+    return requireScopedActor(PRICING_WRITE_ROLES);
+}
 
 // ============================================================================
 // 1. Registrar cambio de costo (usado internamente por receivePurchaseOrderSecure)
@@ -184,13 +213,18 @@ export async function getPriceCostDashboard(period: string, locationId?: string)
     error?: string;
 }> {
     try {
+        const actorResult = await requirePricingReadActor(locationId);
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validated = GetPriceCostDashboardSchema.safeParse({ period, locationId });
         if (!validated.success) {
             return { success: false, error: 'Parámetros inválidos' };
         }
 
         const validPeriod = validated.data.period;
-        const validLocationId = validated.data.locationId;
+        const validLocationId = actorResult.locationId;
         const interval = periodToInterval[validPeriod];
 
         const locationFilter = validLocationId ? 'AND pch.location_id::text = $2::text' : '';
@@ -271,6 +305,11 @@ export async function getPriceCostHistory(
     limit = 50
 ): Promise<{ success: boolean; data?: PriceCostHistoryEntry[]; error?: string }> {
     try {
+        const actorResult = await requirePricingReadActor();
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validated = GetPriceCostHistorySchema.safeParse({ productId, period, limit });
         if (!validated.success) {
             return { success: false, error: 'Parámetros inválidos' };
@@ -288,6 +327,11 @@ export async function getPriceCostHistory(
         if (validProductId) {
             params.push(validProductId);
             conditions.push(`pch.product_id::text = $${params.length}::text`);
+        }
+
+        if (actorResult.locationId) {
+            params.push(actorResult.locationId);
+            conditions.push(`pch.location_id::text = $${params.length}::text`);
         }
 
         params.push(String(validLimit));
@@ -315,20 +359,24 @@ export async function getPriceCostHistory(
 // ============================================================================
 const LevelPricesSchema = z.object({
     productId: UUIDSchema,
-    userId: UUIDSchema,
 });
 
 export async function levelPrices(
     productId: string,
-    userId: string
+    _userId?: string
 ): Promise<{ success: boolean; newPrice?: number; error?: string }> {
-    const validated = LevelPricesSchema.safeParse({ productId, userId });
+    const actorResult = await requirePricingWriteActor();
+    if (!actorResult.success) {
+        return { success: false, error: actorResult.error };
+    }
+
+    const validated = LevelPricesSchema.safeParse({ productId });
     if (!validated.success) {
         return { success: false, error: 'Parámetros inválidos' };
     }
 
     const validProductId = validated.data.productId;
-    const validUserId = validated.data.userId;
+    const validUserId = actorResult.actor.userId;
 
     const client = await pool.connect();
     try {
@@ -414,13 +462,12 @@ export async function levelPrices(
 const GenerateMissingCostsSchema = z.object({
     margin: z.number().min(0).max(1).optional().default(0.30),
     dryRun: z.boolean().optional().default(true),
-    userId: UUIDSchema.optional(),
 });
 
 export async function generateMissingCosts(
     margin: number = 0.30,
     dryRun: boolean = true,
-    userId?: string
+    _userId?: string
 ): Promise<{
     success: boolean;
     data?: { productId: string; name: string; sku: string; salePrice: number; estimatedCost: number }[];
@@ -428,14 +475,19 @@ export async function generateMissingCosts(
     error?: string;
 }> {
     try {
-        const validated = GenerateMissingCostsSchema.safeParse({ margin, dryRun, userId });
+        const actorResult = await requirePricingWriteActor();
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
+        const validated = GenerateMissingCostsSchema.safeParse({ margin, dryRun });
         if (!validated.success) {
             return { success: false, error: 'Parámetros inválidos' };
         }
 
         const validMargin = validated.data.margin;
         const validDryRun = validated.data.dryRun;
-        const validUserId = validated.data.userId;
+        const validUserId = actorResult.actor.userId;
 
         // Buscar productos sin costo pero con precio de venta
         const res = await pool.query(`
@@ -514,12 +566,20 @@ export async function getRecentCostAlerts(limit = 10): Promise<{
     error?: string;
 }> {
     try {
+        const actorResult = await requirePricingReadActor();
+        if (!actorResult.success) {
+            return { success: false, error: actorResult.error };
+        }
+
         const validated = GetRecentCostAlertsSchema.safeParse({ limit });
         if (!validated.success) {
             return { success: false, error: 'Parámetros inválidos' };
         }
 
         const validLimit = validated.data.limit;
+        const locationFilter = actorResult.locationId
+            ? 'AND pch.location_id::text = $2::text'
+            : '';
 
         const res = await pool.query(`
             SELECT pch.*, p.name as product_name, p.sku
@@ -527,9 +587,10 @@ export async function getRecentCostAlerts(limit = 10): Promise<{
             JOIN products p ON p.id::text = pch.product_id::text
             WHERE pch.created_at >= NOW() - INTERVAL '7 days'
               AND pch.change_type IN ('COST_CHANGE', 'PRICE_CHANGE')
+              ${locationFilter}
             ORDER BY ABS(pch.change_percent) DESC
             LIMIT $1
-        `, [validLimit]);
+        `, actorResult.locationId ? [validLimit, actorResult.locationId] : [validLimit]);
 
         return { success: true, data: res.rows };
     } catch (error) {

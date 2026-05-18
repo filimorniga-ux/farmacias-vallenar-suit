@@ -50,7 +50,38 @@ const nextConfig = {
                         key: 'X-XSS-Protection',
                         value: '1; mode=block',
                     },
+                    {
+                        key: 'Referrer-Policy',
+                        value: 'strict-origin-when-cross-origin',
+                    },
+                    {
+                        key: 'Permissions-Policy',
+                        value: 'camera=(self), microphone=(), geolocation=()',
+                    },
                 ],
+            },
+        ];
+    },
+
+    async redirects() {
+        const isPreview = process.env.VERCEL_ENV === 'preview';
+        const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true' && !isPreview;
+
+        if (isMaintenanceMode) {
+            return [
+                {
+                    source: '/:path((?!api|_next/static|_next/image|favicon.ico|maintenance).*)',
+                    destination: '/maintenance',
+                    permanent: false,
+                },
+            ];
+        }
+
+        return [
+            {
+                source: '/maintenance',
+                destination: '/',
+                permanent: false,
             },
         ];
     },
@@ -157,11 +188,6 @@ export default withSentryConfig(withPWA(nextConfig), {
 
     // Upload a larger set of source maps for prettier stack traces (increases build time)
     widenClientFileUpload: true,
-
-    // Automatically annotate React components to show their full name in breadcrumbs and session replay
-    reactComponentAnnotation: {
-        enabled: true,
-    },
 
     // Route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
     // This can increase your server load as well as your hosting bill.

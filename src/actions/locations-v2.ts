@@ -22,10 +22,15 @@
 import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
-import { headers } from 'next/headers';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '@/lib/logger';
 import { Location } from '@/domain/types';
+import { resolveActorResult } from './actor-result';
+import {
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -80,9 +85,6 @@ const AssignUserSchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
-const MANAGER_ROLES = ['ADMIN', 'MANAGER', 'GERENTE_GENERAL'];
-
 const ERROR_CODES = {
     LOCK_NOT_AVAILABLE: '55P03',
     SERIALIZATION_FAILURE: '40001',
@@ -94,100 +96,63 @@ const ERROR_CODES = {
 // ============================================================================
 
 /**
- * Get session from headers
- */
-async function getSession(): Promise<{ user?: { id: string; role: string } } | null> {
-    try {
-        const headersList = await headers();
-        const { cookies } = await import('next/headers');
-
-        // 1. Try Headers
-        let userId = headersList.get('x-user-id');
-        let userRole = headersList.get('x-user-role');
-
-        // 2. Try Cookies (Fallback)
-        if (!userId || !userRole) {
-            const cookieStore = await cookies();
-            userId = cookieStore.get('user_id')?.value || null;
-            userRole = cookieStore.get('user_role')?.value || null;
-        }
-
-        if (!userId || !userRole) {
-            return null;
-        }
-
-        return { user: { id: userId, role: userRole } };
-    } catch {
-        return null;
-    }
-}
-
-/**
  * Verify ADMIN permissions
  */
-async function verifyAdminPermission(client: any): Promise<{
+async function verifyAdminPermission(): Promise<{
     valid: boolean;
     admin?: { id: string; name: string; role: string };
     error?: string;
 }> {
-    const session = await getSession();
-
-    if (!session?.user?.id) {
-        return { valid: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { valid: false, error: auth.error };
     }
+    const actor = auth.actor;
 
-    const adminRes = await client.query(`
-        SELECT id, name, role 
-        FROM users 
-        WHERE id = $1 AND is_active = true
-    `, [session.user.id]);
-
-    if (adminRes.rows.length === 0) {
-        return { valid: false, error: 'Usuario no encontrado' };
-    }
-
-    const admin = adminRes.rows[0];
-    const role = admin.role?.toUpperCase();
-
-    if (!ADMIN_ROLES.includes(role)) {
+    try {
+        requireRole(actor, ROLE_GROUPS.ADMIN);
+    } catch {
         return { valid: false, error: 'Requiere permisos de ADMIN o GERENTE_GENERAL' };
     }
 
-    return { valid: true, admin };
+    return {
+        valid: true,
+        admin: {
+            id: actor.userId,
+            name: actor.userName || actor.userId,
+            role: actor.role,
+        },
+    };
 }
 
 /**
  * Verify MANAGER permissions (Includes ADMIN & GERENTE_GENERAL)
  */
-async function verifyManagerPermission(client: any): Promise<{
+async function verifyManagerPermission(): Promise<{
     valid: boolean;
     manager?: { id: string; name: string; role: string };
     error?: string;
 }> {
-    const session = await getSession();
-
-    if (!session?.user?.id) {
-        return { valid: false, error: 'No autenticado' };
+    const auth = await resolveActorResult();
+    if (!auth.success) {
+        return { valid: false, error: auth.error };
     }
+    const actor = auth.actor;
 
-    const userRes = await client.query(`
-        SELECT id, name, role 
-        FROM users 
-        WHERE id = $1 AND is_active = true
-    `, [session.user.id]);
-
-    if (userRes.rows.length === 0) {
-        return { valid: false, error: 'Usuario no encontrado' };
-    }
-
-    const user = userRes.rows[0];
-    const role = user.role?.toUpperCase();
-
-    if (!MANAGER_ROLES.includes(role)) {
+    try {
+        requireRole(actor, ROLE_GROUPS.MANAGER);
+    } catch {
         return { valid: false, error: 'Requiere permisos de ADMIN, GERENTE o MANAGER' };
     }
 
-    return { valid: true, manager: user };
+    return {
+        valid: true,
+        manager: {
+            id: actor.userId,
+            name: actor.userName || actor.userId,
+            role: actor.role,
+        },
+    };
 }
 
 /**
@@ -198,35 +163,23 @@ async function validateManagerPin(
     pin: string
 ): Promise<{ valid: boolean; manager?: { id: string; name: string; role: string }; error?: string }> {
     try {
-        const { checkRateLimit, recordFailedAttempt, resetAttempts } = await import('@/lib/rate-limiter');
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, ROLE_GROUPS.MANAGER, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            const rateCheck = checkRateLimit(user.id);
-            if (!rateCheck.allowed) continue;
-
-            if (user.access_pin_hash) {
-                const isValid = await bcrypt.compare(pin, user.access_pin_hash);
-                if (isValid) {
-                    resetAttempts(user.id);
-                    return { valid: true, manager: { id: user.id, name: user.name, role: user.role } };
-                } else {
-                    recordFailedAttempt(user.id);
-                }
-            } else if (user.access_pin && user.access_pin === pin) {
-                resetAttempts(user.id);
-                return { valid: true, manager: { id: user.id, name: user.name, role: user.role } };
-            }
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN de manager inválido' };
         }
 
-        return { valid: false, error: 'PIN de manager inválido' };
+        return {
+            valid: true,
+            manager: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            }
+        };
     } catch (error) {
         logger.error({ error }, '[Locations] Manager PIN validation error');
         return { valid: false, error: 'Error validando PIN' };
@@ -288,7 +241,7 @@ export async function createLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify ADMIN permission
-        const authCheck = await verifyAdminPermission(client);
+        const authCheck = await verifyAdminPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -369,16 +322,11 @@ export async function createLocationSecure(
 export async function updateLocationSecure(
     data: z.infer<typeof UpdateLocationSchema>
 ): Promise<{ success: boolean; data?: Location; error?: string }> {
-    console.log('🔥 [SERVER ACTION] updateLocationSecure CALLED');
-    console.log('📦 [SERVER ACTION] Payload size:', JSON.stringify(data).length, 'bytes');
-
     // Validate input
     const validated = UpdateLocationSchema.safeParse(data);
     if (!validated.success) {
-        console.error('❌ [SERVER ACTION] Validation Failed:', validated.error);
         return { success: false, error: validated.error.issues[0]?.message };
     }
-    console.log('✅ [SERVER ACTION] Validation passed for:', validated.data.locationId);
 
     const client = await pool.connect();
 
@@ -386,7 +334,7 @@ export async function updateLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify MANAGER permission
-        const authCheck = await verifyManagerPermission(client);
+        const authCheck = await verifyManagerPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -450,9 +398,6 @@ export async function updateLocationSecure(
         // updates.push(`updated_at = NOW()`);  <-- Removed: Column does not exist in schema
         values.push(validated.data.locationId);
 
-        // Monitor updates
-        console.log('📝 [UPDATE LOCATION] BEFORE UPDATE:', { updates, values, locationId: validated.data.locationId });
-
         const res = await client.query(`
             UPDATE locations SET ${updates.join(', ')}
             WHERE id = $${paramIndex}
@@ -460,7 +405,6 @@ export async function updateLocationSecure(
         `, values);
 
         const updatedLocation = res.rows[0];
-        console.log('📝 [UPDATE LOCATION] AFTER UPDATE (RETURNING):', { name: updatedLocation?.name, id: updatedLocation?.id });
 
         // Audit
         await insertLocationAudit(client, {
@@ -472,7 +416,6 @@ export async function updateLocationSecure(
         });
 
         await client.query('COMMIT');
-        console.log('📝 [UPDATE LOCATION] COMMIT DONE');
 
         logger.info({ locationId: validated.data.locationId }, '✏️ [Locations] Location updated');
 
@@ -519,7 +462,7 @@ export async function deactivateLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify MANAGER permission
-        const authCheck = await verifyManagerPermission(client);
+        const authCheck = await verifyManagerPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };
@@ -620,12 +563,20 @@ export async function transferStockBetweenLocationsSecure(
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
+        const actorCheck = await verifyManagerPermission();
+        if (!actorCheck.valid) {
+            await client.query('ROLLBACK');
+            return { success: false, error: actorCheck.error };
+        }
+
         // Validate manager PIN
         const authResult = await validateManagerPin(client, managerPin);
         if (!authResult.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authResult.error || 'PIN inválido' };
         }
+
+        const actorUserId = actorCheck.manager!.id;
 
         // Lock both locations
         const locsRes = await client.query(`
@@ -739,12 +690,12 @@ export async function transferStockBetweenLocationsSecure(
                 movements.push([
                     uuidv4(), item.sku, sourceBatch.name, sourceLocationId, 'TRANSFER_OUT',
                     -qtyFromThisBatch, sourceBatch.quantity_real, newSourceQuantity,
-                    authResult.manager!.id, reason, 'LOCATION_TRANSFER', transferId
+                    actorUserId, reason, 'LOCATION_TRANSFER', transferId
                 ]);
                 movements.push([
                     uuidv4(), item.sku, sourceBatch.name, targetLocationId, 'TRANSFER_IN',
                     qtyFromThisBatch, targetStockBefore, targetStockAfter,
-                    authResult.manager!.id, reason, 'LOCATION_TRANSFER', transferId
+                    actorUserId, reason, 'LOCATION_TRANSFER', transferId
                 ]);
 
                 remainingToTransfer -= qtyFromThisBatch;
@@ -823,7 +774,7 @@ export async function transferStockBetweenLocationsSecure(
 
         // Audit
         await insertLocationAudit(client, {
-            userId: authResult.manager!.id,
+            userId: actorUserId,
             actionCode: 'STOCK_TRANSFERRED',
             locationId: sourceLocationId,
             newValues: {
@@ -831,7 +782,9 @@ export async function transferStockBetweenLocationsSecure(
                 source: sourceLocation?.name,
                 target: targetLocation?.name,
                 items: transferredItems,
-                authorized_by: authResult.manager!.name
+                authorized_by: authResult.manager!.name,
+                authorized_by_id: authResult.manager!.id,
+                actor_user_id: actorUserId,
             },
             justification: reason
         });
@@ -939,7 +892,7 @@ export async function assignUserToLocationSecure(
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Verify ADMIN permission (strict - ADMIN only for assignments)
-        const authCheck = await verifyAdminPermission(client);
+        const authCheck = await verifyAdminPermission();
         if (!authCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: authCheck.error };

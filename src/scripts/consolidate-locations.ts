@@ -1,8 +1,8 @@
 
 import { Pool } from 'pg';
 import * as dotenv from 'dotenv';
-import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
+import { DEV_TEST_ACCOUNT } from './dev-account-support';
 
 dotenv.config({ path: '.env.local' });
 if (!process.env.DATABASE_URL) dotenv.config({ path: '.env' });
@@ -23,9 +23,6 @@ async function consolidate() {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-
-            const PIN = "1213";
-            const hash = await bcrypt.hash(PIN, 10);
 
             // 1. Identify Winners
             console.log("Identifying Winning Locations...");
@@ -117,13 +114,7 @@ async function consolidate() {
             console.log(`   Deleted ${delRes.rowCount} duplicate locations.`);
 
 
-            // 5. Reset Passwords
-            console.log("Resetting Passwords to '1213'...");
-            const pwRes = await client.query(`
-                UPDATE users SET access_pin = $1 
-                WHERE email LIKE '%@demo.cl'
-            `, [hash]);
-            console.log(`   Updated passwords for ${pwRes.rowCount} demo users.`);
+            console.log(`ℹ️ No se resetean PINs masivos en este script. Si necesitas acceso rápido, usa ${DEV_TEST_ACCOUNT.ensureCommand}.`);
 
             await client.query('COMMIT');
             console.log("✅ CONSOLIDATION SUCCESSFUL");

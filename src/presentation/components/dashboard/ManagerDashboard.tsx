@@ -1,59 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+'use client';
+
+import React, { useState } from 'react';
+import { motion } from 'framer-motion';
 import {
     Store, CreditCard, Banknote, ArrowRightLeft, TrendingDown,
     Monitor, User, Clock, CheckCircle2, AlertCircle, RefreshCw,
     Wallet, Users, ArrowUpRight
 } from 'lucide-react';
-import { getManagerRealTimeDataSecure, ManagerDashboardData, BranchDetail } from '@/actions/manager-dashboard-v2';
+import type { ManagerDashboardData } from '@/actions/manager-dashboard-v2';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { useManagerDashboard } from '@/presentation/hooks/useManagerDashboard';
 
-const REFRESH_INTERVAL = 60000; // 1 minute auto-refresh
+type ManagerDashboardProps = {
+    initialData?: ManagerDashboardData | null;
+};
 
-export default function ManagerDashboard() {
-    const [data, setData] = useState<ManagerDashboardData | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
-    const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-    const [isRefetching, setIsRefetching] = useState(false);
+export default function ManagerDashboard({ initialData }: ManagerDashboardProps) {
+    const [selectedBranchId, setSelectedBranchId] = useState<string | null>(initialData?.selectedBranch?.locationId ?? null);
+    const {
+        data,
+        error,
+        isPending,
+        isFetching,
+        refetch,
+        dataUpdatedAt,
+    } = useManagerDashboard({
+        initialData,
+        selectedBranchId,
+    });
 
-    const fetchData = async (branchId?: string, isBackground = false) => {
-        if (!isBackground) setLoading(true);
-        else setIsRefetching(true);
-        setError(null);
-
-        try {
-            const res = await getManagerRealTimeDataSecure(branchId || selectedBranchId || undefined);
-            if (res.success && res.data) {
-                setData(res.data);
-                if (res.data.selectedBranch) {
-                    setSelectedBranchId(res.data.selectedBranch.locationId);
-                }
-                setLastUpdated(new Date());
-            } else {
-                setError(res.error || 'Error desconocido al cargar datos');
-                if (!data) setData(null); // Keep old data if possible, or null
-            }
-        } catch (error: any) {
-            console.error('Failed to load manager dashboard:', error);
-            setError(error.message || 'Error de conexión');
-        } finally {
-            setLoading(false);
-            setIsRefetching(false);
-        }
-    };
-
-    useEffect(() => {
-        fetchData();
-        const interval = setInterval(() => fetchData(undefined, true), REFRESH_INTERVAL);
-        return () => clearInterval(interval);
-    }, []);
+    const loading = isPending && !data;
+    const errorMessage = error instanceof Error ? error.message : 'Error de conexión';
+    const lastUpdated = new Date(dataUpdatedAt || Date.now());
+    const isRefetching = isFetching && !isPending;
+    const activeBranchId = selectedBranchId ?? data?.selectedBranch?.locationId ?? null;
 
     const handleBranchChange = (branchId: string) => {
         setSelectedBranchId(branchId);
-        fetchData(branchId);
     };
 
     if (loading && !data) {
@@ -67,9 +50,9 @@ export default function ManagerDashboard() {
                     <AlertCircle size={24} />
                 </div>
                 <h3 className="text-lg font-bold text-slate-700">Error al cargar</h3>
-                <p className="text-slate-500 mb-4">{error}</p>
+                <p className="text-slate-500 mb-4">{errorMessage}</p>
                 <button
-                    onClick={() => fetchData()}
+                    onClick={() => void refetch()}
                     className="px-4 py-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2 mx-auto"
                 >
                     <RefreshCw size={16} /> Reintentar
@@ -89,7 +72,7 @@ export default function ManagerDashboard() {
                         <button
                             key={branch.id}
                             onClick={() => handleBranchChange(branch.id)}
-                            className={`flex flex-col items-start px-4 py-2 rounded-xl transition-all min-w-[140px] border ${selectedBranchId === branch.id
+                            className={`flex flex-col items-start px-4 py-2 rounded-xl transition-all min-w-[140px] border ${activeBranchId === branch.id
                                 ? 'bg-slate-900 text-white border-slate-900 shadow-lg scale-105'
                                 : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                                 }`}
@@ -109,9 +92,10 @@ export default function ManagerDashboard() {
                         Actualizado: {format(lastUpdated, 'HH:mm:ss')}
                     </span>
                     <button
-                        onClick={() => fetchData()}
+                        onClick={() => void refetch()}
                         disabled={isRefetching}
-                        className={`p-2 bg-white rounded-full shadow-sm border border-slate-200 hover:bg-slate-50 text-slate-600 transition-all ${isRefetching ? 'animate-spin text-blue-600' : ''}`}
+                        aria-label="Actualizar tablero gerencial"
+                        className={`flex min-h-11 min-w-11 items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-600 shadow-sm transition-all hover:bg-slate-50 ${isRefetching ? 'animate-spin text-blue-600' : ''}`}
                     >
                         <RefreshCw size={18} />
                     </button>

@@ -5,13 +5,25 @@ import { query } from '@/lib/db';
 import { classifyPgError } from '@/lib/db-errors';
 import { createCorrelationId, type ActionFailure } from '@/lib/action-response';
 import { logger } from '@/lib/logger';
-import { cookies } from 'next/headers';
+import {
+    createServerSession,
+    getValidatedSession,
+    invalidateCurrentSession,
+} from '@/lib/server-session';
+import {
+    type PinQueryClient,
+    ROLE_GROUPS,
+    normalizeRole,
+    validatePinForRoles,
+    validatePinForUser,
+} from '@/lib/pin-rbac';
 
 export interface AuthenticatedUser {
     id: string;
     name: string;
     role: string;
     assigned_location_id?: string | null;
+    token_version?: number;
 }
 
 export type AuthActionResult =
@@ -34,42 +46,59 @@ function authFailure(input: {
     };
 }
 
+type AuthPinQueryParam = string | number | boolean | Date | string[] | null | undefined;
+
+const pinQueryClient: PinQueryClient = {
+    query: (sql, params) =>
+        query(sql, params as AuthPinQueryParam[] | undefined) as Promise<Awaited<ReturnType<PinQueryClient['query']>>>,
+};
+
+const supervisorPinBaseRoles =
+    (ROLE_GROUPS as { OVERRIDE?: readonly string[] }).OVERRIDE ?? ROLE_GROUPS.MANAGER;
+
+const SUPERVISOR_PIN_ROLE_ALLOWLIST = new Set<string>(
+    supervisorPinBaseRoles.map((role) => normalizeRole(role))
+);
+
+function resolveSupervisorPinRoles(requiredRoles: string[]) {
+    const requestedRoles = requiredRoles.length > 0 ? requiredRoles : [...ROLE_GROUPS.MANAGER];
+    return Array.from(new Set(
+        requestedRoles
+            .map((role) => normalizeRole(role))
+            .filter((role) => SUPERVISOR_PIN_ROLE_ALLOWLIST.has(role))
+    ));
+}
+
 export async function getSessionSecure() {
-    const cookieStore = await cookies();
-    const userId = cookieStore.get('user_id')?.value;
-    const role = cookieStore.get('user_role')?.value;
-    const locationId = cookieStore.get('user_location')?.value;
-    const userName = cookieStore.get('user_name')?.value;
-
-    if (!userId || !role) {
-        return null;
-    }
-
-    return { userId, role, locationId, userName: userName || 'Usuario' };
+    return getValidatedSession();
 }
 
 export async function verifyUserPin(userId: string, pin: string) {
     try {
         if (!userId || !pin) return { success: false, error: 'Datos incompletos' };
 
-        const res = await query('SELECT role, access_pin FROM users WHERE id = $1', [userId]);
+        const res = await query('SELECT role FROM users WHERE id = $1', [userId]);
 
         if ((res.rowCount ?? 0) === 0) {
             return { success: false, error: 'Usuario no encontrado' };
         }
 
         const userData = res.rows[0];
+        const normalizedRole = String(userData.role || '').trim().toUpperCase();
 
-        const allowedRoles = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-        if (!allowedRoles.includes(userData.role)) {
+        if (!ROLE_GROUPS.MANAGER.includes(normalizedRole as typeof ROLE_GROUPS.MANAGER[number])) {
             return { success: false, error: 'Sin permisos suficientes' };
         }
 
-        if (userData.access_pin === pin) {
+        const result = await validatePinForUser(pinQueryClient, userId, pin, {
+            allowLegacyPlaintext: true,
+        });
+
+        if (result.valid) {
             return { success: true };
         }
 
-        return { success: false, error: 'PIN Incorrecto' };
+        return { success: false, error: result.error === 'PIN inválido' ? 'PIN Incorrecto' : result.error };
     } catch (error) {
         const correlationId = createCorrelationId();
         Sentry.captureException(error, {
@@ -85,50 +114,35 @@ export async function verifyUserPin(userId: string, pin: string) {
 /**
  * Validates supervisor PIN for overrides (POS, Inventory, etc)
  */
-export async function validateSupervisorPin(pin: string, requiredRoles: string[] = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL']) {
+export async function validateSupervisorPin(
+    pin: string,
+    requiredRoles: string[] = [...ROLE_GROUPS.MANAGER]
+) {
     try {
-        interface SupervisorPinRow {
-            id: string;
-            name: string;
-            role: string;
-            access_pin_hash?: string | null;
-            access_pin?: string | null;
+        const session = await getValidatedSession();
+        if (!session) {
+            return { success: false, error: 'Sesión no válida. Vuelve a iniciar sesión.' };
         }
 
-        const res = await query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        if ((res.rowCount ?? 0) === 0) {
-            return { success: false, error: 'PIN inválido o sin permisos' };
+        const allowedRoles = resolveSupervisorPinRoles(requiredRoles);
+        if (allowedRoles.length === 0) {
+            logger.warn({ requestedRoles: requiredRoles }, 'Validate Supervisor PIN rejected invalid role set');
+            return { success: false, error: 'Rol de autorización no permitido' };
         }
 
-        const bcrypt = await import('bcryptjs');
-        const users = res.rows as SupervisorPinRow[];
+        const result = await validatePinForRoles(pinQueryClient, pin, allowedRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        for (const user of users) {
-            if (user.access_pin_hash) {
-                const validHash = await bcrypt.compare(pin, user.access_pin_hash);
-                if (validHash) {
-                    return {
-                        success: true,
-                        authorizedBy: { id: user.id, name: user.name, role: user.role }
-                    };
-                }
-            }
-
-            if (user.access_pin && user.access_pin === pin) {
-                return {
-                    success: true,
-                    authorizedBy: { id: user.id, name: user.name, role: user.role }
-                };
-            }
+        if (!result.valid) {
+            return { success: false, error: result.code === 'PIN_RATE_LIMITED' ? result.error : 'PIN inválido o sin permisos' };
         }
 
-        return { success: false, error: 'PIN inválido o sin permisos' };
+        return {
+            success: true,
+            authorizedBy: result.authorizedBy,
+        };
     } catch (error) {
         const correlationId = createCorrelationId();
         Sentry.captureException(error, {
@@ -154,7 +168,7 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
         }
 
         const res = await query(`
-            SELECT id, name, role, access_pin, assigned_location_id, is_active
+            SELECT id, name, role, access_pin_hash, access_pin, assigned_location_id, is_active
             FROM users
             WHERE id = $1
         `, [userId]);
@@ -177,7 +191,11 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             });
         }
 
-        if (user.access_pin !== pin) {
+        const pinValidation = await validatePinForUser(pinQueryClient, user.id, pin, {
+            allowLegacyPlaintext: true,
+        });
+
+        if (!pinValidation.valid) {
             // V2: Soporte para PIN Temporal (Recuperación por Email)
             const { checkIfIsPinTemporary } = await import('./pin-recovery-v2');
             const { isTemporary } = await checkIfIsPinTemporary(user.id, pin);
@@ -191,15 +209,13 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             }
 
             // Es un PIN temporal válido!
-            const cookieStore = await cookies();
-            cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-            cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-            cookieStore.set('user_name', user.name, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-
             const targetLocationId = locationId || user.assigned_location_id;
-            if (targetLocationId) {
-                cookieStore.set('user_location', targetLocationId, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-            }
+            const { tokenVersion } = await createServerSession({
+                userId: user.id,
+                userName: user.name,
+                role: user.role,
+                locationId: targetLocationId,
+            });
 
             return {
                 success: true,
@@ -208,21 +224,19 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
                     id: user.id,
                     name: user.name,
                     role: user.role,
-                    assigned_location_id: user.assigned_location_id
+                    assigned_location_id: user.assigned_location_id,
+                    token_version: tokenVersion,
                 }
             };
         }
 
-        const cookieStore = await cookies();
-
-        cookieStore.set('user_id', user.id, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-        cookieStore.set('user_role', user.role, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-        cookieStore.set('user_name', user.name, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-
         const targetLocationId = locationId || user.assigned_location_id;
-        if (targetLocationId) {
-            cookieStore.set('user_location', targetLocationId, { httpOnly: true, secure: process.env.NODE_ENV === 'production' });
-        }
+        const { tokenVersion } = await createServerSession({
+            userId: user.id,
+            userName: user.name,
+            role: user.role,
+            locationId: targetLocationId,
+        });
 
         return {
             success: true,
@@ -230,7 +244,8 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
                 id: user.id,
                 name: user.name,
                 role: user.role,
-                assigned_location_id: user.assigned_location_id
+                assigned_location_id: user.assigned_location_id,
+                token_version: tokenVersion,
             }
         };
 
@@ -267,4 +282,8 @@ export async function authenticateUserSecure(userId: string, pin: string, locati
             userMessage: classified.userMessage,
         });
     }
+}
+
+export async function logoutCurrentSessionSecure() {
+    await invalidateCurrentSession();
 }

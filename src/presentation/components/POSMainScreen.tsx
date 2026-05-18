@@ -42,6 +42,8 @@ import { buildPOSCatalog, filterInventoryForPOS, selectRetailLotCandidate, sortI
 // useSettingsStore moved to useCheckout hook
 import { applyPromotions } from '../../domain/logic/promotionEngine';
 import { useInventoryQuery } from '../hooks/useInventoryQuery';
+import { useTerminalSession } from '../../hooks/useTerminalSession';
+import { resolvePosBootstrapContext } from '../lib/pos-runtime-state';
 
 
 // NEW MODULAR IMPORTS
@@ -114,33 +116,56 @@ const POSMainScreen: React.FC = () => {
     const [showQuoteHistory, setShowQuoteHistory] = useState(false);
     const foreignSessionWarningRef = useRef<string>('');
     useKioskGuard(true); // Enable Kiosk Lock
-    const {
-        inventory, cart, addToCart, addManualItem, removeFromCart, clearCart,
-        currentCustomer, getShiftMetrics, updateOpeningAmount,
-        setCustomer, promotions, createQuote, retrieveQuote, updateCartItemQuantity,
-        setInventory, splitBox
-        // NOTE: processSale, redeemPoints, calculateDiscountValue, loyaltyConfig, employees, printerConfig
-        // are now accessed via useCheckout hook in PaymentModal
-    } = usePharmaStore();
-
-
-    const {
-        currentShift,
-        currentLocationId,
-        currentTerminalId,
-        terminals,
-        user
-    } = usePharmaStore();
+    const inventory = usePharmaStore((state) => state.inventory);
+    const cart = usePharmaStore((state) => state.cart);
+    const addToCart = usePharmaStore((state) => state.addToCart);
+    const addManualItem = usePharmaStore((state) => state.addManualItem);
+    const removeFromCart = usePharmaStore((state) => state.removeFromCart);
+    const clearCart = usePharmaStore((state) => state.clearCart);
+    const currentCustomer = usePharmaStore((state) => state.currentCustomer);
+    const getShiftMetrics = usePharmaStore((state) => state.getShiftMetrics);
+    const updateOpeningAmount = usePharmaStore((state) => state.updateOpeningAmount);
+    const setCustomer = usePharmaStore((state) => state.setCustomer);
+    const promotions = usePharmaStore((state) => state.promotions);
+    const createQuote = usePharmaStore((state) => state.createQuote);
+    const retrieveQuote = usePharmaStore((state) => state.retrieveQuote);
+    const updateCartItemQuantity = usePharmaStore((state) => state.updateCartItemQuantity);
+    const setInventory = usePharmaStore((state) => state.setInventory);
+    const splitBox = usePharmaStore((state) => state.splitBox);
+    const currentShift = usePharmaStore((state) => state.currentShift);
+    const currentLocationId = usePharmaStore((state) => state.currentLocationId);
+    const currentTerminalId = usePharmaStore((state) => state.currentTerminalId);
+    const terminals = usePharmaStore((state) => state.terminals);
+    const user = usePharmaStore((state) => state.user);
+    const { getSession, clearSession } = useTerminalSession();
+    const [storedSession, setStoredSession] = useState<ReturnType<typeof getSession> | null>(null);
+    const [storedLocationId, setStoredLocationId] = useState<string | null>(null);
+    const [contextLocationId, setContextLocationId] = useState<string | null>(null);
 
     const [mounted, setMounted] = useState(false);
     useEffect(() => {
         setMounted(true);
-    }, []);
+        if (typeof window !== 'undefined') {
+            setStoredSession(getSession());
+            setStoredLocationId(localStorage.getItem('current_location_id'));
+            setContextLocationId(localStorage.getItem('context_location_id'));
+        }
+    }, [getSession]);
 
-    const { currentLocation } = useLocationStore();
+    const posBootstrap = resolvePosBootstrapContext({
+        currentTerminalId,
+        currentLocationId,
+        persistedSession: storedSession,
+        storedLocationId,
+        contextLocationId,
+    });
+    const effectiveTerminalId = posBootstrap.terminalId || undefined;
+    const effectiveLocationId = posBootstrap.locationId || undefined;
+
+    const currentLocation = useLocationStore((state) => state.currentLocation);
     const activeTerminal = useMemo(
-        () => terminals.find(t => t.id === currentTerminalId),
-        [terminals, currentTerminalId]
+        () => terminals.find(t => t.id === effectiveTerminalId),
+        [effectiveTerminalId, terminals]
     );
     console.log('🔍 [POSMainScreen] Current Location (Store):', currentLocation?.id, 'Current Location (Pharma):', currentLocationId);
 
@@ -148,13 +173,16 @@ const POSMainScreen: React.FC = () => {
     const isUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
     const activeLocationId = isUUID(currentLocation?.id || '')
         ? (currentLocation?.id as string)
-        : isUUID(currentLocationId)
-            ? currentLocationId
+        : isUUID(effectiveLocationId || '')
+            ? (effectiveLocationId as string)
             : undefined;
 
     const { data: inventoryData, invalidateInventory } = useInventoryQuery(activeLocationId);
 
-    // Sync React Query data to Zustand Store for compatibility with other components
+    const posInventory = useMemo(() => inventoryData ?? inventory, [inventoryData, inventory]);
+
+    // Compatibility mirror for POS helpers that still read inventory from Zustand.
+    // The screen itself should prefer React Query data as the source of truth.
     useEffect(() => {
         if (inventoryData) {
             console.log('🔄 [POS] Syncing Inventory Query -> Zustand');
@@ -177,15 +205,21 @@ const POSMainScreen: React.FC = () => {
     }, [currentShift, currentTerminalId]);
 
     useEffect(() => {
+        if (!currentLocationId && effectiveLocationId) {
+            usePharmaStore.setState({ currentLocationId: effectiveLocationId });
+        }
+    }, [currentLocationId, effectiveLocationId]);
+
+    useEffect(() => {
         const checkActiveSession = async () => {
             try {
                 // Import actions dynamically
                 const { getCashDrawerStatus } = await import('../../actions/cash-management-v2');
 
                 // Guard: Need a terminal to check status
-                if (!currentTerminalId) return;
+                if (!effectiveTerminalId) return;
 
-                const status = await getCashDrawerStatus(currentTerminalId);
+                const status = await getCashDrawerStatus(effectiveTerminalId);
 
                 // Si la consulta falló (error de BD o timeout), NO deslogueamos. 
                 // Tolerancia a fallos de red.
@@ -211,12 +245,14 @@ const POSMainScreen: React.FC = () => {
                             return;
                         }
 
-                        console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.', {
-                            server: serverSessionId,
-                            local: currentShift.id,
-                            timeSinceOpen: `${Math.round(timeSinceOpen / 1000)}s`
-                        });
+                            console.warn('⚠️ [POS] Local session mismatch with server. Invalidating local session.', {
+                                server: serverSessionId,
+                                local: currentShift.id,
+                                timeSinceOpen: `${Math.round(timeSinceOpen / 1000)}s`
+                            });
                         usePharmaStore.getState().logoutShift();
+                        clearSession();
+                        setStoredSession(null);
                         toast.error('Sesión local no válida', { description: 'Su sesión expiró o fue cerrada remotamente.' });
                     } else {
                         console.log('✅ [POS] Local session validated with server.');
@@ -240,7 +276,7 @@ const POSMainScreen: React.FC = () => {
                         console.log('🔄 [POS] Recovering active session for SAME user:', status.data.sessionId);
                         const recoveredShift: any = {
                             id: status.data.sessionId,
-                            terminal_id: currentTerminalId,
+                            terminal_id: effectiveTerminalId,
                             user_id: currentUser || '',
                             opening_amount: Number(status.data.openingAmount || 0),
                             start_time: status.data.openedAt ? new Date(status.data.openedAt).getTime() : Date.now(),
@@ -263,6 +299,9 @@ const POSMainScreen: React.FC = () => {
                             });
                         }
                     }
+                } else if (!currentShift && storedSession?.terminalId) {
+                    clearSession();
+                    setStoredSession(null);
                 }
             } catch (error) {
                 console.error('Failed to recover/check session', error);
@@ -270,7 +309,7 @@ const POSMainScreen: React.FC = () => {
         };
 
         checkActiveSession();
-    }, [currentTerminalId, currentShift?.id, user?.id]);
+    }, [clearSession, currentShift, effectiveTerminalId, storedSession?.terminalId, user?.id]);
 
     const metrics = getShiftMetrics();
     const [isEditBaseModalOpen, setIsEditBaseModalOpen] = useState(false);
@@ -330,7 +369,7 @@ const POSMainScreen: React.FC = () => {
     // Helper for FEFO Selection
     const findBestBatch = (code: string) => {
         // Find all matches
-        const matches = inventory.filter(p => p.sku === code || p.id === code || p.barcode === code);
+        const matches = posInventory.filter(p => p.sku === code || p.id === code || p.barcode === code);
         if (matches.length === 0) return undefined;
 
         const getPriority = (item: InventoryBatch): number => {
@@ -368,7 +407,7 @@ const POSMainScreen: React.FC = () => {
         if (result.success && result.data) {
             // 3. Find full object in local memory to ensure we have all POS Required fields (prices, tax, etc)
             // We use the ID returned by the fast scanner to find exact match.
-            const product = inventory.find(i => i.id === result.data?.id);
+            const product = posInventory.find(i => i.id === result.data?.id);
 
             if (product) {
                 addToCart(product, 1);
@@ -429,9 +468,8 @@ const POSMainScreen: React.FC = () => {
 
     // 1. Pre-sort Inventory (FEFO) - Uses React Query data directly if synced
     const sortedInventory = useMemo(() => {
-        const source = (inventoryData && inventoryData.length > 0) ? inventoryData : inventory;
-        return sortInventoryForPOS(source);
-    }, [inventory, inventoryData]);
+        return sortInventoryForPOS(posInventory);
+    }, [posInventory]);
 
     const posCatalog = useMemo(() => {
         return buildPOSCatalog(sortedInventory);
@@ -512,7 +550,7 @@ const POSMainScreen: React.FC = () => {
 
     // Check for Restricted Items (R/RR/RCH)
     const isRestricted = (item: CartItem) => {
-        const inventoryItem = inventory.find(i => i.id === item.id);
+        const inventoryItem = posInventory.find(i => i.id === item.id);
         return inventoryItem && (inventoryItem.condition === 'R' || inventoryItem.condition === 'RR' || inventoryItem.condition === 'RCH');
     };
     const hasRestrictedItems = cart.some(isRestricted);
@@ -535,16 +573,22 @@ const POSMainScreen: React.FC = () => {
                 const quoteData = {
                     customerId: (currentCustomer?.id && currentCustomer.id.length > 10) ? currentCustomer.id : null, // Ensure valid UUID or null
                     customerName: currentCustomer?.fullName || undefined,
-                    items: cartWithDiscounts.map(item => ({
-                        productId: item.id,
-                        sku: item.sku,
-                        name: item.name,
-                        quantity: item.quantity,
-                        unitPrice: item.price,
-                        discount: item.discount?.discountAmount ? (item.discount.discountAmount / item.price) * 100 : 0 // Fix type mismatch manually
-                    })),
-                    locationId: currentLocationId, // Ensure mapped from store
-                    terminalId: currentTerminalId,
+                    items: cartWithDiscounts.map(item => {
+                        const sourceBatch = posInventory.find((batch) =>
+                            batch.id === item.batch_id
+                            || batch.id === item.id
+                            || batch.id === item.original_batch_id
+                        );
+
+                        return {
+                            productId: sourceBatch?.product_id || item.batch_id || item.id,
+                            sku: item.sku,
+                            name: item.name,
+                            quantity: item.quantity,
+                            unitPrice: item.price,
+                            discount: item.discount?.discountAmount ? (item.discount.discountAmount / item.price) * 100 : 0 // Fix type mismatch manually
+                        };
+                    }),
                     validDays: 7, // Default valid days
                 };
 
@@ -693,8 +737,8 @@ const POSMainScreen: React.FC = () => {
 
     const getRetailAlternative = useCallback((fullItem?: InventoryBatch | null): InventoryBatch | undefined => {
         if (!fullItem) return undefined;
-        return selectRetailLotCandidate(inventory, fullItem);
-    }, [inventory]);
+        return selectRetailLotCandidate(posInventory, fullItem);
+    }, [posInventory]);
 
     const switchCartItemToRetailLot = useCallback((cartItem: CartItem, fullItem?: InventoryBatch | null) => {
         const retailLot = getRetailAlternative(fullItem);
@@ -742,7 +786,7 @@ const POSMainScreen: React.FC = () => {
                 {/* Subtle Background Pattern */}
                 <div className="absolute inset-0 opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
 
-                <div className="z-10 bg-white border border-slate-200 p-8 md:p-12 rounded-[40px] shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
+                <div data-testid="pos-blocked-state" className="z-10 bg-white border border-slate-200 p-8 md:p-12 rounded-[40px] shadow-2xl shadow-sky-900/5 max-w-lg w-full text-center">
                     <div className="w-24 h-24 bg-red-50 rounded-3xl flex items-center justify-center mx-auto mb-8 border border-red-100">
                         <Lock size={48} className="text-red-500" />
                     </div>
@@ -751,6 +795,7 @@ const POSMainScreen: React.FC = () => {
                     <p className="text-slate-500 mb-10 text-lg leading-relaxed font-medium">Se requiere apertura de caja para operar el punto de venta.</p>
 
                     <button
+                        data-testid="pos-request-open-shift"
                         onClick={() => setIsShiftModalOpen(true)}
                         className="w-full py-5 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-2xl text-xl shadow-lg shadow-sky-600/20 transition-all transform hover:scale-[1.02] active:scale-[0.98] border-b-4 border-sky-800"
                     >
@@ -770,8 +815,68 @@ const POSMainScreen: React.FC = () => {
         );
     }
 
+    const headerActionsPortal = mounted ? document.getElementById('header-actions-portal') : null;
+    const headerActions = (
+        <div data-testid="pos-header-actions" className="flex items-center gap-3">
+            <QueueWidget />
+
+            <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
+
+            <div className="flex items-center gap-2">
+                {currentCustomer ? (
+                    <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm transition-all hover:shadow-md cursor-pointer group" onClick={() => setIsCustomerSelectModalOpen(true)}>
+                        <User size={16} />
+                        <div className="flex flex-col">
+                            <span className="text-[10px] uppercase font-bold text-emerald-500 leading-none">Cliente</span>
+                            <span className="text-xs font-bold leading-none">{currentCustomer.fullName.split(' ')[0]}</span>
+                        </div>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setCustomer(null); }}
+                            className="p-1 hover:bg-emerald-200 rounded-full ml-1 transition-colors"
+                        >
+                            <X size={12} />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setIsCustomerSelectModalOpen(true)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all shadow-sm"
+                    >
+                        <User size={16} className="text-slate-400" />
+                        <div className="flex flex-col items-start">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Cliente</span>
+                            <span className="text-xs font-bold leading-none">Anónimo</span>
+                        </div>
+                        <Plus size={12} className="ml-1 text-slate-400" />
+                    </button>
+                )}
+            </div>
+
+            <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
+
+            <POSHeaderActions
+                shiftStatus={currentShift?.status}
+                shiftId={currentShift?.id}
+                operatorName={user?.name}
+                locationName={currentLocation?.name}
+                onHandover={() => setIsHandoverModalOpen(true)}
+                onMovement={() => setCashModalMode('MOVEMENT')}
+                onAudit={() => setCashModalMode('AUDIT')}
+                onCloseTurn={() => setCashModalMode('CLOSE')}
+                onOpenTurn={() => setIsShiftModalOpen(true)}
+                onHistory={() => setIsHistoryModalOpen(true)}
+                onShiftHistory={() => setIsShiftHistoryModalOpen(true)}
+                onQuoteHistory={() => setIsQuoteHistoryOpen(true)}
+                onQuote={() => setIsQuoteMode(!isQuoteMode)}
+                isQuoteMode={isQuoteMode}
+                onManualItem={() => setIsManualItemModalOpen(true)}
+                onClearCart={clearCart}
+            />
+        </div>
+    );
+
     return (
-        <div className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden relative">
+        <div data-testid="pos-main-screen" className="flex h-[calc(100dvh-80px)] bg-slate-100 overflow-hidden relative">
             {/* COL 1: Búsqueda (Fixed 400px Desktop, 100% Mobile Catalog View) */}
             <div className={`w-full md:w-[400px] flex-col p-4 md:p-6 md:pr-3 gap-4 h-full ${mobileView === 'CART' ? 'hidden md:flex' : 'flex'}`}>
                 {/* ... (existing content logic is fine, we just want to replace the container logic if needed, but here we cover lines 82-607, so we need to be careful with the huge replacement) */}
@@ -785,6 +890,7 @@ const POSMainScreen: React.FC = () => {
                         <div className="relative group">
                             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 group-focus-within:text-cyan-600 transition-colors" size={20} />
                             <input
+                                data-testid="pos-search-input"
                                 type="text"
                                 ref={searchInputRef}
                                 placeholder="Buscar productos... (F2)"
@@ -978,7 +1084,7 @@ const POSMainScreen: React.FC = () => {
                         {/* DESKTOP STATUS (Replacing search bar in header) */}
                         <div className="flex-1 max-w-2xl mx-4 hidden md:flex items-center gap-4">
                             <div className="h-10 w-px bg-slate-200 mx-2" />
-                            <div className="flex flex-col">
+                            <div data-testid="pos-terminal-status" className="flex flex-col">
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-tight">Terminal Activo</span>
                                 <span className="text-sm font-bold text-slate-600">{activeTerminal?.name || 'Caja sin asignar'}</span>
                             </div>
@@ -986,95 +1092,11 @@ const POSMainScreen: React.FC = () => {
 
                         <div className="flex items-center gap-4">
                             {/* UNIFIED HEADER ACTIONS (Teleported to Header) */}
-                            {mounted && document.getElementById('header-actions-portal') && createPortal(
-                                <div className="flex items-center gap-3">
-                                    {/* 1. Queue Widget */}
-                                    <QueueWidget />
-
-                                    {/* 2. Divider */}
-                                    <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
-
-                                    {/* 3. Client Selector */}
-                                    <div className="flex items-center gap-2">
-                                        {currentCustomer ? (
-                                            <div className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-xl border border-emerald-100 shadow-sm transition-all hover:shadow-md cursor-pointer group" onClick={() => setIsCustomerSelectModalOpen(true)}>
-                                                <User size={16} />
-                                                <div className="flex flex-col">
-                                                    <span className="text-[10px] uppercase font-bold text-emerald-500 leading-none">Cliente</span>
-                                                    <span className="text-xs font-bold leading-none">{currentCustomer.fullName.split(' ')[0]}</span>
-                                                </div>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setCustomer(null); }}
-                                                    className="p-1 hover:bg-emerald-200 rounded-full ml-1 transition-colors"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                onClick={() => setIsCustomerSelectModalOpen(true)}
-                                                className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 text-slate-600 rounded-xl border border-slate-200 hover:bg-slate-100 hover:border-slate-300 transition-all shadow-sm"
-                                            >
-                                                <User size={16} className="text-slate-400" />
-                                                <div className="flex flex-col items-start">
-                                                    <span className="text-[10px] uppercase font-bold text-slate-400 leading-none">Cliente</span>
-                                                    <span className="text-xs font-bold leading-none">Anónimo</span>
-                                                </div>
-                                                <Plus size={12} className="ml-1 text-slate-400" />
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    {/* 4. Divider */}
-                                    <div className="h-8 w-px bg-slate-200 mx-1 hidden lg:block" />
-
-                                    {/* 5. Actions */}
-                                    <POSHeaderActions
-                                        shiftStatus={currentShift?.status}
-                                        shiftId={currentShift?.id}
-                                        operatorName={user?.name}
-                                        locationName={currentLocation?.name}
-                                        onHandover={() => setIsHandoverModalOpen(true)}
-                                        onMovement={() => setCashModalMode('MOVEMENT')}
-                                        onAudit={() => setCashModalMode('AUDIT')}
-                                        onCloseTurn={() => setCashModalMode('CLOSE')}
-                                        onOpenTurn={() => setIsShiftModalOpen(true)}
-                                        onHistory={() => setIsHistoryModalOpen(true)}
-                                        onShiftHistory={() => setIsShiftHistoryModalOpen(true)} // Added missing prop
-                                        onQuoteHistory={() => {
-                                            console.log('📜 [POS] Abriendo Historial Cotizaciones'); // Debug
-                                            setIsQuoteHistoryOpen(true);
-                                        }}
-                                        onQuote={() => setIsQuoteMode(!isQuoteMode)}
-                                        isQuoteMode={isQuoteMode}
-                                        onManualItem={() => setIsManualItemModalOpen(true)}
-                                        onClearCart={clearCart}
-                                    />
-                                </div>,
-                                document.getElementById('header-actions-portal')!
+                            {headerActionsPortal ? createPortal(headerActions, headerActionsPortal) : (
+                                <div className="text-slate-400 relative z-[100]">
+                                    {headerActions}
+                                </div>
                             )}
-
-                            {/* Fallback for Mobile (Render inline if no portal target or is mobile) */}
-                            <div className="lg:hidden text-slate-400 relative z-[100]">
-                                <POSHeaderActions
-                                    shiftStatus={currentShift?.status}
-                                    shiftId={currentShift?.id}
-                                    operatorName={user?.name}
-                                    locationName={currentLocation?.name}
-                                    onHandover={() => setIsHandoverModalOpen(true)}
-                                    onMovement={() => setCashModalMode('MOVEMENT')}
-                                    onAudit={() => setCashModalMode('AUDIT')}
-                                    onCloseTurn={() => setCashModalMode('CLOSE')}
-                                    onOpenTurn={() => setIsShiftModalOpen(true)}
-                                    onHistory={() => setIsHistoryModalOpen(true)}
-                                    onShiftHistory={() => setIsShiftHistoryModalOpen(true)}
-                                    onQuoteHistory={() => setShowQuoteHistory(true)}
-                                    onQuote={() => setIsQuoteMode(!isQuoteMode)}
-                                    isQuoteMode={isQuoteMode}
-                                    onManualItem={() => setIsManualItemModalOpen(true)}
-                                    onClearCart={clearCart}
-                                />
-                            </div>
                         </div>
                     </div>
 
@@ -1102,7 +1124,7 @@ const POSMainScreen: React.FC = () => {
                                         </thead>
                                         <tbody className="divide-y divide-slate-100 bg-white">
                                             {cartWithDiscounts.map((item, index) => {
-                                                const fullItem = inventory.find(i => i.id === item.id || i.id === item.batch_id);
+                                                const fullItem = posInventory.find(i => i.id === item.id || i.id === item.batch_id);
                                                 const retailAlternative = getRetailAlternative(fullItem);
                                                 return (
                                                     <tr key={item.id || item.sku || `item-${index}`} className="hover:bg-slate-50 transition-colors group">
@@ -1208,7 +1230,7 @@ const POSMainScreen: React.FC = () => {
                                 {/* Mobile List View (Hidden on Desktop) */}
                                 <div className="md:hidden space-y-3">
                                     {cartWithDiscounts.map((item, index) => {
-                                        const fullItem = inventory.find(i => i.id === item.id || i.id === item.batch_id);
+                                        const fullItem = posInventory.find(i => i.id === item.id || i.id === item.batch_id);
                                         const retailAlternative = getRetailAlternative(fullItem);
                                         return (
                                             <div key={item.id || item.sku || `item-${index}`} className="flex justify-between items-center p-3 bg-white rounded-xl border border-slate-100 shadow-sm">

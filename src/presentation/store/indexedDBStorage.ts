@@ -1,8 +1,22 @@
 
 import { StateStorage } from 'zustand/middleware';
+import { buildScopedStorageKey } from '@/lib/store/persistenceScope';
 
 const DB_NAME = 'farmacias-vallenar-store-db';
 const STORE_NAME = 'zustand-store';
+
+function getWindowLocalStorage(): Storage | null {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const storage = window.localStorage as Partial<Storage> | undefined;
+    if (!storage?.getItem || !storage?.setItem || !storage?.removeItem) {
+        return null;
+    }
+
+    return storage as Storage;
+}
 
 export function isValidPersistedStateJSON(value: string | null | undefined): boolean {
     if (typeof value !== 'string') return false;
@@ -21,6 +35,9 @@ const openDB = (): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
         if (typeof window === 'undefined') {
             return reject(new Error('Server-side: IndexedDB not available'));
+        }
+        if (!window.indexedDB?.open) {
+            return reject(new Error('IndexedDB not available'));
         }
         const request = window.indexedDB.open(DB_NAME, 1);
         request.onupgradeneeded = (event) => {
@@ -46,12 +63,9 @@ export const indexedDBStorage: StateStorage = {
                     const rawValue = request.result || null;
                     if (typeof rawValue === 'string' && !isValidPersistedStateJSON(rawValue)) {
                         void indexedDBStorage.removeItem(name);
-                        if (typeof window !== 'undefined') {
-                            try {
-                                window.localStorage.removeItem(name);
-                            } catch {
-                                // ignore cleanup failures
-                            }
+                        const storage = getWindowLocalStorage();
+                        if (storage) {
+                            storage.removeItem(name);
                         }
                         resolve(null);
                         return;
@@ -105,15 +119,16 @@ export const indexedDBWithLocalStorageFallback: StateStorage = {
             return null;
         }
         try {
-            const fallbackValue = window.localStorage.getItem(name);
+            const storage = getWindowLocalStorage();
+            const fallbackValue = storage?.getItem(name) ?? null;
             if (fallbackValue !== null) {
                 if (!isValidPersistedStateJSON(fallbackValue)) {
-                    window.localStorage.removeItem(name);
+                    storage?.removeItem(name);
                     await indexedDBStorage.removeItem(name);
                     return null;
                 }
                 await indexedDBStorage.setItem(name, fallbackValue);
-                window.localStorage.removeItem(name);
+                storage?.removeItem(name);
                 return fallbackValue;
             }
         } catch (e) {
@@ -126,15 +141,36 @@ export const indexedDBWithLocalStorageFallback: StateStorage = {
     },
     removeItem: async (name: string): Promise<void> => {
         await indexedDBStorage.removeItem(name);
-        if (typeof window !== 'undefined') {
+        const storage = getWindowLocalStorage();
+        if (storage) {
             try {
-                window.localStorage.removeItem(name);
+                storage.removeItem(name);
             } catch (e) {
                 console.warn('Error removing localStorage fallback:', e);
             }
         }
     },
 };
+
+export function createScopedIndexedDBWithLocalStorageFallback(
+    baseName: string,
+    options?: { includeDeviceId?: boolean },
+): StateStorage {
+    return {
+        getItem: async (name: string): Promise<string | null> => {
+            const scopedName = buildScopedStorageKey(baseName || name, options);
+            return indexedDBWithLocalStorageFallback.getItem(scopedName);
+        },
+        setItem: async (name: string, value: string): Promise<void> => {
+            const scopedName = buildScopedStorageKey(baseName || name, options);
+            await indexedDBWithLocalStorageFallback.setItem(scopedName, value);
+        },
+        removeItem: async (name: string): Promise<void> => {
+            const scopedName = buildScopedStorageKey(baseName || name, options);
+            await indexedDBWithLocalStorageFallback.removeItem(scopedName);
+        },
+    };
+}
 
 export const safeLocalStorageStateStorage: StateStorage = {
     getItem: (name: string): string | null => {
@@ -143,13 +179,14 @@ export const safeLocalStorageStateStorage: StateStorage = {
         }
 
         try {
-            const value = window.localStorage.getItem(name);
+            const storage = getWindowLocalStorage();
+            const value = storage?.getItem(name) ?? null;
             if (value === null) {
                 return null;
             }
 
             if (!isValidPersistedStateJSON(value)) {
-                window.localStorage.removeItem(name);
+                storage?.removeItem(name);
                 return null;
             }
 
@@ -163,7 +200,7 @@ export const safeLocalStorageStateStorage: StateStorage = {
             return;
         }
         try {
-            window.localStorage.setItem(name, value);
+            getWindowLocalStorage()?.setItem(name, value);
         } catch {
             // ignore quota/write errors
         }
@@ -173,7 +210,7 @@ export const safeLocalStorageStateStorage: StateStorage = {
             return;
         }
         try {
-            window.localStorage.removeItem(name);
+            getWindowLocalStorage()?.removeItem(name);
         } catch {
             // ignore remove errors
         }

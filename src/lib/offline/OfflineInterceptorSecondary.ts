@@ -13,6 +13,7 @@
  *
  * Todas las funciones detectan Electron automáticamente y son no-ops en web.
  */
+import { buildOwnershipMeta } from '@/lib/store/persistenceScope';
 
 // ─────────────────────────────────────────────────
 // ELECTRON API ACCESS
@@ -43,6 +44,8 @@ export async function saveOfflineClient(client: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         await api.offlineDB.upsert('clients', {
@@ -58,7 +61,7 @@ export async function saveOfflineClient(client: {
             is_active: 1,
             updated_at: new Date().toISOString(),
         });
-        await api.sync.enqueue('clients', 'INSERT', client.id, client);
+        await api.sync.enqueue('clients', 'INSERT', client.id, { ...client, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save client:', err);
@@ -76,6 +79,8 @@ export async function saveOfflineLoyaltyTransaction(transaction: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         const id = `lt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -89,17 +94,7 @@ export async function saveOfflineLoyaltyTransaction(transaction: {
             synced: 0,
         });
 
-        // Actualizar puntos del cliente localmente
-        const client = await api.offlineDB.getById('clients', transaction.clientId) as any;
-        if (client) {
-            const delta = transaction.type === 'earn' ? transaction.points : -transaction.points;
-            await api.offlineDB.upsert('clients', {
-                ...client,
-                loyalty_points: Math.max(0, (client.loyalty_points || 0) + delta),
-            });
-        }
-
-        await api.sync.enqueue('client_transactions', 'INSERT', id, transaction);
+        await api.sync.enqueue('client_transactions', 'INSERT', id, { ...transaction, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save loyalty transaction:', err);
@@ -126,6 +121,8 @@ export async function saveOfflineEmployee(employee: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         await api.offlineDB.upsert('employees', {
@@ -142,7 +139,7 @@ export async function saveOfflineEmployee(employee: {
             data: employee.data ? JSON.stringify(employee.data) : null,
             updated_at: new Date().toISOString(),
         });
-        await api.sync.enqueue('employees', 'INSERT', employee.id, employee);
+        await api.sync.enqueue('employees', 'INSERT', employee.id, { ...employee, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save employee:', err);
@@ -162,6 +159,8 @@ export async function saveOfflineAttendance(record: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         const id = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -176,7 +175,7 @@ export async function saveOfflineAttendance(record: {
             notes: record.notes || null,
             synced: 0,
         });
-        await api.sync.enqueue('attendance', 'INSERT', id, record);
+        await api.sync.enqueue('attendance', 'INSERT', id, { ...record, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save attendance:', err);
@@ -202,6 +201,8 @@ export async function saveOfflineSchedule(schedule: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         await api.offlineDB.upsert('schedules', {
@@ -217,7 +218,7 @@ export async function saveOfflineSchedule(schedule: {
             updated_at: new Date().toISOString(),
             synced: 0,
         });
-        await api.sync.enqueue('schedules', 'INSERT', schedule.id, schedule);
+        await api.sync.enqueue('schedules', 'INSERT', schedule.id, { ...schedule, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save schedule:', err);
@@ -239,6 +240,8 @@ export async function saveOfflineTreasuryAccount(account: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         await api.offlineDB.upsert('treasury_accounts', {
@@ -250,7 +253,7 @@ export async function saveOfflineTreasuryAccount(account: {
             is_active: 1,
             updated_at: new Date().toISOString(),
         });
-        await api.sync.enqueue('treasury_accounts', 'INSERT', account.id, account);
+        await api.sync.enqueue('treasury_accounts', 'INSERT', account.id, { ...account, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save treasury account:', err);
@@ -270,6 +273,8 @@ export async function saveOfflineTreasuryMovement(movement: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         const id = `tm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -285,17 +290,7 @@ export async function saveOfflineTreasuryMovement(movement: {
             synced: 0,
         });
 
-        // Actualizar balance de la cuenta localmente
-        const account = await api.offlineDB.getById('treasury_accounts', movement.accountId) as any;
-        if (account) {
-            const delta = movement.type === 'income' ? movement.amount : -movement.amount;
-            await api.offlineDB.upsert('treasury_accounts', {
-                ...account,
-                balance: (account.balance || 0) + delta,
-            });
-        }
-
-        await api.sync.enqueue('treasury_movements', 'INSERT', id, movement);
+        await api.sync.enqueue('treasury_movements', 'INSERT', id, { ...movement, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save treasury movement:', err);
@@ -321,6 +316,8 @@ export async function saveOfflineMonthlyClosing(closing: {
 }): Promise<boolean> {
     const api = getAPI();
     if (!api) return false;
+    const ownership = buildOwnershipMeta();
+    if (!ownership) return false;
 
     try {
         await api.offlineDB.upsert('monthly_closings', {
@@ -336,7 +333,7 @@ export async function saveOfflineMonthlyClosing(closing: {
             created_by: closing.createdBy,
             synced: 0,
         });
-        await api.sync.enqueue('monthly_closings', 'INSERT', closing.id, closing);
+        await api.sync.enqueue('monthly_closings', 'INSERT', closing.id, { ...closing, ...ownership });
         return true;
     } catch (err) {
         console.error('[OfflineSecondary] ❌ Failed to save monthly closing:', err);
@@ -350,21 +347,8 @@ export async function saveOfflineMonthlyClosing(closing: {
 
 /** Guardar configuración offline */
 export async function saveOfflineSetting(key: string, value: unknown): Promise<boolean> {
-    const api = getAPI();
-    if (!api) return false;
-
-    try {
-        await api.offlineDB.upsert('app_settings', {
-            key,
-            value: typeof value === 'string' ? value : JSON.stringify(value),
-            updated_at: new Date().toISOString(),
-        });
-        await api.sync.enqueue('app_settings', 'INSERT', key, { key, value });
-        return true;
-    } catch (err) {
-        console.error('[OfflineSecondary] ❌ Failed to save setting:', err);
-        return false;
-    }
+    console.warn('[OfflineSecondary] ⛔ Critical settings are backend-only. Offline setting write rejected.', { key, value });
+    return false;
 }
 
 /** Obtener configuración offline */

@@ -25,24 +25,46 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { v4 as uuidv4 } from 'uuid';
-import { headers } from 'next/headers';
+import {
+    getActorOrFail,
+    PinRbacError,
+    requireRole,
+    ROLE_GROUPS,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
-async function getSession() {
+const PRODUCT_CATALOG_WRITE_ROLES = ['MANAGER', 'QF', 'ADMIN', 'GERENTE_GENERAL'] as const;
+
+async function requireSession() {
     try {
-        const headersList = await headers();
-        const userId = headersList.get('x-user-id');
-        const role = headersList.get('x-user-role') || 'GUEST';
-        const locationId = headersList.get('x-location-id');
+        const actor = await getActorOrFail();
+        return { success: true as const, session: actor };
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'No autenticado' };
+        }
 
-        if (!userId) return null;
+        throw error;
+    }
+}
 
+async function requireProductCatalogWriter() {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return auth;
+    }
+
+    try {
         return {
-            userId,
-            role,
-            locationId: locationId || undefined
+            success: true as const,
+            session: requireRole(auth.session, PRODUCT_CATALOG_WRITE_ROLES),
         };
-    } catch (e) {
-        return null;
+    } catch (error) {
+        if (error instanceof PinRbacError) {
+            return { success: false as const, error: 'Acceso denegado' };
+        }
+
+        throw error;
     }
 }
 
@@ -148,12 +170,17 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
     data?: { productId: string; name: string };
     error?: string;
 }> {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = CreateExpressProductSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
-    const { barcode, name, price, userId, units_per_box, laboratory } = validated.data;
+    const { barcode, name, price, units_per_box, laboratory } = validated.data;
     const client = await pool.connect();
 
     try {
@@ -213,7 +240,7 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
         // 3. Audit
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_EXPRESS_CREATE',
-            userId,
+            userId: auth.session.userId,
             productId,
             newValues: { sku: barcode, name, price, source: 'POS' }
         });
@@ -236,8 +263,6 @@ export async function createProductExpressSecure(data: z.infer<typeof CreateExpr
 }
 
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL', 'RRHH'];
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const PRICE_CHANGE_THRESHOLD = 0.20; // 20% change requires PIN
 
 const UpdateProductMasterSchema = z.object({
@@ -273,82 +298,6 @@ const UpdateProductMasterSchema = z.object({
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-async function validateManagerPin(client: any, pin: string): Promise<{
-    valid: boolean;
-    user?: { id: string; name: string; role: string };
-    error?: string;
-}> {
-    try {
-        const bcrypt = await import('bcryptjs');
-
-        const usersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [MANAGER_ROLES]);
-
-        for (const user of usersRes.rows) {
-            let pinValid = false;
-
-            if (user.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, user.access_pin_hash);
-            } else if (user.access_pin) {
-                // Simple string comparison for legacy PINs to avoid crypto dependency issues
-                if (pin === user.access_pin) {
-                    pinValid = true;
-                }
-            }
-
-            if (pinValid) {
-                return { valid: true, user: { id: user.id, name: user.name, role: user.role } };
-            }
-        }
-
-        return { valid: false, error: 'PIN inválido' };
-    } catch (error) {
-        return { valid: false, error: 'Error validando PIN' };
-    }
-}
-
-async function validateAdminPin(client: any, pin: string): Promise<{
-    valid: boolean;
-    admin?: { id: string; name: string; role: string };
-    error?: string;
-}> {
-    try {
-        const bcrypt = await import('bcryptjs');
-
-        const adminsRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [ADMIN_ROLES]);
-
-        for (const admin of adminsRes.rows) {
-            let pinValid = false;
-
-            if (admin.access_pin_hash) {
-                pinValid = await bcrypt.compare(pin, admin.access_pin_hash);
-            } else if (admin.access_pin) {
-                // Simple string comparison for legacy PINs
-                if (pin === admin.access_pin) {
-                    pinValid = true;
-                }
-            }
-
-            if (pinValid) {
-                return { valid: true, admin: { id: admin.id, name: admin.name, role: admin.role } };
-            }
-        }
-
-        return { valid: false, error: 'PIN de administrador inválido' };
-    } catch (error) {
-        return { valid: false, error: 'Error validando PIN' };
-    }
-}
 
 async function insertProductAudit(client: any, params: {
     actionCode: string;
@@ -388,6 +337,11 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
     data?: { productId: string };
     error?: string;
 }> {
+    const auth = await requireProductCatalogWriter();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = CreateProductSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -493,7 +447,7 @@ export async function createProductSecure(data: z.infer<typeof CreateProductSche
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_CREATED',
-            userId: validated.data.userId,
+            userId: auth.session.userId,
             productId,
             newValues: {
                 sku,
@@ -525,6 +479,11 @@ export async function updateProductSecure(data: z.infer<typeof UpdateProductSche
     success: boolean;
     error?: string;
 }> {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = UpdateProductSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -595,7 +554,7 @@ export async function updateProductSecure(data: z.infer<typeof UpdateProductSche
 
             await insertProductAudit(client, {
                 actionCode: 'PRODUCT_UPDATED',
-                userId: validated.data.userId,
+                userId: auth.session.userId,
                 productId: validated.data.productId,
                 oldValues,
                 newValues
@@ -650,6 +609,11 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
     requiresApproval?: boolean;
     error?: string;
 }> {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = UpdatePriceSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -692,10 +656,12 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
             }
 
             // Validate PIN
-            const pinCheck = await validateManagerPin(client, validated.data.approverPin);
+            const pinCheck = await validatePinForRoles(client, validated.data.approverPin, ROLE_GROUPS.MANAGER_OR_HR, {
+                allowLegacyPlaintext: true,
+            });
             if (!pinCheck.valid) {
                 await client.query('ROLLBACK');
-                return { success: false, error: pinCheck.error };
+                return { success: false, error: pinCheck.error || 'PIN inválido' };
             }
         }
 
@@ -711,7 +677,7 @@ export async function updatePriceSecure(data: z.infer<typeof UpdatePriceSchema>)
         // Audit
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_PRICE_CHANGED',
-            userId: validated.data.userId,
+            userId: auth.session.userId,
             productId: validated.data.productId,
             oldValues: { price: currentPrice, cost_price: current.cost_price },
             newValues: {
@@ -760,6 +726,11 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
     success: boolean;
     error?: string;
 }> {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = DeactivateProductSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
@@ -771,10 +742,12 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Validate ADMIN PIN
-        const pinCheck = await validateAdminPin(client, validated.data.adminPin);
+        const pinCheck = await validatePinForRoles(client, validated.data.adminPin, ROLE_GROUPS.ADMIN, {
+            allowLegacyPlaintext: true,
+        });
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
-            return { success: false, error: pinCheck.error };
+            return { success: false, error: pinCheck.error || 'PIN inválido' };
         }
 
         // Get product
@@ -797,14 +770,14 @@ export async function deactivateProductSecure(data: z.infer<typeof DeactivatePro
                 deactivation_reason = $2,
                 updated_at = NOW()
             WHERE id = $3
-        `, [pinCheck.admin!.id, validated.data.reason, validated.data.productId]);
+        `, [pinCheck.authorizedBy.id, validated.data.reason, validated.data.productId]);
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_DEACTIVATED',
-            userId: pinCheck.admin!.id,
+            userId: pinCheck.authorizedBy.id,
             productId: validated.data.productId,
             newValues: {
-                deactivated_by_name: pinCheck.admin!.name,
+                deactivated_by_name: pinCheck.authorizedBy.name,
                 reason: validated.data.reason
             }
         });
@@ -865,8 +838,13 @@ export async function linkProductToSupplierSecure(
     cost: number,
     sku: string | undefined,
     deliveryDays: number,
-    userId: string
+    _userId: string
 ): Promise<{ success: boolean; error?: string }> {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const client = await pool.connect();
 
     try {
@@ -900,7 +878,7 @@ export async function linkProductToSupplierSecure(
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_SUPPLIER_LINKED',
-            userId,
+            userId: auth.session.userId,
             productId,
             newValues: { supplier_id: supplierId, cost, sku, delivery_days: deliveryDays }
         });
@@ -927,13 +905,18 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
     error?: string;
     requiresApproval?: boolean;
 }> {
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = UpdateProductMasterSchema.safeParse(data);
     if (!validated.success) {
         return { success: false, error: validated.error.issues[0]?.message };
     }
 
     const client = await pool.connect();
-    const { productId, userId, price, costPrice, approverPin } = validated.data;
+    const { productId, price, costPrice, approverPin } = validated.data;
 
     try {
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
@@ -957,16 +940,13 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
 
         if (price !== undefined && Math.abs(currentPrice - newPrice) > 0.01) {
             // Price is changing
-            const priceChangePercent = currentPrice > 0
+                const priceChangePercent = currentPrice > 0
                 ? Math.abs((newPrice - currentPrice) / currentPrice)
                 : 1;
 
             if (priceChangePercent > PRICE_CHANGE_THRESHOLD) {
                 // Check if user is Manager/Admin/Owner to bypass PIN
-                const userRes = await client.query('SELECT role FROM users WHERE id = $1', [userId]);
-                const userRole = userRes.rows[0]?.role;
-
-                const isManager = MANAGER_ROLES.includes(userRole);
+                const isManager = ROLE_GROUPS.MANAGER_OR_HR.includes(auth.session.role as typeof ROLE_GROUPS.MANAGER_OR_HR[number]);
 
                 if (!isManager) {
                     // Normal user needs PIN
@@ -979,10 +959,12 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
                         };
                     }
 
-                    const pinCheck = await validateManagerPin(client, approverPin);
+                    const pinCheck = await validatePinForRoles(client, approverPin, ROLE_GROUPS.MANAGER_OR_HR, {
+                        allowLegacyPlaintext: true,
+                    });
                     if (!pinCheck.valid) {
                         await client.query('ROLLBACK');
-                        return { success: false, error: pinCheck.error };
+                        return { success: false, error: pinCheck.error || 'PIN inválido' };
                     }
                 }
             }
@@ -1046,7 +1028,7 @@ export async function updateProductMasterSecure(data: z.infer<typeof UpdateProdu
         // 4. Audit
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_MASTER_UPDATE',
-            userId,
+            userId: auth.session.userId,
             productId,
             oldValues: { name: current.name, price: current.price, cost: current.cost_net }, // simplified
             newValues: validated.data
@@ -1130,13 +1112,13 @@ const QuickCreateProductSchema = z.object({
 });
 
 export async function quickCreateProductSecure(data: z.infer<typeof QuickCreateProductSchema>) {
+    const auth = await requireProductCatalogWriter();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     const validated = QuickCreateProductSchema.safeParse(data);
     if (!validated.success) return { success: false, error: 'Datos inválidos' };
-
-    const headersList = await import('next/headers').then(h => h.headers());
-    const userId = headersList.get('x-user-id');
-
-    if (!userId) return { success: false, error: 'No autenticado' };
 
     const {
         name, sku, costPrice, salePrice,
@@ -1198,7 +1180,7 @@ export async function quickCreateProductSecure(data: z.infer<typeof QuickCreateP
 
         await insertProductAudit(client, {
             actionCode: 'PRODUCT_QUICK_CREATED',
-            userId,
+            userId: auth.session.userId,
             productId,
             newValues: validated.data
         });
@@ -1235,9 +1217,9 @@ export async function getProductByIdSecure(productId: string): Promise<{ success
         return { success: false, error: 'ID inválido' };
     }
 
-    const session = await getSession();
-    if (!session) {
-        return { success: false, error: 'No autenticado' };
+    const auth = await requireSession();
+    if (!auth.success) {
+        return { success: false, error: auth.error };
     }
 
     try {
@@ -1276,5 +1258,3 @@ export async function getProductByIdSecure(productId: string): Promise<{ success
         return { success: false, error: `Error: ${error.message}` };
     }
 }
-
-

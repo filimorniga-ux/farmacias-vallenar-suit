@@ -6,7 +6,7 @@ import {
     XCircle, AlertTriangle, Loader, HelpCircle, Settings
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Link } from 'react-router-dom';
+import Link from 'next/link';
 
 // Components
 import {
@@ -25,6 +25,7 @@ import {
     approveInvoiceParsingSecure,
     rejectInvoiceParsingSecure,
     getInvoiceParsingSecure,
+    getSmartInvoiceLocationsSecure,
     type ParsedInvoice,
     type ParsedInvoiceItem,
 } from '@/actions/invoice-parser-v2';
@@ -181,14 +182,12 @@ function SmartInvoiceContent() {
 
     // Fetch locations on mount
     useEffect(() => {
-        import('@/actions/get-locations-v2').then(({ getLocationsSecure }) => {
-            getLocationsSecure().then(res => {
-                if (res.success && res.locations) {
-                    setLocations(res.locations);
-                    // Default to first valid location if needed, or wait for user
-                    if (res.locations.length > 0) setTargetLocationId(res.locations[0].id);
-                }
-            });
+        getSmartInvoiceLocationsSecure().then((res) => {
+            if (res.success && res.data) {
+                setLocations(res.data);
+                // Default to first valid location if needed, or wait for user
+                if (res.data.length > 0) setTargetLocationId(res.data[0].id);
+            }
         });
     }, []);
 
@@ -563,7 +562,7 @@ function SmartInvoiceContent() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <Link
-                                    to="/supply-chain"
+                                    href="/supply-chain"
                                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <ArrowLeft size={20} />
@@ -581,14 +580,14 @@ function SmartInvoiceContent() {
 
                             <div className="flex items-center gap-2">
                                 <Link
-                                    to="/procurement/smart-invoice/list"
+                                    href="/procurement/smart-invoice/list"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <List size={18} />
                                     <span className="hidden sm:inline">Historial</span>
                                 </Link>
                                 <Link
-                                    to="/settings/ai"
+                                    href="/settings?tab=ai"
                                     className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                                 >
                                     <Settings size={18} />
@@ -621,7 +620,7 @@ function SmartInvoiceContent() {
                                     Procesar otra factura
                                 </button>
                                 <Link
-                                    to="/procurement/smart-invoice/list"
+                                    href="/procurement/smart-invoice/list"
                                     className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                                 >
                                     Ver historial
@@ -642,7 +641,7 @@ function SmartInvoiceContent() {
                             <p className="text-gray-600 mb-2">{error}</p>
                             {error?.includes('API Key') && (
                                 <Link
-                                    to="/settings/ai"
+                                    href="/settings?tab=ai"
                                     className="text-purple-600 hover:text-purple-700 text-sm"
                                 >
                                     Ir a configuración de IA →

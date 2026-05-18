@@ -8,11 +8,11 @@
  * Skills activos: arquitecto-offline, timezone-santiago
  */
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import {
     ScanBarcode, Search, X, Loader2, Camera, Package, Smartphone
 } from 'lucide-react';
 import { InventoryBatch } from '@/domain/types';
-import { MobileScanner } from '@/components/shared/MobileScanner';
 import { usePlatform } from '@/hooks/usePlatform';
 import { toast } from 'sonner';
 
@@ -34,6 +34,21 @@ interface WMSProductScannerProps {
 // Constantes para detección de barcode scanner
 const BARCODE_MIN_LENGTH = 6;
 const BARCODE_MAX_INPUT_TIME_MS = 100; // Si > 6 chars en < 100ms = barcode
+
+const MobileScanner = dynamic(
+    () => import('@/components/shared/MobileScanner').then((mod) => mod.MobileScanner),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/80 p-6 text-white backdrop-blur-sm">
+                <div className="rounded-3xl border border-slate-700 bg-slate-900 px-6 py-5 text-center shadow-2xl">
+                    <Loader2 size={28} className="mx-auto mb-3 animate-spin text-sky-400" />
+                    <p className="text-sm font-semibold">Activando cámara...</p>
+                </div>
+            </div>
+        ),
+    }
+);
 
 export const WMSProductScanner: React.FC<WMSProductScannerProps> = ({
     inventory,

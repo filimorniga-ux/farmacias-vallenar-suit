@@ -28,6 +28,15 @@ import { pool } from '@/lib/db';
 import { z } from 'zod';
 import { revalidatePath } from 'next/cache';
 import { headers } from 'next/headers';
+import { resolveActorResult } from './actor-result';
+import { resolveScopedLocation } from './scoped-location';
+import {
+    PinRbacError,
+    ROLE_GROUPS,
+    requireRole,
+    type PinRbacActor,
+    validatePinForRoles,
+} from '@/lib/pin-rbac';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -61,10 +70,7 @@ const GetHistorySchema = z.object({
 // CONSTANTS
 // ============================================================================
 
-const MANAGER_ROLES = ['MANAGER', 'ADMIN', 'GERENTE_GENERAL'];
-const ADMIN_ROLES = ['ADMIN', 'GERENTE_GENERAL'];
 const LARGE_DISCREPANCY_THRESHOLD = 50000; // CLP - requires admin approval
-const BCRYPT_ROUNDS = 10;
 
 // ============================================================================
 // TYPES
@@ -76,6 +82,19 @@ interface ReconciliationResult {
     difference: number;
     requiresApproval: boolean;
 }
+
+type ReconciliationActor = PinRbacActor;
+
+type ScopedSession = {
+    id: string;
+    opening_amount: number;
+    closing_amount: number;
+    difference: number;
+    status: string;
+    terminal_id: string;
+    location_id: string | null;
+    reconciled_by?: string | null;
+};
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -100,52 +119,114 @@ async function getClientIP(): Promise<string> {
 /**
  * Validate manager PIN with bcrypt
  */
-async function validateManagerPin(client: any, pin: string, requiredRoles: readonly string[] = MANAGER_ROLES): Promise<{
+async function requireReconciliationActor(
+    allowedRoles?: readonly string[],
+    forbiddenMessage = 'Permisos insuficientes'
+): Promise<
+    | { success: true; actor: ReconciliationActor }
+    | { success: false; error: string }
+> {
+    const actorResult = await resolveActorResult();
+    if (!actorResult.success) {
+        return actorResult;
+    }
+
+    try {
+        const actor = allowedRoles
+            ? requireRole(actorResult.actor, allowedRoles)
+            : actorResult.actor;
+        return { success: true, actor };
+    } catch (error) {
+        if (!(error instanceof PinRbacError)) {
+            throw error;
+        }
+
+        return {
+            success: false,
+            error: forbiddenMessage,
+        };
+    }
+}
+
+function hasGlobalReconciliationScope(actor: ReconciliationActor): boolean {
+    return ROLE_GROUPS.ADMIN.includes(actor.role as typeof ROLE_GROUPS.ADMIN[number]);
+}
+
+function canActorAccessReconciliationLocation(actor: ReconciliationActor, locationId: string | null | undefined): boolean {
+    return resolveScopedLocation(
+        actor,
+        locationId || undefined,
+        () => hasGlobalReconciliationScope(actor),
+    ).success;
+}
+
+async function getScopedSessionForReconciliation(
+    client: { query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[]; rowCount?: number }> },
+    sessionId: string,
+    actor: ReconciliationActor,
+    forUpdate: boolean = false,
+): Promise<
+    | { success: true; session: ScopedSession }
+    | { success: false; error: string }
+> {
+    const result = await client.query(
+        `
+        SELECT
+            s.id,
+            s.opening_amount,
+            s.closing_amount,
+            s.difference,
+            s.status,
+            s.terminal_id,
+            t.location_id,
+            s.reconciled_by
+        FROM cash_register_sessions s
+        LEFT JOIN terminals t ON t.id = s.terminal_id
+        WHERE s.id = $1
+        ${forUpdate ? 'FOR UPDATE NOWAIT' : ''}
+    `,
+        [sessionId],
+    );
+
+    if (result.rows.length === 0) {
+        return { success: false, error: 'Sesión no encontrada' };
+    }
+
+    const session = result.rows[0] as unknown as ScopedSession;
+    if (!canActorAccessReconciliationLocation(actor, session.location_id)) {
+        return { success: false, error: 'Acceso denegado para la sucursal de la sesión' };
+    }
+
+    return { success: true, session };
+}
+
+async function validateReconciliationPin(
+    client: any,
+    pin: string,
+    requiredRoles: readonly string[]
+): Promise<{
     valid: boolean;
-    manager?: { id: string; name: string; role: string };
+    authorizer?: { id: string; name: string; role: string };
     error?: string;
 }> {
     try {
-        const bcrypt = await import('bcryptjs');
+        const result = await validatePinForRoles(client, pin, requiredRoles, {
+            allowLegacyPlaintext: true,
+            useRateLimiter: true,
+        });
 
-        const managersRes = await client.query(`
-            SELECT id, name, role, access_pin_hash, access_pin
-            FROM users 
-            WHERE role = ANY($1::text[])
-            AND is_active = true
-        `, [requiredRoles]);
-
-        if (managersRes.rows.length === 0) {
-            return { valid: false, error: 'No hay managers activos' };
+        if (!result.valid) {
+            return { valid: false, error: result.error || 'PIN inválido' };
         }
 
-        // Try to match PIN with any manager
-        for (const manager of managersRes.rows) {
-            let pinValid = false;
-
-            if (manager.access_pin_hash) {
-                // Secure: bcrypt comparison
-                pinValid = await bcrypt.compare(pin, manager.access_pin_hash);
-            } else if (manager.access_pin) {
-                // Legacy fallback
-                const crypto = await import('crypto');
-                const inputBuffer = Buffer.from(pin);
-                const storedBuffer = Buffer.from(manager.access_pin);
-
-                if (inputBuffer.length === storedBuffer.length) {
-                    pinValid = crypto.timingSafeEqual(inputBuffer, storedBuffer);
-                }
-            }
-
-            if (pinValid) {
-                return {
-                    valid: true,
-                    manager: { id: manager.id, name: manager.name, role: manager.role }
-                };
-            }
-        }
-
-        return { valid: false, error: 'PIN de manager inválido' };
+        return {
+            valid: true,
+            authorizer: {
+                id: result.authorizedBy.id,
+                name: result.authorizedBy.name,
+                role: result.authorizedBy.role,
+            },
+        };
     } catch (error) {
         console.error('[RECONCILIATION-V2] PIN validation error:', error);
         return { valid: false, error: 'Error validando PIN' };
@@ -193,6 +274,14 @@ export async function calculateDiscrepancySecure(sessionId: string): Promise<{
     data?: ReconciliationResult;
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.MANAGER,
+        'Solo managers pueden consultar discrepancias'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // Validate input
     const validated = UUIDSchema.safeParse(sessionId);
     if (!validated.success) {
@@ -205,49 +294,29 @@ export async function calculateDiscrepancySecure(sessionId: string): Promise<{
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // Calculate expected amount
-        const metricsResult = await client.query(`
-            SELECT 
-                s.id,
-                s.opening_amount,
-                s.closing_amount,
-                s.difference as current_difference,
-                COALESCE((
-                    SELECT SUM(total) 
-                    FROM sales 
-                    WHERE shift_id = s.id AND payment_method = 'CASH'
-                ), 0) as cash_sales,
-                COALESCE((
-                    SELECT SUM(amount) 
-                    FROM cash_movements 
-                    WHERE session_id = s.id AND type = 'EXPENSE'
-                ), 0) as expenses,
-                COALESCE((
-                    SELECT SUM(amount) 
-                    FROM cash_movements 
-                    WHERE session_id = s.id AND type = 'WITHDRAWAL'
-                ), 0) as withdrawals,
-                COALESCE((
-                    SELECT SUM(amount) 
-                    FROM cash_movements 
-                    WHERE session_id = s.id AND type = 'DEPOSIT'
-                ), 0) as deposits
-            FROM cash_register_sessions s
-            WHERE s.id = $1
-        `, [validated.data]);
-
-        if (metricsResult.rows.length === 0) {
+        const scopedSession = await getScopedSessionForReconciliation(client, validated.data, auth.actor);
+        if (!scopedSession.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Sesión no encontrada' };
+            return { success: false, error: scopedSession.error };
         }
 
+        const session = scopedSession.session;
+        const metricsResult = await client.query(`
+            SELECT 
+                COALESCE((SELECT SUM(total) FROM sales WHERE shift_id = $1 AND payment_method = 'CASH'), 0) as cash_sales,
+                COALESCE((SELECT SUM(amount) FROM cash_movements WHERE session_id = $1 AND type = 'EXPENSE'), 0) as expenses,
+                COALESCE((SELECT SUM(amount) FROM cash_movements WHERE session_id = $1 AND type = 'WITHDRAWAL'), 0) as withdrawals,
+                COALESCE((SELECT SUM(amount) FROM cash_movements WHERE session_id = $1 AND type = 'DEPOSIT'), 0) as deposits
+        `, [validated.data]);
+
         const m = metricsResult.rows[0];
-        const expectedAmount = Number(m.opening_amount)
+        const expectedAmount = Number(session.opening_amount)
             + Number(m.cash_sales)
             + Number(m.deposits)
             - Number(m.expenses)
             - Number(m.withdrawals);
 
-        const realAmount = Number(m.closing_amount) || 0;
+        const realAmount = Number(session.closing_amount) || 0;
         const difference = realAmount - expectedAmount;
         const requiresApproval = Math.abs(difference) >= LARGE_DISCREPANCY_THRESHOLD;
 
@@ -283,6 +352,14 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
     data?: ReconciliationResult;
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.MANAGER,
+        'Solo managers pueden conciliar sesiones'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate input
     const validated = PerformReconciliationSchema.safeParse(data);
     if (!validated.success) {
@@ -298,34 +375,42 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Validate manager PIN
-        const pinCheck = await validateManagerPin(client, validated.data.managerPin);
+        const pinCheck = await validateReconciliationPin(client, validated.data.managerPin, ROLE_GROUPS.MANAGER);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: pinCheck.error };
         }
 
         // 3. Lock and get session FOR UPDATE
-        const sessionRes = await client.query(`
-            SELECT 
-                s.id,
-                s.opening_amount,
-                s.closing_amount,
-                s.difference,
-                s.status,
-                s.terminal_id
-            FROM cash_register_sessions s
-            WHERE s.id = $1
-            FOR UPDATE NOWAIT
-        `, [validated.data.sessionId]);
-
-        if (sessionRes.rows.length === 0) {
+        const scopedSession = await getScopedSessionForReconciliation(
+            client,
+            validated.data.sessionId,
+            auth.actor,
+            true,
+        );
+        if (!scopedSession.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Sesión no encontrada' };
+            return { success: false, error: scopedSession.error };
         }
 
-        const session = sessionRes.rows[0];
+        const session = scopedSession.session;
         const oldClosingAmount = session.closing_amount;
         const oldDifference = session.difference;
+
+        if (session.status === 'RECONCILED') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Sesión ya fue conciliada' };
+        }
+
+        if (session.status === 'APPROVED') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'Sesión ya fue aprobada' };
+        }
+
+        if (session.status !== 'CLOSED') {
+            await client.query('ROLLBACK');
+            return { success: false, error: 'La sesión debe estar cerrada antes de conciliar' };
+        }
 
         // 4. Calculate expected amount
         const metricsResult = await client.query(`
@@ -363,14 +448,14 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
             realAmount,
             difference,
             ` | [CONCILIADO ${new Date().toISOString()}]: ${validated.data.managerNotes}`,
-            pinCheck.manager!.id,
+            auth.actor.userId,
             validated.data.sessionId
         ]);
 
         // 6. Mandatory audit log (will throw if fails)
         await insertReconciliationAudit(client, {
             actionCode: 'SESSION_RECONCILED',
-            userId: pinCheck.manager!.id,
+            userId: auth.actor.userId,
             sessionId: validated.data.sessionId,
             oldValues: {
                 closing_amount: oldClosingAmount,
@@ -381,7 +466,8 @@ export async function performReconciliationSecure(data: z.infer<typeof PerformRe
                 closing_amount: realAmount,
                 difference,
                 expected_amount: expectedAmount,
-                reconciled_by: pinCheck.manager!.name,
+                reconciled_by: auth.actor.userName,
+                authorized_by: pinCheck.authorizer?.name,
                 requires_admin_approval: requiresApproval
             },
             notes: validated.data.managerNotes
@@ -427,6 +513,14 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
     success: boolean;
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.ADMIN,
+        'Solo administradores pueden aprobar conciliaciones'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate input
     const validated = ApproveReconciliationSchema.safeParse(data);
     if (!validated.success) {
@@ -442,26 +536,25 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
         await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
 
         // 2. Validate ADMIN PIN (stricter than manager)
-        const pinCheck = await validateManagerPin(client, validated.data.adminPin, ADMIN_ROLES);
+        const pinCheck = await validateReconciliationPin(client, validated.data.adminPin, ROLE_GROUPS.ADMIN);
         if (!pinCheck.valid) {
             await client.query('ROLLBACK');
             return { success: false, error: 'PIN de administrador inválido' };
         }
 
         // 3. Lock session
-        const sessionRes = await client.query(`
-            SELECT id, difference, status, reconciled_by
-            FROM cash_register_sessions
-            WHERE id = $1
-            FOR UPDATE NOWAIT
-        `, [validated.data.sessionId]);
-
-        if (sessionRes.rows.length === 0) {
+        const scopedSession = await getScopedSessionForReconciliation(
+            client,
+            validated.data.sessionId,
+            auth.actor,
+            true,
+        );
+        if (!scopedSession.success) {
             await client.query('ROLLBACK');
-            return { success: false, error: 'Sesión no encontrada' };
+            return { success: false, error: scopedSession.error };
         }
 
-        const session = sessionRes.rows[0];
+        const session = scopedSession.session;
 
         if (session.status !== 'RECONCILED') {
             await client.query('ROLLBACK');
@@ -480,19 +573,20 @@ export async function approveReconciliationSecure(data: z.infer<typeof ApproveRe
             WHERE id = $3
         `, [
             ` | [APROBADO ${new Date().toISOString()}]: ${validated.data.approvalNotes}`,
-            pinCheck.manager!.id,
+            auth.actor.userId,
             validated.data.sessionId
         ]);
 
         // 5. Audit
         await insertReconciliationAudit(client, {
             actionCode: 'RECONCILIATION_APPROVED',
-            userId: pinCheck.manager!.id,
+            userId: auth.actor.userId,
             sessionId: validated.data.sessionId,
             oldValues: { status: 'RECONCILED' },
             newValues: {
                 status: 'APPROVED',
-                approved_by: pinCheck.manager!.name,
+                approved_by: auth.actor.userName,
+                authorized_by: pinCheck.authorizer?.name,
                 discrepancy: session.difference
             },
             notes: validated.data.approvalNotes
@@ -531,6 +625,14 @@ export async function getReconciliationHistorySecure(filters?: z.infer<typeof Ge
     };
     error?: string;
 }> {
+    const auth = await requireReconciliationActor(
+        ROLE_GROUPS.MANAGER,
+        'Solo managers pueden ver el historial de conciliaciones'
+    );
+    if (!auth.success) {
+        return { success: false, error: auth.error };
+    }
+
     // 1. Validate filters
     const validated = GetHistorySchema.safeParse(filters || {});
     if (!validated.success) {
@@ -546,9 +648,17 @@ export async function getReconciliationHistorySecure(filters?: z.infer<typeof Ge
         const params: any[] = [];
         let paramIndex = 1;
 
-        if (validated.data.locationId) {
+        const effectiveLocationId = hasGlobalReconciliationScope(auth.actor)
+            ? validated.data.locationId
+            : auth.actor.locationId;
+
+        if (!hasGlobalReconciliationScope(auth.actor) && !effectiveLocationId) {
+            return { success: false, error: 'Manager sin ubicación asignada' };
+        }
+
+        if (effectiveLocationId) {
             conditions.push(`terminal_id IN (SELECT id FROM terminals WHERE location_id = $${paramIndex++})`);
-            params.push(validated.data.locationId);
+            params.push(effectiveLocationId);
         }
 
         if (validated.data.startDate) {

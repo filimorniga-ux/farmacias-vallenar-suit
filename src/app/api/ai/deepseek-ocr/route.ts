@@ -4,11 +4,13 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getInternalDeepSeekTokenHeader } from '@/lib/ai/deepseek-endpoint';
 import { randomUUID } from 'node:crypto';
+import { API_NO_STORE_HEADERS } from '@/lib/api-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_BASE64_CHARS = 15 * 1024 * 1024;
+const MAX_OCR_REQUEST_BODY_BYTES = MAX_BASE64_CHARS + (64 * 1024);
 const REQUEST_TIMEOUT_MS = 45_000;
 const DEFAULT_UPSTREAM_URL = 'https://api.deepseek.com/chat/completions';
 const DEFAULT_MODEL = 'deepseek-chat';
@@ -51,6 +53,14 @@ function resolveUpstreamUrl(): string {
 
 function getMimeType(fileType: 'image' | 'pdf'): string {
     return fileType === 'pdf' ? 'application/pdf' : 'image/jpeg';
+}
+
+function getDeclaredContentLength(request: NextRequest) {
+    const raw = request.headers.get('content-length');
+    if (!raw) return null;
+
+    const parsed = Number.parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function tryParseJsonObject(content: string): Record<string, unknown> | null {
@@ -150,17 +160,42 @@ function unauthorizedResponse() {
             error: 'No autorizado',
             code: 'DEEPSEEK_OCR_UNAUTHORIZED',
         },
-        { status: 401 }
+        { status: 401, headers: API_NO_STORE_HEADERS }
+    );
+}
+
+function notConfiguredResponse() {
+    return NextResponse.json(
+        {
+            success: false,
+            error: 'OCR interno no configurado',
+            code: 'DEEPSEEK_OCR_NOT_CONFIGURED',
+        },
+        { status: 503, headers: API_NO_STORE_HEADERS }
     );
 }
 
 export async function POST(request: NextRequest) {
     const expectedInternalToken = getInternalDeepSeekTokenHeader();
-    if (expectedInternalToken) {
-        const providedToken = request.headers.get('x-internal-ocr-token');
-        if (providedToken !== expectedInternalToken) {
-            return unauthorizedResponse();
-        }
+    if (!expectedInternalToken) {
+        return notConfiguredResponse();
+    }
+
+    const providedToken = request.headers.get('x-internal-ocr-token');
+    if (providedToken !== expectedInternalToken) {
+        return unauthorizedResponse();
+    }
+
+    const declaredContentLength = getDeclaredContentLength(request);
+    if (declaredContentLength !== null && declaredContentLength > MAX_OCR_REQUEST_BODY_BYTES) {
+        return NextResponse.json(
+            {
+                success: false,
+                error: 'El payload OCR supera el límite permitido',
+                code: 'DEEPSEEK_OCR_PAYLOAD_TOO_LARGE',
+            },
+            { status: 413, headers: API_NO_STORE_HEADERS }
+        );
     }
 
     const bodyResult = await request.json().catch(() => null);
@@ -173,7 +208,7 @@ export async function POST(request: NextRequest) {
                 error: parsed.error.issues[0]?.message || 'Payload inválido',
                 code: 'DEEPSEEK_OCR_INVALID_PAYLOAD',
             },
-            { status: 400 }
+            { status: 400, headers: API_NO_STORE_HEADERS }
         );
     }
 
@@ -182,10 +217,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
             {
                 success: false,
-                error: 'AI_DEEPSEEK_API_KEY no configurada en servidor',
+                error: 'OCR interno no disponible',
                 code: 'DEEPSEEK_OCR_KEY_MISSING',
             },
-            { status: 500 }
+            { status: 500, headers: API_NO_STORE_HEADERS }
         );
     }
 
@@ -229,13 +264,12 @@ export async function POST(request: NextRequest) {
         const upstreamJson = (await upstreamResponse.json().catch(() => ({}))) as Record<string, unknown>;
 
         if (!upstreamResponse.ok) {
-            const message = extractContent(upstreamJson) || String(upstreamJson.error ?? upstreamResponse.statusText);
-
             logger.warn(
                 {
                     correlationId,
                     status: upstreamResponse.status,
                     elapsedMs: Date.now() - start,
+                    upstreamMessage: extractContent(upstreamJson) || String(upstreamJson.error ?? upstreamResponse.statusText),
                 },
                 '[DeepSeek OCR] Upstream error'
             );
@@ -243,10 +277,11 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 {
                     success: false,
-                    error: `DeepSeek upstream error: ${message}`,
+                    error: 'Proveedor OCR no disponible',
                     code: 'DEEPSEEK_OCR_UPSTREAM_ERROR',
+                    correlationId,
                 },
-                { status: 502 }
+                { status: 502, headers: API_NO_STORE_HEADERS }
             );
         }
 
@@ -256,7 +291,7 @@ export async function POST(request: NextRequest) {
                 success: true,
                 data: structuredPayload,
                 usage: extractUsage(upstreamJson),
-            });
+            }, { headers: API_NO_STORE_HEADERS });
         }
 
         const content = extractContent(upstreamJson);
@@ -267,7 +302,7 @@ export async function POST(request: NextRequest) {
                     error: 'Respuesta vacía del proveedor OCR',
                     code: 'DEEPSEEK_OCR_EMPTY_CONTENT',
                 },
-                { status: 502 }
+                { status: 502, headers: API_NO_STORE_HEADERS }
             );
         }
 
@@ -279,7 +314,7 @@ export async function POST(request: NextRequest) {
                     error: 'No se pudo interpretar JSON del OCR',
                     code: 'DEEPSEEK_OCR_INVALID_JSON',
                 },
-                { status: 502 }
+                { status: 502, headers: API_NO_STORE_HEADERS }
             );
         }
 
@@ -287,7 +322,7 @@ export async function POST(request: NextRequest) {
             success: true,
             data: parsedContent,
             usage: extractUsage(upstreamJson),
-        });
+        }, { headers: API_NO_STORE_HEADERS });
     } catch (error) {
         Sentry.captureException(error, {
             tags: {
@@ -302,7 +337,7 @@ export async function POST(request: NextRequest) {
         const message =
             error instanceof Error && error.name === 'AbortError'
                 ? 'Timeout al procesar OCR con DeepSeek'
-                : `Error OCR DeepSeek: ${error instanceof Error ? error.message : 'desconocido'}`;
+                : 'No se pudo procesar OCR';
 
         logger.error(
             {
@@ -318,8 +353,9 @@ export async function POST(request: NextRequest) {
                 success: false,
                 error: message,
                 code: 'DEEPSEEK_OCR_REQUEST_FAILED',
+                correlationId,
             },
-            { status: 500 }
+            { status: 500, headers: API_NO_STORE_HEADERS }
         );
     } finally {
         clearTimeout(timeout);

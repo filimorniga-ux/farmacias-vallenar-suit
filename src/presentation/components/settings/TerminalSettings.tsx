@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Monitor, Plus, MapPin, Users, Edit, Trash, X, Save, Check, RefreshCw } from 'lucide-react';
 import { usePharmaStore } from '../../store/useStore';
+import { useLocationStore } from '../../store/useLocationStore';
 import { Terminal } from '../../../domain/types';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const TerminalSettings: React.FC = () => {
-    const {
-        terminals,
-        locations,
-        employees,
-        addTerminal,
-        updateTerminal,
-        fetchLocations,
-        fetchTerminals,
-        isLoading,
-        isLoadingLocations,
-        isFetchingTerminals
-    } = usePharmaStore();
+    const terminals = usePharmaStore((state) => state.terminals);
+    const employees = usePharmaStore((state) => state.employees);
+    const addTerminal = usePharmaStore((state) => state.addTerminal);
+    const updateTerminal = usePharmaStore((state) => state.updateTerminal);
+    const fetchTerminals = usePharmaStore((state) => state.fetchTerminals);
+    const isLoading = usePharmaStore((state) => state.isLoading);
+    const isFetchingTerminals = usePharmaStore((state) => state.isFetchingTerminals);
+    const locations = useLocationStore((state) => state.locations);
+    const fetchLocations = useLocationStore((state) => state.fetchLocations);
+    const isLoadingLocations = useLocationStore((state) => state.isLoading);
 
     const activeLocations = locations.filter(l => l.is_active !== false);
 
