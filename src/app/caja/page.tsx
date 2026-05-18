@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Search, ShoppingCart, Trash2, CreditCard, Banknote, Receipt, Printer, Plus, Minus, Wifi, WifiOff, RefreshCw, AlertCircle, FileText } from 'lucide-react';
+import { Search, ShoppingCart, Trash2, CreditCard, Banknote, Receipt, Printer, Plus, Minus, Wifi, WifiOff, RefreshCw, AlertCircle, FileText, Monitor } from 'lucide-react';
 import { emitirBoleta, DTE } from '@/lib/sii-mock';
 import TicketBoleta from '@/components/ticket/TicketBoleta';
 import RouteGuard from '@/components/auth/RouteGuard';
@@ -12,6 +12,7 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { cn } from '@/lib/utils';
 import { SyncStatusBadge } from '@/presentation/components/ui/SyncStatusBadge';
 import QuoteHistoryModal from '@/presentation/components/quotes/QuoteHistoryModal';
+import ShiftManagementModal from '@/presentation/components/pos/ShiftManagementModal';
 import { useAuthStore } from '@/lib/store/useAuthStore'; // Use centralized auth store
 import { usePharmaStore } from '@/presentation/store/useStore'; // Use centralized pharma store for context
 import { useTerminalSession } from '@/hooks/useTerminalSession';
@@ -58,6 +59,7 @@ function CajaPageContent() {
     const [syncing, setSyncing] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'DEBIT' | 'CREDIT'>('CASH');
     const [showQuoteHistory, setShowQuoteHistory] = useState(false);
+    const [showShiftManagement, setShowShiftManagement] = useState(false);
 
     // Session State
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -483,21 +485,25 @@ function CajaPageContent() {
                             )}
                         </div>
 
-                        <div className="flex items-center gap-4">
-                            <div className="relative group">
-                                <button className="flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium transition-colors">
-                                    <span>Gestión</span>
-                                </button>
-                                <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 hidden group-hover:block z-50 overflow-hidden">
-                                    <button
-                                        onClick={() => setShowQuoteHistory(true)}
-                                        className="w-full text-left px-4 py-3 hover:bg-slate-50 text-slate-700 flex items-center gap-2"
-                                    >
-                                        <FileText size={16} />
-                                        Historial Cotizaciones
-                                    </button>
-                                </div>
-                            </div>
+                        <div className="flex flex-wrap items-center justify-end gap-3">
+                            <button
+                                type="button"
+                                data-testid="caja-shift-management-button"
+                                onClick={() => setShowShiftManagement(true)}
+                                className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-slate-800"
+                            >
+                                <Monitor size={16} />
+                                {sessionId ? 'Gestionar caja' : 'Abrir caja'}
+                            </button>
+                            <button
+                                type="button"
+                                data-testid="caja-quote-history-button"
+                                onClick={() => setShowQuoteHistory(true)}
+                                className="flex min-h-11 items-center gap-2 rounded-lg bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+                            >
+                                <FileText size={16} />
+                                Cotizaciones
+                            </button>
                             <SyncStatusBadge />
                         </div>
                     </div>
@@ -546,6 +552,7 @@ function CajaPageContent() {
                     )}
 
                     <QuoteHistoryModal isOpen={showQuoteHistory} onClose={() => setShowQuoteHistory(false)} />
+                    <ShiftManagementModal isOpen={showShiftManagement} onClose={() => setShowShiftManagement(false)} />
 
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 

@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => {
     const findBestBatchSecureMock = vi.fn();
     const getProductsSecureMock = vi.fn();
     const createSaleSecureMock = vi.fn();
+    const shiftModalPropsMock = vi.fn();
 
     const pharmaState = {
         currentTerminalId: '',
@@ -66,6 +67,7 @@ const mocks = vi.hoisted(() => {
         findBestBatchSecureMock,
         getProductsSecureMock,
         createSaleSecureMock,
+        shiftModalPropsMock,
         pharmaState,
         usePharmaStoreMock,
         searchParams: new URLSearchParams(),
@@ -120,6 +122,14 @@ vi.mock('@/presentation/components/ui/SyncStatusBadge', () => ({
 vi.mock('@/presentation/components/quotes/QuoteHistoryModal', () => ({
     __esModule: true,
     default: () => null,
+}));
+
+vi.mock('@/presentation/components/pos/ShiftManagementModal', () => ({
+    __esModule: true,
+    default: (props: { isOpen: boolean; onClose: () => void }) => {
+        mocks.shiftModalPropsMock(props);
+        return props.isOpen ? <div data-testid="shift-management-modal">Apertura de Caja</div> : null;
+    },
 }));
 
 vi.mock('@/lib/store/cart', () => ({
@@ -291,6 +301,34 @@ describe('/app/caja/page', () => {
 
         expect(screen.getByTestId('caja-status-closed').textContent).toContain('No hay sesión de caja activa');
         expect(screen.getByTestId('caja-readiness-hint').textContent).toContain('Caja sin sesión validada');
+    });
+
+    it('abre el flujo de apertura de caja desde el POS cuando no hay sesión validada', async () => {
+        mocks.getSessionMock.mockReturnValue({
+            sessionId: 'sess-stale',
+            terminalId: 'term-stale',
+            terminalName: 'Caja 9',
+            userId: 'user-1',
+            locationId: 'loc-session',
+            openedAt: Date.now(),
+            openingAmount: 5000,
+        });
+        mocks.getActiveSessionMock.mockResolvedValue({
+            success: false,
+            error: 'No hay sesión de caja activa. Abra turno para comenzar.',
+        });
+
+        const { default: CajaPage } = await import('@/app/caja/page');
+        render(<CajaPage />);
+
+        const openShiftButton = await screen.findByRole('button', { name: /abrir caja/i });
+        fireEvent.click(openShiftButton);
+
+        expect((await screen.findByTestId('shift-management-modal')).textContent).toContain('Apertura de Caja');
+        expect(mocks.shiftModalPropsMock).toHaveBeenLastCalledWith(expect.objectContaining({
+            isOpen: true,
+            onClose: expect.any(Function),
+        }));
     });
 
     it('muestra contexto de quick action sin cambiar la sesión validada por URL', async () => {
