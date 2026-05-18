@@ -15,6 +15,9 @@ interface ShiftManagementModalProps {
     onClose: () => void;
 }
 
+const SHIFT_ASSIGNABLE_CASHIER_ROLES = new Set(['CASHIER', 'QF', 'MANAGER', 'ADMIN', 'GERENTE_GENERAL']);
+const SHIFT_GLOBAL_CASHIER_ROLES = new Set(['MANAGER', 'ADMIN', 'QF', 'GERENTE_GENERAL']);
+
 // Helper: Formatear número con separadores de miles (puntos)
 const formatWithThousands = (value: string | number): string => {
     const numericValue = typeof value === 'string'
@@ -391,10 +394,10 @@ const ShiftManagementModal: React.FC<ShiftManagementModalProps> = ({ isOpen, onC
     // Usar empleados cargados del servidor, con fallback al store
     const employeesSource = loadedCashiers.length > 0 ? loadedCashiers : employees;
 
-    const cashiers = employeesSource.filter((e: any) => {
-        const isRoleValid = ['CASHIER', 'QF', 'MANAGER', 'ADMIN'].includes(e.role);
-
-        const isGlobal = ['MANAGER', 'ADMIN', 'QF'].includes(e.role); // Manager/Admin/QF roam
+    const cashiers = employeesSource.filter((e) => {
+        const role = String(e.role || '').toUpperCase();
+        const isRoleValid = SHIFT_ASSIGNABLE_CASHIER_ROLES.has(role);
+        const isGlobal = SHIFT_GLOBAL_CASHIER_ROLES.has(role);
         const isLocalMatch = e.assigned_location_id === selectedLocation;
 
         return isRoleValid && (isGlobal || isLocalMatch);

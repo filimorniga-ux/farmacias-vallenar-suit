@@ -180,6 +180,12 @@ describe('ShiftManagementModal', () => {
                 assigned_location_id: 'loc-1',
             },
         ];
+        mocks.pharmaState.user = {
+            id: 'admin-1',
+            name: 'Admin Test',
+            role: 'ADMIN',
+            assigned_location_id: 'loc-1',
+        };
         mocks.pharmaState.terminals = [
             {
                 id: 'term-1',
@@ -211,6 +217,35 @@ describe('ShiftManagementModal', () => {
         expect(mocks.fetchEmployeesSecureMock).not.toHaveBeenCalled();
         expect(mocks.getTerminalsByLocationSecureMock).not.toHaveBeenCalled();
         expect(mocks.fetchTerminalsMock).not.toHaveBeenCalled();
+    });
+
+    it('permite asignar la cuenta DEV GERENTE_GENERAL al abrir caja', async () => {
+        mocks.pharmaState.user = {
+            id: 'dev-gerente',
+            name: '[DEV] Gerente General 1',
+            role: 'GERENTE_GENERAL',
+            assigned_location_id: '',
+        };
+        mocks.pharmaState.employees = [
+            {
+                id: 'dev-gerente',
+                name: '[DEV] Gerente General 1',
+                role: 'GERENTE_GENERAL',
+                assigned_location_id: '',
+            },
+            {
+                id: 'cashier-1',
+                name: 'Ana Caja',
+                role: 'CASHIER',
+                assigned_location_id: 'loc-1',
+            },
+        ];
+
+        render(<ShiftManagementModal isOpen onClose={mocks.onCloseMock} />);
+
+        await waitFor(() => {
+            expect(screen.getByRole('option', { name: /\[DEV\] Gerente General 1/i })).toBeTruthy();
+        });
     });
 
     it('hace fallback a server solo cuando faltan employees o terminals seeded', async () => {
