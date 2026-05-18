@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +14,13 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/lib/server-session', () => ({
     getValidatedSession: mocks.getValidatedSessionMock,
+}));
+
+vi.mock('@/presentation/layouts/NextSidebarLayout', () => ({
+    __esModule: true,
+    default: ({ children }: { children: ReactNode }) => (
+        <div data-testid="next-sidebar-layout">{children}</div>
+    ),
 }));
 
 import PosLayout from '@/app/pos/layout';
@@ -55,6 +63,18 @@ describe('POS/caja App Router access', () => {
         await expect(CajaLayout({ children: <div>Caja</div> })).resolves.toBeTruthy();
 
         expect(mocks.redirectMock).not.toHaveBeenCalled();
+    });
+
+    it('monta /pos y /caja dentro del sidebar administrativo', async () => {
+        mocks.getValidatedSessionMock.mockResolvedValue(allowedSession);
+
+        const pos = await PosLayout({ children: <div>POS</div> });
+        const caja = await CajaLayout({ children: <div>Caja</div> });
+
+        expect(pos.type).toBeDefined();
+        expect(caja.type).toBeDefined();
+        expect(pos.props.children.props.children).toBe('POS');
+        expect(caja.props.children.props.children).toBe('Caja');
     });
 
     it('bloquea /pos para roles internos que no son de caja', async () => {
