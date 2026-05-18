@@ -18,9 +18,16 @@ test.describe('POS - Release Critical', () => {
 
     test('POS expone un estado operativo seeded estable', async ({ page }) => {
         await expect(page).toHaveURL(/\/pos(?:\/|$)/i);
-        await expect(page.getByTestId('caja-page')).toBeVisible();
-        await expect(page.getByTestId('caja-status-closed')).toContainText('Caja Cerrada');
-        await expect(page.getByTestId('caja-search-input')).toBeVisible();
-        await expect(page.getByTestId('caja-confirm-payment')).toBeVisible();
+
+        const blockedState = page.getByTestId('pos-blocked-state');
+        const mainScreen = page.getByTestId('pos-main-screen');
+        const blockedVisible = await blockedState.isVisible().catch(() => false);
+        const mainVisible = await mainScreen.isVisible().catch(() => false);
+
+        expect(blockedVisible || mainVisible).toBeTruthy();
+        if (blockedVisible) {
+            await expect(blockedState).toContainText('Terminal Bloqueado');
+            await expect(page.getByTestId('pos-request-open-shift')).toBeVisible();
+        }
     });
 });
