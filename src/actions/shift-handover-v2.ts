@@ -571,8 +571,7 @@ export async function executeHandoverSecure(params: {
         await client.query(`
             UPDATE terminals 
             SET current_cashier_id = NULL, 
-                status = 'CLOSED',
-                updated_at = NOW()
+                status = 'CLOSED'
             WHERE id = $1::uuid
         `, [terminalId]);
 
@@ -765,8 +764,7 @@ export async function quickHandoverSecure(params: {
         await client.query(`
             UPDATE terminals 
             SET current_cashier_id = $2::uuid, 
-                status = 'OPEN',
-                updated_at = NOW()
+                status = 'OPEN'
             WHERE id = $1::uuid
         `, [terminalId, incomingUserId]);
 

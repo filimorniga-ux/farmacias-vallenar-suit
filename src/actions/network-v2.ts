@@ -364,8 +364,8 @@ export async function updateTerminalSecure(
         }
         const prev = prevRes.rows[0];
 
-        // Actualizar
-        const updates: string[] = ['updated_at = NOW()'];
+        // Actualizar solo columnas presentes en el contrato runtime de terminals.
+        const updates: string[] = [];
         const params: any[] = [];
         let idx = 1;
 
@@ -374,8 +374,10 @@ export async function updateTerminalSecure(
         if (allowedUsers !== undefined) { updates.push(`allowed_users = $${idx++}`); params.push(allowedUsers); }
         if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); params.push(isActive); }
 
-        params.push(terminalId);
-        await client.query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+        if (updates.length > 0) {
+            params.push(terminalId);
+            await client.query(`UPDATE terminals SET ${updates.join(', ')} WHERE id = $${idx}`, params);
+        }
 
         // Auditar
         await client.query(`
@@ -449,7 +451,7 @@ export async function deleteTerminalSecure(
         const sessionCheck = await client.query('SELECT id FROM cash_register_sessions WHERE terminal_id = $1 LIMIT 1', [terminalId]);
         if ((sessionCheck.rowCount || 0) > 0) {
             // Soft delete
-            await client.query('UPDATE terminals SET is_active = false, status = \'CLOSED\', updated_at = NOW() WHERE id = $1', [terminalId]);
+            await client.query('UPDATE terminals SET is_active = false, status = \'CLOSED\' WHERE id = $1', [terminalId]);
         } else {
             // Hard delete
             await client.query('DELETE FROM terminals WHERE id = $1', [terminalId]);
@@ -600,7 +602,7 @@ export async function deactivateLocationSecure(
 
         // Desactivar terminales asociados
         await client.query(`
-            UPDATE terminals SET is_active = false, updated_at = NOW()
+            UPDATE terminals SET is_active = false
             WHERE location_id = $1
         `, [locationId]);
 

@@ -421,7 +421,7 @@ export async function openCashDrawerSecure(
         // Update terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = $2::uuid, status = 'OPEN', updated_at = NOW()
+            SET current_cashier_id = $2::uuid, status = 'OPEN'
             WHERE id = $1::uuid
         `, [terminalId, userId]);
 
@@ -626,7 +626,7 @@ export async function closeCashDrawerSecure(
         // Update terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = NULL, status = 'CLOSED', updated_at = NOW()
+            SET current_cashier_id = NULL, status = 'CLOSED'
             WHERE id = $1::uuid
         `, [terminalId]);
 
@@ -784,7 +784,7 @@ export async function closeCashDrawerSystem(
         // Release terminal
         await client.query(`
             UPDATE terminals 
-            SET current_cashier_id = NULL, status = 'CLOSED', updated_at = NOW()
+            SET current_cashier_id = NULL, status = 'CLOSED'
             WHERE id = $1::uuid
         `, [terminalId]);
 

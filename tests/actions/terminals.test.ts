@@ -71,6 +71,10 @@ vi.mock('@/lib/rate-limiter', () => ({
 // Import after all mocks are set up
 import { closeTerminalAtomic, forceCloseTerminalSecure, openTerminalAtomic, openTerminalWithPinValidation } from '@/actions/terminals-v2';
 
+const getTerminalUpdateSqls = () => mockQuery.mock.calls
+    .map(([sql]) => (typeof sql === 'string' ? sql : ''))
+    .filter((sql) => sql.includes('UPDATE terminals'));
+
 // =====================================================
 // TESTS
 // =====================================================
@@ -116,6 +120,7 @@ describe('openTerminalAtomic', () => {
         expect(mockQuery).toHaveBeenNthCalledWith(1, 'BEGIN ISOLATION LEVEL SERIALIZABLE');
         expect(mockQuery).toHaveBeenCalledWith('COMMIT');
         expect(mockQuery).not.toHaveBeenCalledWith('ROLLBACK');
+        expect(getTerminalUpdateSqls().some((sql) => sql.includes('updated_at'))).toBe(false);
         expect(mockRelease).toHaveBeenCalled();
     });
 
@@ -323,6 +328,7 @@ describe('openTerminalAtomic', () => {
 
         expect(result.success).toBe(true);
         expect(result.authorizedById).toBe('manager-1');
+        expect(getTerminalUpdateSqls().some((sql) => sql.includes('updated_at'))).toBe(false);
 
         const insertSessionCall = mockQuery.mock.calls.find(
             ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO cash_register_sessions')

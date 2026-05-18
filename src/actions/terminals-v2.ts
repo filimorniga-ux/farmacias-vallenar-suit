@@ -298,8 +298,7 @@ export async function openTerminalAtomic(
         await client.query(`
             UPDATE terminals 
             SET status = 'OPEN', 
-                current_cashier_id = $2::uuid, 
-                updated_at = NOW()
+                current_cashier_id = $2::uuid
             WHERE id = $1::uuid
         `, [terminalId, actorUserId]);
 
@@ -513,8 +512,7 @@ export async function openTerminalWithPinValidation(
         await client.query(`
             UPDATE terminals 
             SET status = 'OPEN', 
-                current_cashier_id = $2::uuid, 
-                updated_at = NOW()
+                current_cashier_id = $2::uuid
             WHERE id = $1::uuid
         `, [terminalId, actorUserId]);
 
@@ -707,8 +705,7 @@ export async function closeTerminalAtomic(
         await client.query(`
             UPDATE terminals 
             SET status = 'CLOSED', 
-                current_cashier_id = NULL, 
-                updated_at = NOW()
+                current_cashier_id = NULL
             WHERE id = $1
         `, [terminalId]);
 
@@ -878,8 +875,7 @@ export async function forceCloseTerminalSecure(
         await client.query(`
             UPDATE terminals 
             SET status = 'CLOSED', 
-            current_cashier_id = NULL,
-            updated_at = NOW()
+            current_cashier_id = NULL
         WHERE id = $1
     `, [terminalId]);
 
@@ -1129,7 +1125,6 @@ export async function updateTerminalSecure(
             return { success: false, error: 'No hay cambios para aplicar' };
         }
 
-        updates.push(`updated_at = NOW()`);
         values.push(terminalId);
 
         await query(
@@ -1200,7 +1195,7 @@ export async function deleteTerminalSecure(
 
         // Soft delete
         await query(
-            `UPDATE terminals SET status = 'DELETED', updated_at = NOW() WHERE id = $1`,
+            `UPDATE terminals SET status = 'DELETED' WHERE id = $1`,
             [terminalId]
         );
 

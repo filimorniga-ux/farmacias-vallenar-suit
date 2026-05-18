@@ -136,7 +136,7 @@ export async function updateTerminalHardwareConfigSecure(
 
         // Actualizar
         await client.query(`
-            UPDATE terminals SET config = $2, updated_at = NOW()
+            UPDATE terminals SET config = $2
             WHERE id = $1
         `, [terminalId, validatedConfig.data]);
 
