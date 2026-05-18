@@ -30,6 +30,9 @@ export function getTransactionTitle(item: TransactionLike, fallbackId: string): 
     const folio = item.dte_folio ? String(item.dte_folio) : fallbackId;
 
     if (type === 'SALE') {
+        if (status === 'VOIDED') {
+            return `Venta anulada #${folio}`;
+        }
         if (status === 'FULLY_REFUNDED') {
             return `Devolución #${folio}`;
         }

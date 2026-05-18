@@ -561,7 +561,71 @@ describe('Cash Management V2 - Refund Integration', () => {
         expect(String(historySql)).toContain('r.refund_method =');
         expect(String(historySql)).toContain('LEFT JOIN customers c');
         expect(String(historySql)).toContain('c.name as customer_name');
+        expect(String(historySql)).not.toContain("s.status != 'VOIDED'");
         expect(String(historySql)).not.toContain('s.customer_name');
+    });
+
+    it('getCashMovementHistory mantiene ventas anuladas visibles para auditoría', async () => {
+        const { query } = await import('@/lib/db');
+        const mockDbQuery = vi.mocked(query) as unknown as {
+            mockResolvedValueOnce: (value: unknown) => any;
+            mock: { calls: Array<[unknown, ...unknown[]]> };
+        };
+
+        mockDbQuery
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_TERMINAL,
+                    location_id: VALID_UUID_LOCATION,
+                    current_cashier_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                }]
+            }) // terminal scope
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_UUID_SESSION,
+                    terminal_id: VALID_UUID_TERMINAL,
+                    user_id: VALID_UUID_CASHIER,
+                    status: 'OPEN',
+                    closed_at: null,
+                    location_id: VALID_UUID_LOCATION,
+                }]
+            }) // session scope
+            .mockResolvedValueOnce({ rows: [{ has_refunds: true }] }) // hasRefundLedger
+            .mockResolvedValueOnce({ rows: [{ total: '1' }] }) // count query
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'sale-void-1',
+                    type: 'SALE',
+                    amount: 12000,
+                    reason: 'Venta #S/N',
+                    timestamp: new Date(),
+                    terminal_id: VALID_UUID_TERMINAL,
+                    session_id: VALID_UUID_SESSION,
+                    user_name: 'Cajero',
+                    authorized_by_name: null,
+                    payment_method: 'CASH',
+                    status: 'VOIDED',
+                    dte_status: null,
+                    dte_folio: null,
+                    customer_name: 'Cliente',
+                }]
+            }); // history query
+
+        const res = await cashV2.getCashMovementHistory({
+            terminalId: VALID_UUID_TERMINAL,
+            sessionId: VALID_UUID_SESSION,
+            page: 1,
+            pageSize: 10,
+        });
+
+        expect(res.success).toBe(true);
+        expect(res.data?.movements[0]?.status).toBe('VOIDED');
+
+        const countSql = mockDbQuery.mock.calls[3]?.[0];
+        const historySql = mockDbQuery.mock.calls[4]?.[0];
+        expect(String(countSql)).not.toContain("s.status != 'VOIDED'");
+        expect(String(historySql)).not.toContain("s.status != 'VOIDED'");
     });
 
     it('getShiftMetricsSecure rechaza actor no autenticado', async () => {

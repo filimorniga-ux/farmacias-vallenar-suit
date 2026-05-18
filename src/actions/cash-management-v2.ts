@@ -1249,7 +1249,7 @@ export async function getCashMovementHistory(
 
         // Base filters for unified queries
         let moveFilters = '1=1';
-        let saleFilters = "s.status != 'VOIDED'"; // Base sales filter
+        let saleFilters = '1=1'; // Keep VOIDED sales visible for audit/history traceability.
         let refundFilters = "r.status = 'COMPLETED'";
 
         if (effectiveLocationId) {

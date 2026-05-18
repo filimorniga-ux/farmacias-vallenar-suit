@@ -1589,6 +1589,31 @@ export async function getSaleDetailsSecure(saleId: string) {
             ORDER BY r.created_at DESC
         `, [saleId]);
 
+        // 2c. Bitácora inmutable de cambios/anulaciones/devoluciones.
+        // La tabla runtime de sales no tiene columnas de edición/anulación; audit_log es la fuente canónica.
+        const auditRes = await client.query(`
+            SELECT
+                al.id,
+                al.created_at,
+                al.action_code,
+                al.justification,
+                al.old_values,
+                al.new_values,
+                u.name as user_name,
+                au.name as authorized_by_name
+            FROM audit_log al
+            LEFT JOIN users u ON al.user_id::text = u.id::text
+            LEFT JOIN users au ON au.id::text = COALESCE(al.authorized_by::text, al.new_values->>'authorized_by')
+            WHERE al.entity_type = 'SALE'
+              AND al.action_code IN ('SALE_EDIT', 'SALE_VOID', 'SALE_REFUND')
+              AND (
+                  al.entity_id = $1
+                  OR al.new_values->>'original_sale_id' = $1
+              )
+            ORDER BY al.created_at DESC
+            LIMIT 20
+        `, [saleId]);
+
         // 3. Obtener ticket de fila
         let queueTicket = null;
         if (sale.queue_ticket_id) {
@@ -1602,6 +1627,7 @@ export async function getSaleDetailsSecure(saleId: string) {
             ...sale,
             items: itemsRes.rows,
             refunds: refundsRes.rows,
+            audit_history: auditRes.rows,
             queueTicket
         };
 

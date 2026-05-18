@@ -119,7 +119,8 @@ import {
     editSaleSecure,
     getSalesHistorySecure,
     getSalesHistory,
-    getSessionSalesSummary
+    getSessionSalesSummary,
+    getSaleDetailsSecure
 } from '@/actions/sales-v2';
 
 // =====================================================
@@ -477,6 +478,75 @@ describe('Sales V2 - createSaleSecure', () => {
 // =====================================================
 // TESTS - voidSaleSecure
 // =====================================================
+
+describe('Sales V2 - getSaleDetailsSecure', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockQuery.mockResolvedValue({ rows: [] });
+    });
+
+    afterEach(() => {
+        vi.resetAllMocks();
+    });
+
+    it('returns immutable audit history for edits and voids', async () => {
+        const createdAt = new Date('2026-05-18T16:00:00.000Z');
+
+        mockQuery
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: VALID_SALE_ID,
+                    timestamp: createdAt,
+                    status: 'VOIDED',
+                    total_amount: 12000,
+                    payment_method: 'CASH',
+                    customer_rut: null,
+                    customer_name: null,
+                    dte_folio: null,
+                    notes: null,
+                    queue_ticket_id: null,
+                    edited_at: null,
+                    edit_reason: null,
+                    edit_authorized_by: null,
+                    seller_name: 'Cajero Test',
+                    edit_authorized_name: null,
+                    customer_email: null,
+                    customer_phone: null,
+                }]
+            }) // Sale header
+            .mockResolvedValueOnce({ rows: [] }) // Items
+            .mockResolvedValueOnce({ rows: [] }) // Refunds
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'audit-1',
+                    created_at: createdAt,
+                    action_code: 'SALE_VOID',
+                    justification: 'Cliente solicitó anular la venta por error de caja',
+                    old_values: { status: 'COMPLETED' },
+                    new_values: {
+                        status: 'VOIDED',
+                        void_reason: 'Cliente solicitó anular la venta por error de caja',
+                        authorized_by: 'supervisor-1',
+                    },
+                    user_name: 'Cajero Test',
+                    authorized_by_name: 'Supervisor Test',
+                }]
+            }); // Audit history
+
+        const result = await getSaleDetailsSecure(VALID_SALE_ID);
+
+        expect(result?.audit_history).toHaveLength(1);
+        expect(result?.audit_history?.[0]).toMatchObject({
+            action_code: 'SALE_VOID',
+            authorized_by_name: 'Supervisor Test',
+        });
+
+        const auditQuery = mockQuery.mock.calls[3]?.[0];
+        expect(String(auditQuery)).toContain('SALE_EDIT');
+        expect(String(auditQuery)).toContain('SALE_VOID');
+        expect(String(auditQuery)).toContain("al.new_values->>'original_sale_id'");
+    });
+});
 
 describe('Sales V2 - voidSaleSecure', () => {
     beforeEach(() => {

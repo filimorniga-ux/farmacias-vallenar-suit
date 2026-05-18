@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { usePharmaStore } from '../../../presentation/store/useStore';
 import { useLocationStore } from '../../../presentation/store/useLocationStore';
 import { useSettingsStore } from '../../../presentation/store/useSettingsStore';
-import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign, Pencil } from 'lucide-react';
+import { X, Search, Calendar, Printer, Lock, FileText, Download, User, RotateCcw, Loader2, RefreshCw, AlertCircle, TrendingUp, TrendingDown, DollarSign, Pencil, Ban, History } from 'lucide-react';
 import { exportSalesHistorySecure } from '../../../actions/pos-export-v2';
 import { CashMovementView, getCashMovementHistory, exportCashMovementHistory } from '../../../actions/cash-management-v2'; // Unified Endpoint
 import { getSaleDetailsSecure } from '../../../actions/sales-v2'; // NEW: Details
@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { printSaleTicket } from '../../utils/print-utils';
 import ReturnsModal from './ReturnsModal';
 import EditSaleModal from './EditSaleModal';
+import VoidSaleModal from './VoidSaleModal';
 import { getChileDate, formatChileDate, formatFriendlyId } from '@/lib/utils';
 import {
     getSaleItemQuantity,
@@ -25,6 +26,17 @@ interface TransactionHistoryModalProps {
     locationId?: string;
     initialPaymentMethod?: string;
     sessionId?: string; // NEW: For Data Isolation (Arqueo Parcial)
+}
+
+interface SaleAuditHistoryEntry {
+    id: string;
+    created_at?: Date | string;
+    action_code?: string | null;
+    justification?: string | null;
+    user_name?: string | null;
+    authorized_by_name?: string | null;
+    old_values?: Record<string, unknown> | null;
+    new_values?: Record<string, unknown> | null;
 }
 
 const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) => {
@@ -63,6 +75,7 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
     const [isLoadingDetails, setIsLoadingDetails] = useState(false); // NEW
     const [isReturnsModalOpen, setIsReturnsModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
 
     // 1. Authenticate with PIN
     const handleLogin = async () => {
@@ -383,11 +396,57 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
         }
     };
 
+    const saleAuditHistory: SaleAuditHistoryEntry[] = Array.isArray(selectedItem?.audit_history)
+        ? selectedItem.audit_history as SaleAuditHistoryEntry[]
+        : [];
+
+    const getAuditLabel = (actionCode?: string | null) => {
+        switch (actionCode) {
+            case 'SALE_EDIT':
+                return 'Edición';
+            case 'SALE_VOID':
+                return 'Anulación';
+            case 'SALE_REFUND':
+                return 'Devolución';
+            default:
+                return actionCode || 'Movimiento';
+        }
+    };
+
+    const getAuditSummary = (entry: SaleAuditHistoryEntry) => {
+        const oldTotal = Number(entry.old_values?.total || 0);
+        const newTotal = Number(entry.new_values?.total || entry.new_values?.amount || 0);
+
+        if (entry.action_code === 'SALE_EDIT' && (oldTotal || newTotal)) {
+            return `Total: $${oldTotal.toLocaleString()} → $${newTotal.toLocaleString()}`;
+        }
+
+        if (entry.action_code === 'SALE_VOID') {
+            return String(entry.new_values?.void_reason || entry.justification || 'Venta anulada');
+        }
+
+        if (entry.action_code === 'SALE_REFUND') {
+            return String(entry.new_values?.refund_reason || entry.justification || 'Devolución registrada');
+        }
+
+        return entry.justification || 'Cambio registrado';
+    };
+
     // Helper to get Icon and Color based on type
     const getTypeConfig = (item: any) => {
         const status = String(item.status || '').toUpperCase();
 
         if (item.type === 'SALE') {
+            if (status === 'VOIDED') {
+                return {
+                    icon: <Ban size={16} />,
+                    color: 'text-rose-700',
+                    bg: 'bg-rose-50',
+                    label: 'ANULADA',
+                    amountColor: 'text-rose-700'
+                };
+            }
+
             if (status === 'FULLY_REFUNDED') {
                 return {
                     icon: <RotateCcw size={16} />,
@@ -783,10 +842,40 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                     </div>
                                 )}
 
+                                {selectedItem.type === 'SALE' && saleAuditHistory.length > 0 && (
+                                    <div className="mb-6">
+                                        <h3 className="mb-3 flex items-center gap-2 font-bold text-slate-700">
+                                            <History size={18} />
+                                            Historial de cambios
+                                        </h3>
+                                        <div className="space-y-2">
+                                            {saleAuditHistory.map((entry) => (
+                                                <div key={entry.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                                                    <div className="mb-1 flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-sm font-bold text-slate-800">{getAuditLabel(entry.action_code)}</p>
+                                                            <p className="text-xs text-slate-500">
+                                                                {entry.created_at ? formatChileDate(entry.created_at) : 'Fecha no disponible'}
+                                                            </p>
+                                                        </div>
+                                                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase text-slate-600">
+                                                            {entry.authorized_by_name ? `Aut. ${entry.authorized_by_name}` : entry.user_name || 'Sistema'}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-sm font-medium text-slate-700">{getAuditSummary(entry)}</p>
+                                                    {entry.justification && entry.action_code !== 'SALE_VOID' && entry.action_code !== 'SALE_REFUND' && (
+                                                        <p className="mt-1 text-xs italic text-slate-500">"{entry.justification}"</p>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="flex justify-between items-center p-4 bg-slate-900 text-white rounded-xl mb-6">
                                     <span className="font-medium">Total</span>
                                     <span className={`text-2xl font-bold ${
-                                        selectedItem.type === 'EXPENSE' || selectedItem.type === 'WITHDRAWAL' || selectedItem.type === 'REFUND'
+                                        selectedItem.type === 'EXPENSE' || selectedItem.type === 'WITHDRAWAL' || selectedItem.type === 'REFUND' || selectedItem.status === 'VOIDED'
                                             ? 'text-rose-400'
                                             : 'text-emerald-400'
                                     }`}>
@@ -827,6 +916,17 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                                     >
                                         <RotateCcw size={20} /> Devolución
                                     </button>
+                                    <button
+                                        onClick={() => setIsVoidModalOpen(true)}
+                                        disabled={
+                                            selectedItem.status === 'VOIDED' ||
+                                            selectedItem.status === 'FULLY_REFUNDED' ||
+                                            selectedItem.status === 'PARTIALLY_REFUNDED'
+                                        }
+                                        className="flex-1 py-3 bg-rose-100 hover:bg-rose-200 disabled:opacity-50 text-rose-800 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors"
+                                    >
+                                        <Ban size={20} /> Anular venta
+                                    </button>
                                 </div>
                             )}
                         </div>
@@ -859,6 +959,20 @@ const TransactionHistoryModal: React.FC<TransactionHistoryModalProps> = (props) 
                     userId={user?.id || ''}
                     onEditComplete={() => {
                         setIsEditModalOpen(false);
+                        setSelectedItem(null);
+                        fetchHistory();
+                    }}
+                />
+            )}
+
+            {selectedItem && selectedItem.type === 'SALE' && (
+                <VoidSaleModal
+                    isOpen={isVoidModalOpen}
+                    onClose={() => setIsVoidModalOpen(false)}
+                    sale={selectedItem as any}
+                    userId={user?.id || ''}
+                    onVoidComplete={() => {
+                        setIsVoidModalOpen(false);
                         setSelectedItem(null);
                         fetchHistory();
                     }}
