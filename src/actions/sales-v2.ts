@@ -570,23 +570,17 @@ export async function createSaleSecure(params: {
         await client.query(`
             INSERT INTO sales (
                 id, location_id, terminal_id, session_id, user_id,
-                customer_rut, customer_name, total, total_amount, subtotal,
-                discount_amount, points_discount, payment_method,
-                dte_folio, dte_type, transfer_id, notes, status, timestamp, 
-                queue_ticket_id
+                customer_rut, total, total_amount, payment_method,
+                dte_folio, status, timestamp
             ) VALUES (
                 $1, $2, $3, $4, $5,
-                $6, $7, $8, $9, $10,
-                $11, $12, $13,
-                $14, $15, $16, $17, 'COMPLETED', NOW(),
-                $18
+                $6, $7, $8, $9,
+                $10, 'COMPLETED', NOW()
             )
         `, [
             saleId, locationId, terminalId, sessionId, actorUserId,
-            customerRut || null, customerName || null, totalAmount, totalAmount, subtotal,
-            totalDiscount, pointsDiscount, paymentMethod,
-            dteFolio || null, dteType || 'BOLETA', transferId || null, notes || null,
-            queueTicketId || null
+            customerRut || null, totalAmount, totalAmount, paymentMethod,
+            dteFolio || null
         ]);
 
         // 6. Insertar ítems y actualizar stock
@@ -606,14 +600,12 @@ export async function createSaleSecure(params: {
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity, 
-                    unit_price, discount_amount, total_price, product_name,
-                    timestamp
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+                    unit_price, total_price
+                ) VALUES ($1, $2, $3, $4, $5, $6)
             `, [
                 saleItemId, saleId, batchIdToInsert, item.quantity,
-                item.price, item.discount || 0,
-                (item.price * item.quantity) - (item.discount || 0),
-                item.name || (isManualItem ? 'Ítem Manual' : 'Sin Nombre')
+                item.price,
+                (item.price * item.quantity) - (item.discount || 0)
             ]);
 
             // Decrementar stock SOLO si es un producto de inventario (no manual)
@@ -632,31 +624,53 @@ export async function createSaleSecure(params: {
             }
         }
 
-        // 7. Actualizar puntos de fidelidad si hay cliente
-        if (customerRut && pointsRedeemed > 0) {
-            await client.query(`
-                UPDATE customers 
-                SET loyalty_points = loyalty_points - $1,
-                    updated_at = NOW()
-                WHERE rut = $2
-            `, [pointsRedeemed, customerRut]);
-        }
+        // 7. Actualizar puntos de fidelidad solo si el esquema del entorno los soporta.
+        if (customerRut && (pointsRedeemed > 0 || totalAmount > 0)) {
+            const loyaltyColumnsRes = await client.query(`
+                SELECT
+                    COUNT(*) FILTER (WHERE column_name = 'loyalty_points') as loyalty_points,
+                    COUNT(*) FILTER (WHERE column_name = 'total_purchases') as total_purchases,
+                    COUNT(*) FILTER (WHERE column_name = 'updated_at') as updated_at
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND table_name = 'customers'
+                  AND column_name IN ('loyalty_points', 'total_purchases', 'updated_at')
+            `);
+            const loyaltyColumns = loyaltyColumnsRes?.rows?.[0] || {};
+            const canUpdateLoyalty =
+                Number(loyaltyColumns.loyalty_points || 0) > 0
+                && Number(loyaltyColumns.total_purchases || 0) > 0
+                && Number(loyaltyColumns.updated_at || 0) > 0;
 
-        // 8. Generar puntos por la compra (1 punto por cada $1000)
-        if (customerRut && totalAmount > 0) {
-            const pointsEarned = Math.floor(totalAmount / 1000);
-            if (pointsEarned > 0) {
-                await client.query(`
-                    UPDATE customers 
-                    SET loyalty_points = loyalty_points + $1,
-                        total_purchases = total_purchases + $2,
-                        updated_at = NOW()
-                    WHERE rut = $3
-                `, [pointsEarned, totalAmount, customerRut]);
+            if (canUpdateLoyalty) {
+                if (pointsRedeemed > 0) {
+                    await client.query(`
+                        UPDATE customers
+                        SET loyalty_points = loyalty_points - $1,
+                            updated_at = NOW()
+                        WHERE rut = $2
+                    `, [pointsRedeemed, customerRut]);
+                }
+
+                const pointsEarned = Math.floor(totalAmount / 1000);
+                if (pointsEarned > 0) {
+                    await client.query(`
+                        UPDATE customers
+                        SET loyalty_points = loyalty_points + $1,
+                            total_purchases = total_purchases + $2,
+                            updated_at = NOW()
+                        WHERE rut = $3
+                    `, [pointsEarned, totalAmount, customerRut]);
+                }
+            } else {
+                logger.warn(
+                    { customerRut },
+                    '[Sales v2] Customer loyalty columns missing in this environment; skipping loyalty update.'
+                );
             }
         }
 
-        // 9. Registrar auditoría
+        // 8. Registrar auditoría
         await insertSaleAudit(client, {
             userId: actorUserId,
             sessionId,
@@ -669,8 +683,14 @@ export async function createSaleSecure(params: {
                 payment_method: paymentMethod,
                 item_count: items.length,
                 customer_rut: customerRut,
+                customer_name: customerName,
                 dte_folio: dteFolio,
-                points_redeemed: pointsRedeemed
+                dte_type: dteType,
+                points_redeemed: pointsRedeemed,
+                discount_amount: totalDiscount,
+                notes,
+                queue_ticket_id: queueTicketId,
+                transfer_id: transferId,
             }
         });
 
@@ -832,13 +852,9 @@ export async function voidSaleSecure(params: {
         // 6. Marcar venta como anulada
         await client.query(`
             UPDATE sales 
-            SET status = 'VOIDED',
-                voided_at = NOW(),
-                voided_by = $1::uuid,
-                void_reason = $2,
-                void_authorized_by = $3::uuid
-            WHERE id = $4
-        `, [actorUserId, reason, authResult.authorizedBy?.id, saleId]);
+            SET status = 'VOIDED'
+            WHERE id = $1
+        `, [saleId]);
 
         // 7. Auditoría
         await insertSaleAudit(client, {
@@ -962,8 +978,10 @@ export async function refundSaleSecure(params: {
         for (const refundItem of items) {
             // Obtener ítem original
             const itemRes = await client.query(`
-                SELECT si.*
+                SELECT si.*, COALESCE(p.name, ib.name, 'Producto') as product_name
                 FROM sale_items si
+                LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+                LEFT JOIN products p ON ib.product_id::text = p.id::text
                 WHERE si.id = $1 AND si.sale_id = $2
                 FOR UPDATE NOWAIT
             `, [refundItem.saleItemId, saleId]);
@@ -1271,8 +1289,13 @@ export async function getSalesHistorySecure(params: {
             whereClause += ` AND (
                 s.id::text ILIKE $${paramIndex} OR
                 s.dte_folio::text ILIKE $${paramIndex} OR
-                s.customer_name ILIKE $${paramIndex} OR
                 s.customer_rut ILIKE $${paramIndex} OR
+                EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                ) OR
                 
                 -- Búsqueda por productos en la venta
                 EXISTS (
@@ -1308,11 +1331,11 @@ export async function getSalesHistorySecure(params: {
         const dataRes = await query(`
             SELECT 
                 s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
-                s.dte_folio, s.dte_type, s.customer_name, s.user_id as seller_id,
+                s.dte_folio, NULL::text as dte_type, c.name as customer_name, s.user_id as seller_id,
                 u.name as seller_name,
                 -- Campos de edición
-                s.edited_at, s.edit_reason,
-                eu.name as edit_authorized_name,
+                NULL::timestamp as edited_at, NULL::text as edit_reason,
+                NULL::text as edit_authorized_name,
                 -- Items simplificados para lista
                 (
                     SELECT json_agg(json_build_object(
@@ -1342,7 +1365,7 @@ export async function getSalesHistorySecure(params: {
                 ) as refund_total
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
-            LEFT JOIN users eu ON s.edit_authorized_by::text = eu.id::text
+            LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
             ${whereClause}
             ORDER BY s.timestamp DESC
             LIMIT $${limitIndex} OFFSET $${offsetIndex}
@@ -1524,16 +1547,15 @@ export async function getSaleDetailsSecure(saleId: string) {
         const saleRes = await client.query(`
             SELECT 
                 s.id, s.timestamp, s.status, s.total_amount, s.payment_method,
-                s.customer_rut, s.customer_name, s.dte_folio, s.notes,
-                s.queue_ticket_id,
-                s.edited_at, s.edit_reason, s.edit_authorized_by,
+                s.customer_rut, c.name as customer_name, s.dte_folio, NULL::text as notes,
+                NULL::text as queue_ticket_id,
+                NULL::timestamp as edited_at, NULL::text as edit_reason, NULL::text as edit_authorized_by,
                 u.name as seller_name,
-                eu.name as edit_authorized_name,
+                NULL::text as edit_authorized_name,
                 c.email as customer_email, c.phone as customer_phone
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
-            LEFT JOIN users eu ON s.edit_authorized_by::text = eu.id::text
-            LEFT JOIN customers c ON s.customer_rut = c.rut
+            LEFT JOIN customers c ON s.customer_rut::text = c.rut::text
             WHERE s.id = $1
         `, [saleId]);
 
@@ -1549,10 +1571,11 @@ export async function getSaleDetailsSecure(saleId: string) {
                 COALESCE(si.refunded_quantity, 0) as refunded_quantity,
                 si.unit_price,
                 si.total_price,
-                COALESCE(si.product_name, b.name, 'Ítem Desconocido') as name,
+                COALESCE(p.name, b.name, 'Ítem Desconocido') as name,
                 b.sku
             FROM sale_items si
             LEFT JOIN inventory_batches b ON si.batch_id = b.id
+            LEFT JOIN products p ON b.product_id::text = p.id::text
             WHERE si.sale_id = $1
         `, [saleId]);
 
@@ -1671,9 +1694,11 @@ export async function editSaleSecure(params: {
 
         // 4. Obtener ítems originales (para auditoría y reversión de stock)
         const originalItemsRes = await client.query(`
-            SELECT id, batch_id, quantity, unit_price, product_name
-            FROM sale_items
-            WHERE sale_id = $1
+            SELECT si.id, si.batch_id, si.quantity, si.unit_price, COALESCE(p.name, ib.name, 'Producto') as product_name
+            FROM sale_items si
+            LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+            LEFT JOIN products p ON ib.product_id::text = p.id::text
+            WHERE si.sale_id = $1
         `, [saleId]);
 
         const originalItems = originalItemsRes.rows;
@@ -1734,10 +1759,10 @@ export async function editSaleSecure(params: {
             await client.query(`
                 INSERT INTO sale_items (
                     id, sale_id, batch_id, quantity,
-                    unit_price, total_price, product_name, timestamp
+                    unit_price, total_price
                 ) VALUES (
                     $1::uuid, $2::uuid, $3, $4,
-                    $5, $6, $7, NOW()
+                    $5, $6
                 )
             `, [
                 uuidv4(),
@@ -1746,7 +1771,6 @@ export async function editSaleSecure(params: {
                 item.quantity,
                 item.price,
                 lineTotal,
-                item.name || null,
             ]);
         }
 
@@ -1756,18 +1780,11 @@ export async function editSaleSecure(params: {
         await client.query(`
             UPDATE sales
             SET total_amount        = $1,
-                total               = $2,
-                edited_at           = NOW(),
-                edited_by           = $3,
-                edit_authorized_by  = $4,
-                edit_reason         = $5
-            WHERE id = $6
+                total               = $2
+            WHERE id = $3
         `, [
             newTotal,
             newTotal,
-            actorUserId,
-            authResult.authorizedBy?.id || null,
-            reason,
             saleId,
         ]);
 

@@ -74,7 +74,13 @@ export async function exportSalesHistorySecure(
                 s.id::text ILIKE $${paramIndex} OR 
                 s.dte_folio::text ILIKE $${paramIndex} OR
                 u.name ILIKE $${paramIndex} OR
-                s.customer_name ILIKE $${paramIndex}
+                s.customer_rut ILIKE $${paramIndex} OR
+                EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                )
             )`;
             sqlParams.push(`%${params.searchTerm}%`);
             paramIndex++;
@@ -82,7 +88,7 @@ export async function exportSalesHistorySecure(
 
         const res = await query(`
             SELECT s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
-                   s.status, s.edited_at,
+                   s.status, NULL::timestamp as edited_at,
                    l.name as branch_name, u.name as seller_name,
                    COALESCE(
                        (SELECT SUM(r.total_amount) FROM refunds r WHERE r.sale_id = s.id AND r.status = 'COMPLETED'),
@@ -144,4 +150,3 @@ export async function exportSalesHistorySecure(
         return { success: false, error: 'Error exportando historial POS' };
     }
 }
-

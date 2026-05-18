@@ -49,6 +49,22 @@ describe('Cash Export V2', () => {
         expect(result.success).toBe(true);
     });
 
+    it('should build sales export from runtime sale_items product joins', async () => {
+        const result = await actionModule.generateCashReportSecure({
+            startDate: '2024-01-01',
+            endDate: '2024-01-31',
+            locationId: 'loc-1',
+            terminalId: 'term-1'
+        });
+
+        expect(result.success).toBe(true);
+        const sql = vi.mocked(dbModule.query).mock.calls.map((call) => String(call[0])).join('\n');
+        expect(sql).toContain('LEFT JOIN inventory_batches ib');
+        expect(sql).toContain('LEFT JOIN products p');
+        expect(sql).not.toContain('si.product_name');
+        expect(sql).not.toContain('s.customer_name');
+    });
+
     it('should fail authentication if headers/cookies missing', async () => {
         mockGetSessionSecure.mockResolvedValueOnce(null);
         const result = await actionModule.generateCashReportSecure({

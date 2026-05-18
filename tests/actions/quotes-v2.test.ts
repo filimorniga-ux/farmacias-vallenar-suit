@@ -32,6 +32,7 @@ const VALID_UUID_USER = '550e8400-e29b-41d4-a716-446655440051';
 const VALID_UUID_PRODUCT = '550e8400-e29b-41d4-a716-446655440052';
 const VALID_UUID_LOCATION = '550e8400-e29b-41d4-a716-446655440053';
 const VALID_UUID_TERMINAL = '550e8400-e29b-41d4-a716-446655440054';
+const VALID_UUID_BATCH = '550e8400-e29b-41d4-a716-446655440055';
 
 // Mock DB with proper pool.connect pattern
 vi.mock('@/lib/db', () => ({
@@ -255,6 +256,32 @@ describe('Quotes V2 - Quote Creation', () => {
         // TODO: Marcar como integration test cuando tengamos DB de tests
         expect(result.success).toBe(true);
         expect(result.quoteCode).toContain('COT-');
+    });
+
+    it('should resolve quote items when POS sends an inventory batch id', async () => {
+        setupMockQueries([
+            { rows: [], rowCount: 0 },              // active terminal lookup
+            { rows: [{ id: VALID_UUID_PRODUCT, sku: mockItem.sku, name: mockItem.name, canonical_price: 10000 }], rowCount: 1 }, // canonical product by batch id
+            { rows: [{ seq: '1' }], rowCount: 1 },  // nextval sequence
+            { rows: [], rowCount: 1 },              // Insert quote
+            { rows: [], rowCount: 1 },              // Insert items
+            { rows: [], rowCount: 1 },              // Audit
+            { rows: [{ id: VALID_UUID_QUOTE }], rowCount: 1 }, // In-TX verification
+            { rows: [{ id: VALID_UUID_QUOTE }], rowCount: 1 }, // After commit verification
+        ]);
+
+        const result = await quotesV2.createQuoteSecure({
+            items: [{ ...mockItem, productId: VALID_UUID_BATCH }],
+            validDays: 7,
+            locationId: VALID_UUID_LOCATION
+        });
+
+        expect(result.success).toBe(true);
+        const canonicalLookup = mockQuery.mock.calls.find((call) =>
+            String(call[0]).includes('FROM products p')
+        );
+        expect(String(canonicalLookup?.[0])).toContain('OR ib.id::text = $1::text');
+        expect(canonicalLookup?.[1]).toEqual([VALID_UUID_BATCH, VALID_UUID_LOCATION]);
     });
 });
 

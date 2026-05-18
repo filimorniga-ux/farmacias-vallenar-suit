@@ -194,8 +194,14 @@ export async function generateCashReportSecure(
                 s.id, s.timestamp, s.total_amount, s.payment_method, s.dte_folio,
                 u.name as seller_name, t.name as terminal_name, l.name as branch_name,
                 COALESCE(s.customer_rut, c.rut) as client_rut, 
-                COALESCE(s.customer_name, c.name) as client_name,
-                (SELECT STRING_AGG(si.product_name || ' (x' || si.quantity || ')', E'\n') FROM sale_items si WHERE si.sale_id = s.id) as items_summary
+                c.name as client_name,
+                (
+                    SELECT STRING_AGG(COALESCE(p.name, ib.name, 'Producto') || ' (x' || si.quantity || ')', E'\n')
+                    FROM sale_items si
+                    LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+                    LEFT JOIN products p ON ib.product_id::text = p.id::text
+                    WHERE si.sale_id = s.id
+                ) as items_summary
             FROM sales s
             LEFT JOIN users u ON s.user_id::text = u.id::text
             LEFT JOIN terminals t ON s.terminal_id::text = t.id::text

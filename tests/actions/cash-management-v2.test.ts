@@ -559,6 +559,9 @@ describe('Cash Management V2 - Refund Integration', () => {
 
         const historySql = mockDbQuery.mock.calls[4]?.[0];
         expect(String(historySql)).toContain('r.refund_method =');
+        expect(String(historySql)).toContain('LEFT JOIN customers c');
+        expect(String(historySql)).toContain('c.name as customer_name');
+        expect(String(historySql)).not.toContain('s.customer_name');
     });
 
     it('getShiftMetricsSecure rechaza actor no autenticado', async () => {

@@ -237,7 +237,7 @@ async function loadCanonicalQuoteItems(
             LEFT JOIN inventory_batches ib
               ON ib.product_id = p.id
              AND ($2::text IS NULL OR ib.location_id::text = $2::text)
-            WHERE p.id = $1::uuid
+            WHERE p.id::text = $1::text OR ib.id::text = $1::text
             GROUP BY p.id, p.sku, p.name
             LIMIT 1
         `, [item.productId, locationId || null]);

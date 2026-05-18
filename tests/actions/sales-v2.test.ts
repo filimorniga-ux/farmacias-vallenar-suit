@@ -117,6 +117,7 @@ import {
     voidSaleSecure,
     refundSaleSecure,
     editSaleSecure,
+    getSalesHistorySecure,
     getSalesHistory,
     getSessionSalesSummary
 } from '@/actions/sales-v2';
@@ -195,7 +196,10 @@ describe('Sales V2 - createSaleSecure', () => {
     it('should reject sale creation when validated session is missing', async () => {
         mockGetValidatedSession.mockResolvedValueOnce(null);
 
-        const result = await createSaleSecure(validSaleParams);
+        const result = await createSaleSecure({
+            ...validSaleParams,
+            customerRut: undefined,
+        });
 
         expect(result.success).toBe(false);
         expect(result.error).toContain('Sesión no válida');
@@ -326,6 +330,7 @@ describe('Sales V2 - createSaleSecure', () => {
         const result = await createSaleSecure(validSaleParams);
 
         // Expect SUCCESS (Negative stock allowed)
+        expect(result.error).toBeUndefined();
         expect(result.success).toBe(true);
         expect(result.stockErrors).toBeUndefined();
     });
@@ -365,6 +370,7 @@ describe('Sales V2 - createSaleSecure', () => {
         const result = await createSaleSecure({
             ...validSaleParams,
             userId: 'payload-user-legacy',
+            customerRut: undefined,
         });
 
         expect(result.success).toBe(true);
@@ -378,6 +384,51 @@ describe('Sales V2 - createSaleSecure', () => {
             ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
         );
         expect(auditCall?.[1]?.[0]).toBe('session-user-999');
+    });
+
+    it('should persist sales using the runtime sales and sale_items schema', async () => {
+        mockQuery
+            .mockResolvedValueOnce({}) // BEGIN
+            .mockResolvedValueOnce({ rows: [ACTIVE_SESSION_ROW] }) // Session check
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: validSaleParams.items[0].batch_id,
+                    quantity_real: 100,
+                    sku: 'PARA-500',
+                }]
+            }) // Stock check
+            .mockResolvedValueOnce({}) // Insert sale
+            .mockResolvedValueOnce({}) // Insert item
+            .mockResolvedValueOnce({}) // Update stock
+            .mockResolvedValueOnce({}) // Audit
+            .mockResolvedValueOnce({}); // COMMIT
+
+        const result = await createSaleSecure({
+            ...validSaleParams,
+            customerRut: undefined,
+        });
+
+        expect(result.success).toBe(true);
+
+        const saleInsertCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO sales')
+        );
+        const saleInsertSql = String(saleInsertCall?.[0] || '');
+        expect(saleInsertSql).toContain('customer_rut, total, total_amount, payment_method');
+        expect(saleInsertSql).not.toContain('customer_name');
+        expect(saleInsertSql).not.toContain('subtotal');
+        expect(saleInsertSql).not.toContain('discount_amount');
+        expect(saleInsertSql).not.toContain('dte_type');
+        expect(saleInsertSql).not.toContain('queue_ticket_id');
+
+        const saleItemInsertCall = mockQuery.mock.calls.find(
+            ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO sale_items')
+        );
+        const saleItemInsertSql = String(saleItemInsertCall?.[0] || '');
+        expect(saleItemInsertSql).toContain('unit_price, total_price');
+        expect(saleItemInsertSql).not.toContain('discount_amount');
+        expect(saleItemInsertSql).not.toContain('product_name');
+        expect(saleItemInsertSql).not.toContain('timestamp');
     });
 
     it('should handle lock errors gracefully', async () => {
@@ -589,7 +640,7 @@ describe('Sales V2 - voidSaleSecure', () => {
         const updateSaleCall = mockQuery.mock.calls.find(
             ([sql]) => typeof sql === 'string' && sql.includes("SET status = 'VOIDED'")
         );
-        expect(updateSaleCall?.[1]?.[0]).toBe('session-user-void');
+        expect(updateSaleCall?.[1]?.[0]).toBe(validVoidParams.saleId);
 
         const auditCall = mockQuery.mock.calls.find(
             ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
@@ -919,7 +970,7 @@ describe('Sales V2 - editSaleSecure', () => {
         const updateSaleCall = mockQuery.mock.calls.find(
             ([sql]) => typeof sql === 'string' && sql.includes('SET total_amount')
         );
-        expect(updateSaleCall?.[1]?.[2]).toBe('session-user-edit');
+        expect(updateSaleCall?.[1]?.[2]).toBe(validEditParams.saleId);
 
         const auditCall = mockQuery.mock.calls.find(
             ([sql]) => typeof sql === 'string' && sql.includes('INSERT INTO audit_log')
@@ -992,6 +1043,36 @@ describe('Sales V2 - getSalesHistory', () => {
 
         expect(result.success).toBe(false);
         expect(result.error).toBeDefined();
+    });
+
+    it('should query sales history without legacy sales columns', async () => {
+        const { query } = await import('@/lib/db');
+        (query as any)
+            .mockResolvedValueOnce({ rows: [{ count: '1' }] })
+            .mockResolvedValueOnce({ rows: [] });
+
+        const result = await getSalesHistorySecure({
+            filters: {
+                startDate: '2026-05-18',
+                endDate: '2026-05-18',
+                searchTerm: 'cliente',
+                limit: 10,
+                offset: 0,
+            },
+            security: {
+                locationId: VALID_LOCATION_ID,
+            },
+        });
+
+        expect(result.success).toBe(true);
+        const allSql = (query as any).mock.calls.map((call: [unknown]) => String(call[0])).join('\n');
+        expect(allSql).toContain('LEFT JOIN customers c');
+        expect(allSql).toContain('c.name as customer_name');
+        expect(allSql).not.toContain('s.customer_name');
+        expect(allSql).not.toContain('s.dte_type');
+        expect(allSql).not.toContain('s.edited_at');
+        expect(allSql).not.toContain('s.edit_reason');
+        expect(allSql).not.toContain('s.edit_authorized_by');
     });
 });
 

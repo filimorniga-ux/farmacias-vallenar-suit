@@ -1347,7 +1347,13 @@ export async function getCashMovementHistory(
                 s.id::text ILIKE $${paramIndex} OR
                 s.dte_folio::text ILIKE $${paramIndex} OR
                 u.name ILIKE $${paramIndex} OR
-                s.customer_name ILIKE $${paramIndex}
+                s.customer_rut ILIKE $${paramIndex} OR
+                EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                )
             )`;
 
             refundFilters += ` AND (
@@ -1448,9 +1454,10 @@ export async function getCashMovementHistory(
                     END as status,
                     s.dte_status,
                     s.dte_folio::text,
-                    s.customer_name
+                    c.name as customer_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 WHERE ${saleFilters}
             )
             UNION ALL
@@ -1469,9 +1476,10 @@ export async function getCashMovementHistory(
                     r.status,
                     NULL::text as dte_status,
                     r.ticket_number::text as dte_folio,
-                    s.customer_name
+                    c.name as customer_name
                 FROM refunds r
                 JOIN sales s ON s.id = r.sale_id
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 LEFT JOIN users ru ON r.user_id::text = ru.id::text
                 LEFT JOIN users au ON r.authorized_by::text = au.id::text
                 WHERE ${refundFilters}
@@ -1533,9 +1541,10 @@ export async function getCashMovementHistory(
                     END as status,
                     s.dte_status,
                     s.dte_folio::text,
-                    s.customer_name
+                    c.name as customer_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 WHERE ${saleFilters}
             )
             ORDER BY timestamp DESC
@@ -1878,7 +1887,18 @@ export async function exportCashMovementHistory(
         if (term) {
             const searchPattern = `%${term}%`;
             moveFilters += ` AND (cm.reason ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex})`;
-            saleFilters += ` AND (s.id::text ILIKE $${paramIndex} OR s.dte_folio::text ILIKE $${paramIndex} OR u.name ILIKE $${paramIndex} OR s.customer_name ILIKE $${paramIndex})`;
+            saleFilters += ` AND (
+                s.id::text ILIKE $${paramIndex}
+                OR s.dte_folio::text ILIKE $${paramIndex}
+                OR u.name ILIKE $${paramIndex}
+                OR s.customer_rut ILIKE $${paramIndex}
+                OR EXISTS (
+                    SELECT 1
+                    FROM customers c_search
+                    WHERE c_search.rut::text = s.customer_rut::text
+                      AND c_search.name ILIKE $${paramIndex}
+                )
+            )`;
             params.push(searchPattern);
             paramIndex++;
         }
@@ -1908,18 +1928,21 @@ export async function exportCashMovementHistory(
                     -- Combine Venta # with item list including unit price
                     CONCAT(
                         'Venta #', COALESCE(s.dte_folio::text, 'S/N'), ': ',
-                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', si.product_name, ' ($', ROUND(si.unit_price)::text, ')'), '\n'), 'Sin items')
+                        COALESCE(STRING_AGG(CONCAT(si.quantity, 'x ', COALESCE(p.name, ib.name, 'Producto'), ' ($', ROUND(si.unit_price)::text, ')'), '\n'), 'Sin items')
                     ) as reason,
                     s.timestamp,
                     u.name as user_name,
                     s.payment_method,
                     s.dte_folio::text,
-                    s.customer_name
+                    c.name as customer_name
                 FROM sales s
                 LEFT JOIN users u ON s.user_id::text = u.id::text
+                LEFT JOIN customers c ON c.rut::text = s.customer_rut::text
                 LEFT JOIN sale_items si ON s.id = si.sale_id
+                LEFT JOIN inventory_batches ib ON si.batch_id::text = ib.id::text
+                LEFT JOIN products p ON ib.product_id::text = p.id::text
                 WHERE ${saleFilters}
-                GROUP BY s.id, u.name, s.total_amount, s.total, s.timestamp, s.payment_method, s.dte_folio, s.customer_name
+                GROUP BY s.id, u.name, s.total_amount, s.total, s.timestamp, s.payment_method, s.dte_folio, c.name
             )
             ORDER BY timestamp DESC
             LIMIT 5000

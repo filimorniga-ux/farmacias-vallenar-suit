@@ -573,14 +573,22 @@ const POSMainScreen: React.FC = () => {
                 const quoteData = {
                     customerId: (currentCustomer?.id && currentCustomer.id.length > 10) ? currentCustomer.id : null, // Ensure valid UUID or null
                     customerName: currentCustomer?.fullName || undefined,
-                    items: cartWithDiscounts.map(item => ({
-                        productId: item.id,
-                        sku: item.sku,
-                        name: item.name,
-                        quantity: item.quantity,
-                        unitPrice: item.price,
-                        discount: item.discount?.discountAmount ? (item.discount.discountAmount / item.price) * 100 : 0 // Fix type mismatch manually
-                    })),
+                    items: cartWithDiscounts.map(item => {
+                        const sourceBatch = posInventory.find((batch) =>
+                            batch.id === item.batch_id
+                            || batch.id === item.id
+                            || batch.id === item.original_batch_id
+                        );
+
+                        return {
+                            productId: sourceBatch?.product_id || item.batch_id || item.id,
+                            sku: item.sku,
+                            name: item.name,
+                            quantity: item.quantity,
+                            unitPrice: item.price,
+                            discount: item.discount?.discountAmount ? (item.discount.discountAmount / item.price) * 100 : 0 // Fix type mismatch manually
+                        };
+                    }),
                     validDays: 7, // Default valid days
                 };
 
